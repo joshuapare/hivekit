@@ -1,0 +1,25 @@
+# Option 1: Ignore all generated files (regenerate on-demand)
+# Uncomment these lines if you want to regenerate bindings each time:
+# hivex.go
+# const.go
+# types.go
+# cgo_helpers.go
+# doc.go
+
+# Option 2: Commit generated files (recommended)
+# Leave the above commented out to commit generated code
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

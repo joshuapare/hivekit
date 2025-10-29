@@ -1,0 +1,2 @@
+# Python dependencies for benchmark graphing
+matplotlib>=3.5.0

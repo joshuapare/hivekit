@@ -1,0 +1,11 @@
+mode: set
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:29.74,46.22 5 1
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:46.22,48.3 1 1
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:51.2,51.56 1 1
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:63.78,70.2 2 1
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:78.47,80.2 1 1
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:83.44,84.22 1 1
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:84.22,86.3 1 1
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:87.2,87.17 1 1
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:87.17,89.3 1 0
+github.com/joshuapare/gohivex/cmd/gohivex/tui/valuetable/display/value_row_display.go:90.2,90.29 1 1

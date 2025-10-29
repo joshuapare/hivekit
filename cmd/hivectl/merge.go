@@ -1,0 +1,134 @@
+package main
+
+import (
+	"fmt"
+
+	"github.com/joshuapare/hivekit/pkg/hive"
+	"github.com/spf13/cobra"
+)
+
+var (
+	mergeBackup    bool
+	mergeDryRun    bool
+	mergeDefrag    bool
+	mergeProgress  bool
+	mergeLimits    string
+	mergeContinue  bool
+)
+
+func init() {
+	cmd := newMergeCmd()
+	cmd.Flags().BoolVarP(&mergeBackup, "backup", "b", true, "Create backup before merging")
+	cmd.Flags().BoolVarP(&mergeDryRun, "dry-run", "n", false, "Validate without applying changes")
+	cmd.Flags().BoolVar(&mergeDefrag, "defrag", false, "Defragment after merge")
+	cmd.Flags().BoolVar(&mergeProgress, "progress", false, "Show progress during merge")
+	cmd.Flags().StringVar(&mergeLimits, "limits", "default", "Limits preset (default, strict, relaxed)")
+	cmd.Flags().BoolVar(&mergeContinue, "continue", false, "Continue on errors")
+	rootCmd.AddCommand(cmd)
+}
+
+func newMergeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "merge <hive> <regfile>...",
+		Short: "Merge one or more .reg files into a hive",
+		Long: `The merge command applies registry changes from .reg files to a Windows
+registry hive. Multiple .reg files can be merged in a single operation.
+
+By default, a backup is created before merging.
+
+Example:
+  hivectl merge system.hive changes.reg
+  hivectl merge system.hive base.reg patch1.reg patch2.reg
+  hivectl merge system.hive changes.reg --dry-run
+  hivectl merge system.hive changes.reg --limits strict`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMerge(args)
+		},
+	}
+	return cmd
+}
+
+func runMerge(args []string) error {
+	hivePath := args[0]
+	regFiles := args[1:]
+
+	printVerbose("Merging into hive: %s\n", hivePath)
+	printVerbose("Reg files: %v\n", regFiles)
+
+	// Get the limits based on the preset
+	var limits *hive.Limits
+	switch mergeLimits {
+	case "default":
+		l := hive.DefaultLimits()
+		limits = &l
+	case "strict":
+		l := hive.StrictLimits()
+		limits = &l
+	case "relaxed":
+		l := hive.RelaxedLimits()
+		limits = &l
+	default:
+		return fmt.Errorf("unknown limits preset: %s", mergeLimits)
+	}
+
+	// Prepare options
+	opts := &hive.MergeOptions{
+		Limits:       limits,
+		DryRun:       mergeDryRun,
+		CreateBackup: mergeBackup,
+		Defragment:   mergeDefrag,
+	}
+
+	if mergeProgress {
+		opts.OnProgress = func(current, total int) {
+			printVerbose("Progress: %d/%d operations\n", current, total)
+		}
+	}
+
+	if mergeContinue {
+		opts.OnError = func(op hive.EditOp, err error) bool {
+			printError("Error applying operation: %v (continuing)\n", err)
+			return true // Continue on error
+		}
+	}
+
+	printInfo("\nMerging into %s:\n", hivePath)
+
+	// Merge each file
+	for _, regFile := range regFiles {
+		printInfo("  Processing %s...\n", regFile)
+
+		if err := hive.MergeRegFile(hivePath, regFile, opts); err != nil {
+			return fmt.Errorf("failed to merge %s: %w", regFile, err)
+		}
+
+		printInfo("  ✓ %s merged\n", regFile)
+	}
+
+	// Output as JSON if requested
+	if jsonOut {
+		result := map[string]interface{}{
+			"hive":       hivePath,
+			"reg_files":  regFiles,
+			"dry_run":    mergeDryRun,
+			"backup":     mergeBackup,
+			"defragment": mergeDefrag,
+			"success":    true,
+		}
+		return printJSON(result)
+	}
+
+	// Text output
+	if mergeDryRun {
+		printInfo("\n✓ Dry run complete (no changes applied)\n")
+	} else {
+		if mergeBackup {
+			printInfo("\nBackup: %s.bak\n", hivePath)
+		}
+		printInfo("✓ Merge complete\n")
+	}
+
+	return nil
+}
+

@@ -1,0 +1,15 @@
+.gocache
+.gomodcache
+
+# Python virtual environment
+venv/
+
+testdata/suite/
+tests/integration/golden/
+tests/integration/output/
+
+benchmarks/reports/*
+benchmarks/graphs/*
+
+bin/
+*.log
