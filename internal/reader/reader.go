@@ -967,12 +967,43 @@ func (r *reader) cell(offset uint32) (format.Cell, error) {
 // findHBINForOffset finds the HBIN that contains the given absolute offset.
 // Returns the HBIN's starting offset and ending offset, or error if not found.
 func (r *reader) findHBINForOffset(absOffset int) (hbinStart, hbinEnd int, err error) {
-	// Use the index for fast lookup
-	for _, entry := range r.hbinIndex {
-		if absOffset >= entry.offset && absOffset < entry.offset+entry.size {
-			return entry.offset, entry.offset + entry.size, nil
+	// Binary search for the HBIN containing this offset
+	// Find the rightmost HBIN whose start offset is <= absOffset
+	n := len(r.hbinIndex)
+	if n == 0 {
+		return 0, 0, &types.Error{
+			Kind: types.ErrKindFormat,
+			Msg:  "no HBINs in index",
+			Err:  types.ErrCorrupt,
 		}
 	}
+
+	// Binary search: find largest i where hbinIndex[i].offset <= absOffset
+	left, right := 0, n
+	for left < right {
+		mid := (left + right) / 2
+		if r.hbinIndex[mid].offset <= absOffset {
+			left = mid + 1
+		} else {
+			right = mid
+		}
+	}
+
+	// left-1 is the HBIN that might contain absOffset
+	if left == 0 {
+		// absOffset is before the first HBIN
+		return 0, 0, &types.Error{
+			Kind: types.ErrKindFormat,
+			Msg:  fmt.Sprintf("offset %d before first HBIN", absOffset),
+			Err:  types.ErrCorrupt,
+		}
+	}
+
+	entry := r.hbinIndex[left-1]
+	if absOffset >= entry.offset && absOffset < entry.offset+entry.size {
+		return entry.offset, entry.offset + entry.size, nil
+	}
+
 	return 0, 0, &types.Error{
 		Kind: types.ErrKindFormat,
 		Msg:  fmt.Sprintf("offset %d not in any HBIN", absOffset),

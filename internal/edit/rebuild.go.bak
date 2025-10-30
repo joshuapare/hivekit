@@ -60,7 +60,7 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 	hbins := packCellBuffer(workBuf, alloc, opts.Repack)
 
 	// Build final hive with header
-	return buildFinalHive(hbins, root.offset, alloc)
+	return buildFinalHive(hbins, root.offset)
 }
 
 // calculateBufferSize recursively calculates the total buffer size needed
@@ -514,10 +514,10 @@ func serializeNode(node *treeNode, alloc *allocator, buf []byte, opts types.Writ
 		for i, val := range node.values {
 			vkOff := serializeVKToBuf(val, alloc, buf)
 			// Convert cellBuf offset to HBIN-relative offset
-			valueOffsets[i] = alloc.cellBufOffsetToHBINOffset(vkOff)
+			valueOffsets[i] = cellBufOffsetToHBINOffset(vkOff)
 		}
 		valListOff := serializeValueListToBuf(valueOffsets, alloc, buf)
-		valueListOffset = alloc.cellBufOffsetToHBINOffset(valListOff)
+		valueListOffset = cellBufOffsetToHBINOffset(valListOff)
 	}
 
 	// Serialize subkey list now that we know child offsets
@@ -536,10 +536,10 @@ func serializeNode(node *treeNode, alloc *allocator, buf []byte, opts types.Writ
 
 		for i, child := range node.children {
 			// Convert cellBuf offset to HBIN-relative offset
-			childOffsets[i] = alloc.cellBufOffsetToHBINOffset(child.offset)
+			childOffsets[i] = cellBufOffsetToHBINOffset(child.offset)
 		}
 		subkeyListOff := serializeSubkeyListToBuf(childOffsets, alloc, buf)
-		subkeyListOffset = alloc.cellBufOffsetToHBINOffset(subkeyListOff)
+		subkeyListOffset = cellBufOffsetToHBINOffset(subkeyListOff)
 	}
 
 	// Update NK with correct list offsets
@@ -631,7 +631,7 @@ func serializeNKToBuf(
 	var parentOffset uint32 = format.InvalidOffset
 	if node.parent != nil {
 		// Convert parent's cellBuf offset to HBIN-relative offset
-		parentOffset = uint32(alloc.cellBufOffsetToHBINOffset(node.parent.offset))
+		parentOffset = uint32(cellBufOffsetToHBINOffset(node.parent.offset))
 	}
 	binary.LittleEndian.PutUint32(buf[pos:], parentOffset)
 	pos += 4
@@ -697,7 +697,7 @@ func serializeNKToBuf(
 }
 
 // buildFinalHive assembles the final hive with REGF header + HBINs.
-func buildFinalHive(hbins [][]byte, rootOffset int32, alloc *allocator) ([]byte, error) {
+func buildFinalHive(hbins [][]byte, rootOffset int32) ([]byte, error) {
 	header := make([]byte, format.HeaderSize)
 	// REGF Base Block Header (per Windows Registry File Format Specification)
 	copy(header[:4], format.REGFSignature)           // 0x00: Signature "regf"
@@ -709,7 +709,7 @@ func buildFinalHive(hbins [][]byte, rootOffset int32, alloc *allocator) ([]byte,
 	binary.LittleEndian.PutUint32(header[28:], 0)    // 0x1C: File type (0 = primary file)
 	binary.LittleEndian.PutUint32(header[32:], 1)    // 0x20: File format (1 = direct memory load)
 	// Root offset - convert from cellBuf offset to HBIN-relative offset
-	binary.LittleEndian.PutUint32(header[36:], uint32(alloc.cellBufOffsetToHBINOffset(rootOffset))) // 0x24: Root cell offset
+	binary.LittleEndian.PutUint32(header[36:], uint32(cellBufOffsetToHBINOffset(rootOffset))) // 0x24: Root cell offset
 
 	// Calculate total HBIN data size
 	totalHBINSize := 0
@@ -786,7 +786,7 @@ func serializeBlocklist(blockOffsets []uint32, alloc *allocator, buf []byte) int
 		pos += 4
 	}
 
-	return alloc.cellBufOffsetToHBINOffset(offset)
+	return cellBufOffsetToHBINOffset(offset)
 }
 
 // serializeDBRecord writes a DB (Big Data) record structure for large values.
@@ -818,7 +818,7 @@ func serializeDBRecord(data []byte, alloc *allocator, buf []byte) int32 {
 		copy(buf[blockOff+4:], data[dataOffset:dataOffset+blockSize])
 
 		// Store HBIN-relative offset
-		blockOffsets[i] = uint32(alloc.cellBufOffsetToHBINOffset(blockOff))
+		blockOffsets[i] = uint32(cellBufOffsetToHBINOffset(blockOff))
 
 		dataOffset += blockSize
 	}
@@ -844,7 +844,7 @@ func serializeDBRecord(data []byte, alloc *allocator, buf []byte) int32 {
 	copy(buf[dbOff+4:], dbPayload)
 
 	// Return HBIN-relative offset
-	return alloc.cellBufOffsetToHBINOffset(dbOff)
+	return cellBufOffsetToHBINOffset(dbOff)
 }
 
 // serializeVKToBuf writes a VK cell (and optional data cell) directly to the buffer.
@@ -897,7 +897,7 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 			binary.LittleEndian.PutUint32(buf[doff:], uint32(-alignedDataSize))
 			copy(buf[doff+4:], val.data)
 			// Convert cellBuf offset to HBIN-relative offset
-			dataOff = alloc.cellBufOffsetToHBINOffset(doff)
+			dataOff = cellBufOffsetToHBINOffset(doff)
 		}
 	}
 
@@ -1078,11 +1078,30 @@ func serializeRIWithLFs(offsets []int32, alloc *allocator, buf []byte, maxPerLF 
 	riPos += 2
 
 	for _, lfOff := range lfOffsets {
-		binary.LittleEndian.PutUint32(buf[riPos:], uint32(alloc.cellBufOffsetToHBINOffset(lfOff)))
+		binary.LittleEndian.PutUint32(buf[riPos:], uint32(cellBufOffsetToHBINOffset(lfOff)))
 		riPos += 4
 	}
 
 	return riOffset
+}
+
+// cellBufOffsetToHBINOffset converts a cellBuf offset to an HBIN-relative offset.
+// This accounts for HBIN headers when cells span multiple HBINs.
+func cellBufOffsetToHBINOffset(cellBufOff int32) int32 {
+	const hbinDataSize = format.HBINDataSize // 4KB - header
+	const hbinHeaderSize = format.HBINHeaderSize
+
+	// Calculate which HBIN this cell is in
+	hbinIndex := cellBufOff / hbinDataSize
+
+	// Calculate position within that HBIN
+	posInHBIN := cellBufOff % hbinDataSize
+
+	// HBIN-relative offset accounts for all HBIN headers:
+	// - Each HBIN is format.HBINAlignment bytes total
+	// - First HBIN starts at HBIN-relative 0x0, but data starts at HBINHeaderSize
+	// - HBIN N starts at HBIN-relative N*HBINAlignment, data at N*HBINAlignment + HBINHeaderSize
+	return hbinIndex*format.HBINAlignment + hbinHeaderSize + posInHBIN
 }
 
 // encodeUTF16LE encodes a UTF-8 string to UTF-16LE bytes.

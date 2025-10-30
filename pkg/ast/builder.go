@@ -28,6 +28,42 @@ type TransactionChanges interface {
 	GetDeletedValues() map[ValueKey]bool
 }
 
+// cachedTransactionChanges wraps TransactionChanges with caching to avoid
+// repeatedly creating new maps for GetSetValues(), GetCreatedKeys(), etc.
+type cachedTransactionChanges struct {
+	inner         TransactionChanges
+	setValues     map[ValueKey]ValueData
+	createdKeys   map[string]bool
+	deletedKeys   map[string]bool
+	deletedValues map[ValueKey]bool
+}
+
+func newCachedTransactionChanges(tc TransactionChanges) *cachedTransactionChanges {
+	return &cachedTransactionChanges{
+		inner:         tc,
+		setValues:     tc.GetSetValues(),     // Cache once on creation
+		createdKeys:   tc.GetCreatedKeys(),   // Cache once on creation
+		deletedKeys:   tc.GetDeletedKeys(),   // Cache once on creation
+		deletedValues: tc.GetDeletedValues(), // Cache once on creation
+	}
+}
+
+func (c *cachedTransactionChanges) GetSetValues() map[ValueKey]ValueData {
+	return c.setValues // Return cached map
+}
+
+func (c *cachedTransactionChanges) GetCreatedKeys() map[string]bool {
+	return c.createdKeys // Return cached map
+}
+
+func (c *cachedTransactionChanges) GetDeletedKeys() map[string]bool {
+	return c.deletedKeys // Return cached map
+}
+
+func (c *cachedTransactionChanges) GetDeletedValues() map[ValueKey]bool {
+	return c.deletedValues // Return cached map
+}
+
 // ValueKey identifies a value by path and name.
 type ValueKey struct {
 	Path string
@@ -44,6 +80,9 @@ type ValueData struct {
 // Only changed subtrees are materialized in memory; unchanged subtrees use lazy loading
 // and point to the base hive buffer for zero-copy efficiency.
 func BuildIncremental(r types.Reader, changes TransactionChanges, baseHive []byte) (*Tree, error) {
+	// Wrap changes with caching to avoid repeated map copies
+	cachedChanges := newCachedTransactionChanges(changes)
+
 	tree := NewTreeWithBase(baseHive)
 
 	// Get root from base hive
@@ -53,20 +92,20 @@ func BuildIncremental(r types.Reader, changes TransactionChanges, baseHive []byt
 	}
 
 	// Build root node
-	tree.Root, err = buildNodeFromBase(r, rootID, "", nil, changes)
+	tree.Root, err = buildNodeFromBase(r, rootID, "", nil, cachedChanges)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build root: %w", err)
 	}
 
 	// Apply created keys
-	for path := range changes.GetCreatedKeys() {
+	for path := range cachedChanges.GetCreatedKeys() {
 		if err := ensurePathExists(tree, path); err != nil {
 			return nil, fmt.Errorf("failed to create path %s: %w", path, err)
 		}
 	}
 
 	// Apply set values
-	for vk, vd := range changes.GetSetValues() {
+	for vk, vd := range cachedChanges.GetSetValues() {
 		node := tree.FindNode(vk.Path)
 		if node == nil {
 			// Ensure path exists first

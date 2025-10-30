@@ -123,6 +123,10 @@ benchmark-quick: ## Run quick benchmarks
 benchmark-list: ## List benchmark categories
 	@./scripts/run_benchmarks.sh --list
 
+benchmark-speedup: ## Run hivexregedit comparison and show speedup table
+	@chmod +x scripts/benchmark_comparison.sh
+	@./scripts/benchmark_comparison.sh
+
 ##@ Documentation
 
 update-readme: ## Update README with tool help outputs and benchmarks
