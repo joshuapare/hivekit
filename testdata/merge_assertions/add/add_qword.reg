@@ -1,0 +1,5 @@
+Windows Registry Editor Version 5.00
+
+[\TestQWORD]
+"QWordValue"=hex(b):ff,ff,ff,ff,ff,ff,ff,ff
+"SmallQWord"=hex(b):2a,00,00,00,00,00,00,00

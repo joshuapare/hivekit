@@ -1,0 +1,10 @@
+Windows Registry Editor Version 5.00
+
+[\Level1]
+
+[\Level1\Level2]
+
+[\Level1\Level2\Level3]
+
+[\Level1\Level2\Level3\Level4]
+"DeepValue"="Found me at level 4"

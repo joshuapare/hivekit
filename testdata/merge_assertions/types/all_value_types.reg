@@ -1,0 +1,35 @@
+Windows Registry Editor Version 5.00
+
+[\AllTypes]
+; REG_SZ
+"StringValue"="Test String"
+
+; REG_EXPAND_SZ (hex(2))
+"ExpandString"=hex(2):25,00,50,00,61,00,74,00,68,00,25,00,00,00
+
+; REG_BINARY (hex:)
+"BinaryValue"=hex:de,ad,be,ef
+
+; REG_DWORD
+"DWordValue"=dword:00000042
+
+; REG_DWORD_BE (hex(5))
+"DWordBE"=hex(5):00,00,00,2a
+
+; REG_LINK (hex(6))
+"LinkValue"=hex(6):5c,00,52,00,65,00,67,00,00,00
+
+; REG_MULTI_SZ (hex(7))
+"MultiString"=hex(7):4f,00,6e,00,65,00,00,00,54,00,77,00,6f,00,00,00,00,00
+
+; REG_RESOURCE_LIST (hex(8))
+"ResourceList"=hex(8):00,00,00,00
+
+; REG_FULL_RESOURCE_DESCRIPTOR (hex(9))
+"FullResourceDesc"=hex(9):00,00,00,00
+
+; REG_RESOURCE_REQUIREMENTS_LIST (hex(a))
+"ResourceReq"=hex(a):00,00,00,00
+
+; REG_QWORD (hex(b))
+"QWordValue"=hex(b):ff,ee,dd,cc,bb,aa,99,88

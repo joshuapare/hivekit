@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+; Create a key first
+[HKEY_LOCAL_MACHINE\SOFTWARE\ToKeep]
+"Value"="Keeping this"
+
+; Delete this key
+[-HKEY_LOCAL_MACHINE\SOFTWARE\ToDelete]

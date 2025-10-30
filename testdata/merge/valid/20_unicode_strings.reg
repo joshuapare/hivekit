@@ -1,0 +1,9 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Unicode]
+"English"="Hello World"
+"Japanese"="こんにちは世界"
+"Chinese"="你好世界"
+"Arabic"="مرحبا بالعالم"
+"Emoji"="🔧🚀✨"
+"Mixed"="Hello こんにちは 你好 مرحبا 🌍"

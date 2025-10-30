@@ -1,0 +1,19 @@
+Windows Registry Editor Version 5.00
+
+[\ComplexTest]
+"Root"="At root"
+
+[\ComplexTest\Branch1]
+"Value1"="Branch 1"
+
+[\ComplexTest\Branch1\Leaf1]
+"Value2"=dword:00000001
+
+[\ComplexTest\Branch2]
+"Value3"="Branch 2"
+
+[\ComplexTest\Branch2\Leaf2]
+"Value4"=dword:00000002
+
+[\ComplexTest\Branch2\Leaf2\DeepLeaf]
+"Value5"="Very deep"

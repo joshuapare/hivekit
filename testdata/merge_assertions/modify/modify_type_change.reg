@@ -1,0 +1,5 @@
+Windows Registry Editor Version 5.00
+
+; Change a string value to a DWORD
+[\ModifyTest]
+"TypeChange"=dword:00000042

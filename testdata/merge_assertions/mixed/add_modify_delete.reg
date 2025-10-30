@@ -1,0 +1,16 @@
+Windows Registry Editor Version 5.00
+
+; Add new key
+[\MixedTest\NewKey]
+"NewValue"="Added"
+
+; Modify existing value
+[\MixedTest]
+"ExistingValue"="Modified"
+
+; Delete a value
+[\MixedTest]
+"DeleteThis"=-
+
+; Delete a key
+[-\MixedTest\OldKey]

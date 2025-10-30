@@ -1,0 +1,6 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\ZeroValues]
+"ZeroDword"=dword:00000000
+"NonZeroDword"=dword:00000001
+"MaxDword"=dword:ffffffff

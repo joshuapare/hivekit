@@ -1,0 +1,35 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\AllTypes]
+; REG_SZ - String value
+"StringValue"="Hello World"
+
+; REG_EXPAND_SZ - Expandable string (hex(2))
+"ExpandString"=hex(2):25,00,53,00,79,00,73,00,74,00,65,00,6d,00,52,00,6f,00,6f,00,74,00,25,00,00,00
+
+; REG_BINARY - Binary data (hex:)
+"BinaryValue"=hex:01,02,03,04,05,06,07,08
+
+; REG_DWORD - 32-bit integer
+"DwordValue"=dword:00000042
+
+; REG_DWORD_BE - Big-endian DWORD (hex(5))
+"DwordBE"=hex(5):00,00,00,2a
+
+; REG_LINK - Symbolic link (hex(6))
+"LinkValue"=hex(6):5c,00,52,00,65,00,67,00,69,00,73,00,74,00,72,00,79,00,5c,00,4d,00,61,00,63,00,68,00,69,00,6e,00,65,00,00,00
+
+; REG_MULTI_SZ - Multiple strings (hex(7))
+"MultiString"=hex(7):46,00,69,00,72,00,73,00,74,00,00,00,53,00,65,00,63,00,6f,00,6e,00,64,00,00,00,54,00,68,00,69,00,72,00,64,00,00,00,00,00
+
+; REG_RESOURCE_LIST - Resource list (hex(8))
+"ResourceList"=hex(8):00,00,00,00,00,00,00,00,00,00,00,00
+
+; REG_FULL_RESOURCE_DESCRIPTOR - Full resource descriptor (hex(9))
+"FullResourceDesc"=hex(9):00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+
+; REG_RESOURCE_REQUIREMENTS_LIST - Resource requirements (hex(a))
+"ResourceReq"=hex(a):00,00,00,00,00,00,00,00
+
+; REG_QWORD - 64-bit integer (hex(b))
+"QwordValue"=hex(b):ff,ff,ff,ff,ff,ff,ff,ff

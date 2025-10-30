@@ -1,0 +1,17 @@
+Windows Registry Editor Version 5.00
+
+; Test that HKLM and HKEY_LOCAL_MACHINE are treated the same
+[HKLM\SOFTWARE\Test1]
+"ShortForm"="HKLM"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Test2]
+"LongForm"="HKEY_LOCAL_MACHINE"
+
+[HKLM\SOFTWARE\Test3\Nested]
+"ShortNested"="Value"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Test4\Nested]
+"LongNested"="Value"
+
+[HKLM\SOFTWARE\Test5]
+"Mixed"="Test"

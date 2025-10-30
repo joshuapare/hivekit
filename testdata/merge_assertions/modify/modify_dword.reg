@@ -1,0 +1,4 @@
+Windows Registry Editor Version 5.00
+
+[\ModifyTest]
+"DWordValue"=dword:12345678

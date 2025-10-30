@@ -1,0 +1,5 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Test]
+"BadContinuation"=hex:01,02,03\
+04,05,06

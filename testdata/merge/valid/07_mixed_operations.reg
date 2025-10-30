@@ -1,0 +1,20 @@
+Windows Registry Editor Version 5.00
+
+; Create keys
+[HKEY_LOCAL_MACHINE\SOFTWARE\App1]
+"Version"="1.0"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\App2]
+"Build"=dword:0000002a
+
+; Delete a key
+[-HKEY_LOCAL_MACHINE\SOFTWARE\OldApp]
+
+; Modify existing key
+[HKEY_LOCAL_MACHINE\SOFTWARE\App1\Settings]
+"Timeout"=dword:00001388
+"DeleteOld"=-
+
+; Another nested key
+[HKEY_LOCAL_MACHINE\SOFTWARE\App2\Config]
+@="DefaultConfig"

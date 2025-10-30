@@ -1,0 +1,10 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\SpecialChars]
+"Path"="C:\\Windows\\System32"
+"Quote"="He said \"Hello\""
+"Backslash"="C:\\"
+"DoubleBackslash"="\\\\"
+"Mixed"="Path\\\"Name"
+"Comma"="One,Two,Three"
+"Semicolon"="Key;Value"

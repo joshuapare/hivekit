@@ -1,0 +1,13 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\TestApp]
+"RootValue"="InRoot"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\TestApp\Level1]
+"Level1Value"="InLevel1"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\TestApp\Level1\Level2]
+"Level2Value"="InLevel2"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\TestApp\Level1\Level2\Level3]
+"Level3Value"="InLevel3"
