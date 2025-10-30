@@ -18,7 +18,7 @@ func Example() {
 `
 
 	// Merge into a hive (in real usage, use a real hive file)
-	err := hive.MergeRegString("system.hive", regContent, nil)
+	_, err := hive.MergeRegString("system.hive", regContent, nil)
 	if err != nil {
 		log.Printf("Merge failed: %v", err)
 	}
@@ -27,7 +27,7 @@ func Example() {
 // ExampleMergeRegFile demonstrates merging a .reg file into a 
 func ExampleMergeRegFile() {
 	// Merge a .reg file into a hive with default settings
-	err := hive.MergeRegFile("system.hive", "changes.reg", nil)
+	_, err := hive.MergeRegFile("system.hive", "changes.reg", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func ExampleMergeRegFile_withProgress() {
 		CreateBackup: true,
 	}
 
-	err := hive.MergeRegFile("system.hive", "delta.reg", opts)
+	_, err := hive.MergeRegFile("system.hive", "delta.reg", opts)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func ExampleMergeRegFile_dryRun() {
 		}(),
 	}
 
-	err := hive.MergeRegFile("system.hive", "risky-changes.reg", opts)
+	_, err := hive.MergeRegFile("system.hive", "risky-changes.reg", opts)
 	if err != nil {
 		fmt.Printf("Validation failed: %v\n", err)
 		fmt.Println("Changes would violate registry limits - not applying!")
@@ -85,7 +85,7 @@ func ExampleMergeRegFiles() {
 		},
 	}
 
-	err := hive.MergeRegFiles("system.hive", regFiles, opts)
+	_, err := hive.MergeRegFiles("system.hive", regFiles, opts)
 	if err != nil {
 		log.Fatal(err)
 	}

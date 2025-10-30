@@ -34,19 +34,19 @@ import (
 //	    CreateBackup: true,
 //	}
 //	err := ops.MergeRegFile("system.hive", "delta.reg", opts)
-func MergeRegFile(hivePath, regPath string, opts *MergeOptions) error {
+func MergeRegFile(hivePath, regPath string, opts *MergeOptions) (*MergeStats, error) {
 	// Validate inputs
 	if !fileExists(hivePath) {
-		return fmt.Errorf("hive file not found: %s", hivePath)
+		return nil, fmt.Errorf("hive file not found: %s", hivePath)
 	}
 	if !fileExists(regPath) {
-		return fmt.Errorf(".reg file not found: %s", regPath)
+		return nil, fmt.Errorf(".reg file not found: %s", regPath)
 	}
 
 	// Read .reg file
 	regData, err := os.ReadFile(regPath)
 	if err != nil {
-		return fmt.Errorf("failed to read .reg file %s: %w", regPath, err)
+		return nil, fmt.Errorf("failed to read .reg file %s: %w", regPath, err)
 	}
 
 	return mergeRegBytes(hivePath, regData, opts)
@@ -65,9 +65,9 @@ func MergeRegFile(hivePath, regPath string, opts *MergeOptions) error {
 //	"Version"="1.0"
 //	`
 //	err := ops.MergeRegString("software.hive", regContent, nil)
-func MergeRegString(hivePath string, regContent string, opts *MergeOptions) error {
+func MergeRegString(hivePath string, regContent string, opts *MergeOptions) (*MergeStats, error) {
 	if !fileExists(hivePath) {
-		return fmt.Errorf("hive file not found: %s", hivePath)
+		return nil, fmt.Errorf("hive file not found: %s", hivePath)
 	}
 
 	return mergeRegBytes(hivePath, []byte(regContent), opts)
@@ -87,10 +87,13 @@ func MergeRegString(hivePath string, regContent string, opts *MergeOptions) erro
 //	        fmt.Printf("Merging file %d/%d\n", current, total)
 //	    },
 //	})
-func MergeRegFiles(hivePath string, regPaths []string, opts *MergeOptions) error {
+func MergeRegFiles(hivePath string, regPaths []string, opts *MergeOptions) (*MergeStats, error) {
 	if !fileExists(hivePath) {
-		return fmt.Errorf("hive file not found: %s", hivePath)
+		return nil, fmt.Errorf("hive file not found: %s", hivePath)
 	}
+
+	// Aggregate stats from all files
+	aggregatedStats := &MergeStats{}
 
 	total := len(regPaths)
 	for i, regPath := range regPaths {
@@ -107,16 +110,29 @@ func MergeRegFiles(hivePath string, regPaths []string, opts *MergeOptions) error
 			fileOpts.OnProgress = nil // Disable operation-level progress
 		}
 
-		if err := MergeRegFile(hivePath, regPath, fileOpts); err != nil {
-			return fmt.Errorf("failed to merge %s (file %d/%d): %w", regPath, i+1, total, err)
+		stats, err := MergeRegFile(hivePath, regPath, fileOpts)
+		if err != nil {
+			return aggregatedStats, fmt.Errorf("failed to merge %s (file %d/%d): %w", regPath, i+1, total, err)
+		}
+
+		// Aggregate stats
+		if stats != nil {
+			aggregatedStats.KeysCreated += stats.KeysCreated
+			aggregatedStats.KeysDeleted += stats.KeysDeleted
+			aggregatedStats.ValuesSet += stats.ValuesSet
+			aggregatedStats.ValuesDeleted += stats.ValuesDeleted
+			aggregatedStats.OperationsTotal += stats.OperationsTotal
+			aggregatedStats.OperationsFailed += stats.OperationsFailed
+			// BytesWritten from last merge is the final size
+			aggregatedStats.BytesWritten = stats.BytesWritten
 		}
 	}
 
-	return nil
+	return aggregatedStats, nil
 }
 
 // mergeRegBytes is the internal implementation that merges .reg data from bytes.
-func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
+func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) (*MergeStats, error) {
 	// Apply defaults
 	if opts == nil {
 		opts = &MergeOptions{}
@@ -126,42 +142,49 @@ func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
 		opts.Limits = &limits
 	}
 
+	// Initialize stats
+	stats := &MergeStats{}
+
 	// Create backup if requested
 	if opts.CreateBackup {
 		backupPath := hivePath + ".bak"
 		if err := copyFile(hivePath, backupPath); err != nil {
-			return fmt.Errorf("failed to create backup at %s: %w", backupPath, err)
+			return nil, fmt.Errorf("failed to create backup at %s: %w", backupPath, err)
 		}
 	}
 
 	// Open hive
 	hiveData, err := os.ReadFile(hivePath)
 	if err != nil {
-		return fmt.Errorf("failed to read hive %s: %w", hivePath, err)
+		return nil, fmt.Errorf("failed to read hive %s: %w", hivePath, err)
 	}
 
 	r, err := reader.OpenBytes(hiveData, OpenOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to open hive %s: %w", hivePath, err)
+		return nil, fmt.Errorf("failed to open hive %s: %w", hivePath, err)
 	}
 	defer r.Close()
 
 	// Parse .reg file
 	codec := regtext.NewCodec()
 	parseOpts := RegParseOptions{
-		Prefix:     opts.Prefix,
-		AutoPrefix: opts.AutoPrefix,
+		Prefix:        opts.Prefix,
+		AutoPrefix:    opts.AutoPrefix,
+		InputEncoding: opts.InputEncoding,
 	}
 	ops, err := codec.ParseReg(regData, parseOpts)
 	if err != nil {
-		return fmt.Errorf("failed to parse .reg data: %w", err)
+		return nil, fmt.Errorf("failed to parse .reg data: %w", err)
 	}
 
 	// Handle empty operation list
 	if len(ops) == 0 {
 		// Nothing to do, but not an error
-		return nil
+		return stats, nil
 	}
+
+	// Record total operations
+	stats.OperationsTotal = len(ops)
 
 	// Start transaction with limits
 	ed := edit.NewEditor(r)
@@ -177,45 +200,62 @@ func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
 
 		// Apply operation
 		if err := applyOperation(tx, op); err != nil {
+			stats.OperationsFailed++
 			// Error callback
 			if opts.OnError != nil {
 				if !opts.OnError(op, err) {
 					// User requested abort
 					tx.Rollback()
-					return fmt.Errorf("operation aborted at %d/%d: %w", i+1, total, err)
+					return stats, fmt.Errorf("operation aborted at %d/%d: %w", i+1, total, err)
 				}
 				// User requested continue - skip this operation
 				continue
 			}
 			// No error handler - abort on first error
 			tx.Rollback()
-			return fmt.Errorf("operation %d/%d failed: %w", i+1, total, err)
+			return stats, fmt.Errorf("operation %d/%d failed: %w", i+1, total, err)
+		}
+
+		// Count successful operations by type
+		switch op.(type) {
+		case OpCreateKey:
+			stats.KeysCreated++
+		case OpDeleteKey:
+			stats.KeysDeleted++
+		case OpSetValue:
+			stats.ValuesSet++
+		case OpDeleteValue:
+			stats.ValuesDeleted++
 		}
 	}
 
 	// Dry run? Don't commit
 	if opts.DryRun {
-		return tx.Rollback()
+		tx.Rollback()
+		return stats, nil
 	}
 
 	// Commit to buffer
 	buf := &bytes.Buffer{}
 	writeOpts := types.WriteOptions{Repack: opts.Defragment}
 	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to commit changes to %s: %w", hivePath, err)
+		return stats, fmt.Errorf("failed to commit changes to %s: %w", hivePath, err)
 	}
 
 	// Write to file atomically (write to temp, then rename)
 	tempPath := hivePath + ".tmp"
 	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file %s: %w", tempPath, err)
+		return stats, fmt.Errorf("failed to write temporary file %s: %w", tempPath, err)
 	}
 
 	if err := os.Rename(tempPath, hivePath); err != nil {
 		// Clean up temp file on error
 		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive %s: %w", hivePath, err)
+		return stats, fmt.Errorf("failed to replace hive %s: %w", hivePath, err)
 	}
 
-	return nil
+	// Record bytes written
+	stats.BytesWritten = int64(buf.Len())
+
+	return stats, nil
 }

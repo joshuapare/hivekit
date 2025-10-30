@@ -23,7 +23,7 @@ func TestMergeRegFile_FileNotFound(t *testing.T) {
 	os.WriteFile(regFile, []byte(regContent), 0644)
 
 	// Should fail - hive doesn't exist
-	err := hive.MergeRegFile("nonexistent.hive", regFile, nil)
+	_, err := hive.MergeRegFile("nonexistent.hive", regFile, nil)
 	if err == nil {
 		t.Error("Expected error for non-existent hive file")
 	}
@@ -42,7 +42,7 @@ func TestMergeRegFile_RegFileNotFound(t *testing.T) {
 	os.WriteFile(hiveFile, minimalHive, 0644)
 
 	// Should fail - .reg doesn't exist
-	err := hive.MergeRegFile(hiveFile, "nonexistent.reg", nil)
+	_, err := hive.MergeRegFile(hiveFile, "nonexistent.reg", nil)
 	if err == nil {
 		t.Error("Expected error for non-existent .reg file")
 	}
@@ -58,7 +58,7 @@ func TestMergeRegString_HiveNotFound(t *testing.T) {
 [HKEY_LOCAL_MACHINE\Test]
 "Value"="Data"
 `
-	err := hive.MergeRegString("nonexistent.hive", regContent, nil)
+	_, err := hive.MergeRegString("nonexistent.hive", regContent, nil)
 	if err == nil {
 		t.Error("Expected error for non-existent hive file")
 	}
@@ -80,7 +80,7 @@ func TestMergeRegFile_EmptyRegFile(t *testing.T) {
 	os.WriteFile(regFile, []byte(regContent), 0644)
 
 	// Should succeed (nothing to merge)
-	err := hive.MergeRegFile(hiveFile, regFile, nil)
+	_, err := hive.MergeRegFile(hiveFile, regFile, nil)
 	if err != nil {
 		t.Errorf("Empty .reg file should succeed: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestMergeRegFiles_FileNotFound(t *testing.T) {
 	os.WriteFile(regFiles[0], []byte("Windows Registry Editor Version 5.00\n"), 0644)
 
 	// Should fail on second file
-	err := hive.MergeRegFiles(hiveFile, regFiles, nil)
+	_, err := hive.MergeRegFiles(hiveFile, regFiles, nil)
 	if err == nil {
 		t.Error("Expected error for non-existent .reg file in batch")
 	}
@@ -111,7 +111,7 @@ func TestMergeRegFiles_FileNotFound(t *testing.T) {
 
 // TestMergeRegFiles_HiveNotFound tests batch merge with missing 
 func TestMergeRegFiles_HiveNotFound(t *testing.T) {
-	err := hive.MergeRegFiles("nonexistent.hive", []string{"test.reg"}, nil)
+	_, err := hive.MergeRegFiles("nonexistent.hive", []string{"test.reg"}, nil)
 	if err == nil {
 		t.Error("Expected error for non-existent hive")
 	}
@@ -376,7 +376,7 @@ func TestMergeRegFile_AllOperationTypes(t *testing.T) {
 	os.WriteFile(regFile, []byte(regContent), 0644)
 
 	// Merge
-	err := hive.MergeRegFile(hiveFile, regFile, nil)
+	_, err := hive.MergeRegFile(hiveFile, regFile, nil)
 	if err != nil {
 		t.Fatalf("Merge with all operation types failed: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestMergeRegFile_WithDefragment(t *testing.T) {
 		Defragment: true,
 	}
 
-	err := hive.MergeRegFile(hiveFile, regFile, opts)
+	_, err := hive.MergeRegFile(hiveFile, regFile, opts)
 	if err != nil {
 		t.Fatalf("Merge with defragment failed: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestMergeRegFile_WithCustomLimits(t *testing.T) {
 		}(),
 	}
 
-	err := hive.MergeRegFile(hiveFile, regFile, opts)
+	_, err := hive.MergeRegFile(hiveFile, regFile, opts)
 	if err != nil {
 		t.Fatalf("Merge with custom limits failed: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestMergeRegFile_ErrorAbort(t *testing.T) {
 		}(),
 	}
 
-	err := hive.MergeRegFile(hiveFile, regFile, opts)
+	_, err := hive.MergeRegFile(hiveFile, regFile, opts)
 	// Should get an error since we aborted
 	if err == nil {
 		t.Error("Expected error when OnError returns false")
@@ -506,7 +506,7 @@ func TestMergeRegFiles_WithProgress(t *testing.T) {
 		},
 	}
 
-	err := hive.MergeRegFiles(hiveFile, regFiles, opts)
+	_, err := hive.MergeRegFiles(hiveFile, regFiles, opts)
 	if err != nil {
 		t.Fatalf("Batch merge with progress failed: %v", err)
 	}
@@ -626,7 +626,7 @@ func TestMergeRegString_WithAllOptions(t *testing.T) {
 		CreateBackup: true,
 	}
 
-	err := hive.MergeRegString(hiveFile, regContent, opts)
+	_, err := hive.MergeRegString(hiveFile, regContent, opts)
 	if err != nil {
 		t.Fatalf("MergeRegString with all options failed: %v", err)
 	}

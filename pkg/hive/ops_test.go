@@ -36,7 +36,7 @@ func TestMergeRegFile_Simple(t *testing.T) {
 	}
 
 	// Merge
-	err = hive.MergeRegFile(hiveFile, regFile, nil)
+	_, err = hive.MergeRegFile(hiveFile, regFile, nil)
 	if err != nil {
 		t.Fatalf("MergeRegFile failed: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestMergeRegString(t *testing.T) {
 [HKEY_LOCAL_MACHINE\StringTest]
 "Value1"="Data1"
 `
-	err = hive.MergeRegString(hiveFile, regContent, nil)
+	_, err = hive.MergeRegString(hiveFile, regContent, nil)
 	if err != nil {
 		t.Fatalf("MergeRegString failed: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestMergeRegFile_WithProgress(t *testing.T) {
 		},
 	}
 
-	err = hive.MergeRegFile(hiveFile, regFile, opts)
+	_, err = hive.MergeRegFile(hiveFile, regFile, opts)
 	if err != nil {
 		t.Fatalf("MergeRegFile failed: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestMergeRegFile_WithBackup(t *testing.T) {
 	opts := &hive.MergeOptions{
 		CreateBackup: true,
 	}
-	err = hive.MergeRegFile(hiveFile, regFile, opts)
+	_, err = hive.MergeRegFile(hiveFile, regFile, opts)
 	if err != nil {
 		t.Fatalf("MergeRegFile failed: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestMergeRegFile_DryRun(t *testing.T) {
 	opts := &hive.MergeOptions{
 		DryRun: true,
 	}
-	err = hive.MergeRegFile(hiveFile, regFile, opts)
+	_, err = hive.MergeRegFile(hiveFile, regFile, opts)
 	if err != nil {
 		t.Fatalf("DryRun merge failed: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestMergeRegFiles(t *testing.T) {
 	}
 
 	// Merge all files
-	err = hive.MergeRegFiles(hiveFile, regFiles, nil)
+	_, err = hive.MergeRegFiles(hiveFile, regFiles, nil)
 	if err != nil {
 		t.Fatalf("MergeRegFiles failed: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestMergeRegFile_ErrorHandling(t *testing.T) {
 		},
 	}
 
-	err = hive.MergeRegFile(hiveFile, regFile, opts)
+	_, err = hive.MergeRegFile(hiveFile, regFile, opts)
 	if err != nil {
 		t.Fatalf("MergeRegFile failed: %v", err)
 	}
@@ -454,7 +454,7 @@ func TestMergeRegFile_LimitViolation(t *testing.T) {
 			return &l
 		}(),
 	}
-	err = hive.MergeRegFile(hiveFile, regFile, opts)
+	_, err = hive.MergeRegFile(hiveFile, regFile, opts)
 	if err == nil {
 		t.Error("Expected limit violation error, got nil")
 	}

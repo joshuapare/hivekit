@@ -101,12 +101,27 @@ func runMerge(args []string) error {
 
 	printInfo("\nMerging into %s:\n", hivePath)
 
+	// Aggregate stats across all files
+	var totalStats hive.MergeStats
+
 	// Merge each file
 	for _, regFile := range regFiles {
 		printInfo("  Processing %s...\n", regFile)
 
-		if err := hive.MergeRegFile(hivePath, regFile, opts); err != nil {
+		stats, err := hive.MergeRegFile(hivePath, regFile, opts)
+		if err != nil {
 			return fmt.Errorf("failed to merge %s: %w", regFile, err)
+		}
+
+		// Aggregate stats
+		if stats != nil {
+			totalStats.KeysCreated += stats.KeysCreated
+			totalStats.KeysDeleted += stats.KeysDeleted
+			totalStats.ValuesSet += stats.ValuesSet
+			totalStats.ValuesDeleted += stats.ValuesDeleted
+			totalStats.OperationsTotal += stats.OperationsTotal
+			totalStats.OperationsFailed += stats.OperationsFailed
+			totalStats.BytesWritten = stats.BytesWritten // Last file size
 		}
 
 		printInfo("  ✓ %s merged\n", regFile)
@@ -115,17 +130,26 @@ func runMerge(args []string) error {
 	// Output as JSON if requested
 	if jsonOut {
 		result := map[string]interface{}{
-			"hive":       hivePath,
-			"reg_files":  regFiles,
-			"dry_run":    mergeDryRun,
-			"backup":     mergeBackup,
-			"defragment": mergeDefrag,
-			"success":    true,
+			"hive":        hivePath,
+			"reg_files":   regFiles,
+			"dry_run":     mergeDryRun,
+			"backup":      mergeBackup,
+			"defragment":  mergeDefrag,
+			"success":     true,
+			"stats": map[string]interface{}{
+				"keys_created":      totalStats.KeysCreated,
+				"keys_deleted":      totalStats.KeysDeleted,
+				"values_set":        totalStats.ValuesSet,
+				"values_deleted":    totalStats.ValuesDeleted,
+				"operations_total":  totalStats.OperationsTotal,
+				"operations_failed": totalStats.OperationsFailed,
+				"bytes_written":     totalStats.BytesWritten,
+			},
 		}
 		return printJSON(result)
 	}
 
-	// Text output
+	// Text output with stats
 	if mergeDryRun {
 		printInfo("\n✓ Dry run complete (no changes applied)\n")
 	} else {
@@ -133,6 +157,21 @@ func runMerge(args []string) error {
 			printInfo("\nBackup: %s.bak\n", hivePath)
 		}
 		printInfo("✓ Merge complete\n")
+	}
+
+	// Show statistics
+	printInfo("\nStatistics:\n")
+	printInfo("  Operations:    %d total", totalStats.OperationsTotal)
+	if totalStats.OperationsFailed > 0 {
+		printInfo(" (%d failed)", totalStats.OperationsFailed)
+	}
+	printInfo("\n")
+	printInfo("  Keys created:  %d\n", totalStats.KeysCreated)
+	printInfo("  Keys deleted:  %d\n", totalStats.KeysDeleted)
+	printInfo("  Values set:    %d\n", totalStats.ValuesSet)
+	printInfo("  Values deleted: %d\n", totalStats.ValuesDeleted)
+	if totalStats.BytesWritten > 0 {
+		printInfo("  Hive size:     %d bytes\n", totalStats.BytesWritten)
 	}
 
 	return nil

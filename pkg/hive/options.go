@@ -45,6 +45,35 @@ type MergeOptions struct {
 	// prefixes (HKEY_LOCAL_MACHINE\SOFTWARE, HKEY_LOCAL_MACHINE\SYSTEM, etc.)
 	// This is useful when the .reg file contains standard full paths.
 	AutoPrefix bool
+
+	// InputEncoding specifies the .reg file encoding (e.g., "UTF-16LE", "UTF-8").
+	// If empty, encoding is auto-detected from BOM.
+	InputEncoding string
+}
+
+// MergeStats contains statistics about a merge operation.
+type MergeStats struct {
+	// KeysCreated is the number of keys created during the merge.
+	KeysCreated int
+
+	// KeysDeleted is the number of keys deleted during the merge.
+	KeysDeleted int
+
+	// ValuesSet is the number of values set or modified during the merge.
+	ValuesSet int
+
+	// ValuesDeleted is the number of values deleted during the merge.
+	ValuesDeleted int
+
+	// OperationsTotal is the total number of operations parsed from the .reg file.
+	OperationsTotal int
+
+	// OperationsFailed is the number of operations that failed.
+	// Only non-zero if OnError callback returns true to continue.
+	OperationsFailed int
+
+	// BytesWritten is the size of the resulting hive file in bytes.
+	BytesWritten int64
 }
 
 // OperationOptions controls individual high-level operation behavior.
