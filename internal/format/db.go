@@ -54,3 +54,52 @@ func DecodeDB(b []byte) (DBRecord, error) {
 func IsDBRecord(b []byte) bool {
 	return len(b) >= 2 && b[0] == DBSignature[0] && b[1] == DBSignature[1]
 }
+
+// EncodeDB creates a DB record structure with the given parameters.
+// Returns a 12-byte buffer containing the DB record (without cell header).
+func EncodeDB(numBlocks uint16, blocklistOffset uint32) []byte {
+	buf := make([]byte, DBMinSize)
+
+	// Signature "db"
+	copy(buf[DBSignatureOffset:], DBSignature)
+
+	// Number of blocks
+	buf[DBNumBlocksOffset] = byte(numBlocks)
+	buf[DBNumBlocksOffset+1] = byte(numBlocks >> 8)
+
+	// Blocklist offset
+	buf[DBBlocklistOffset] = byte(blocklistOffset)
+	buf[DBBlocklistOffset+1] = byte(blocklistOffset >> 8)
+	buf[DBBlocklistOffset+2] = byte(blocklistOffset >> 16)
+	buf[DBBlocklistOffset+3] = byte(blocklistOffset >> 24)
+
+	// Unknown1 (set to 0)
+	buf[DBUnknown1Offset] = 0
+	buf[DBUnknown1Offset+1] = 0
+	buf[DBUnknown1Offset+2] = 0
+	buf[DBUnknown1Offset+3] = 0
+
+	return buf
+}
+
+// CalculateDBBlocks determines how to chunk data into DB blocks.
+// Returns the number of blocks and the size of each block.
+// All blocks except the last will be DBBlockMaxSize bytes.
+func CalculateDBBlocks(dataLen int) (numBlocks int, blockSizes []int) {
+	if dataLen == 0 {
+		return 0, nil
+	}
+
+	// Calculate number of blocks needed
+	numBlocks = (dataLen + DBBlockMaxSize - 1) / DBBlockMaxSize
+
+	// Calculate size of each block
+	blockSizes = make([]int, numBlocks)
+	for i := 0; i < numBlocks-1; i++ {
+		blockSizes[i] = DBBlockMaxSize
+	}
+	// Last block gets the remainder
+	blockSizes[numBlocks-1] = dataLen - (numBlocks-1)*DBBlockMaxSize
+
+	return numBlocks, blockSizes
+}

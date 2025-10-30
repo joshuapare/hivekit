@@ -89,6 +89,11 @@ install-hiveexplorer: ## Install hiveexplorer TUI to $GOBIN
 	@cd cmd/hiveexplorer && go install .
 	@echo "Installed to $$(go env GOBIN || go env GOPATH)/bin/hiveexplorer"
 
+install-hivectl: ## Install hivectl CLI to $GOBIN
+	@echo "Installing hivectl..."
+	@cd cmd/hivectl && go install .
+	@echo "Installed to $$(go env GOBIN || go env GOPATH)/bin/hivectl"
+
 ##@ Code Quality
 
 lint: ## Run linters

@@ -1,12 +1,16 @@
 package edit
 
-import "github.com/joshuapare/hivekit/internal/format"
+import (
+	"encoding/binary"
+	"github.com/joshuapare/hivekit/internal/format"
+)
 
 // allocator manages cell offset allocation for the new types.
 // It assigns offsets sequentially starting from the first HBIN data area.
 // Cells must not span HBIN boundaries per Windows registry spec.
 type allocator struct {
 	nextOffset int32
+	cellBuf    []byte // Reference to cell buffer for writing free cells
 }
 
 // newAllocator creates a new allocator for cell buffer (starts at 0).
@@ -15,6 +19,11 @@ func newAllocator() *allocator {
 	return &allocator{
 		nextOffset: 0,
 	}
+}
+
+// setCellBuffer sets the reference to the cell buffer for free cell writing
+func (a *allocator) setCellBuffer(buf []byte) {
+	a.cellBuf = buf
 }
 
 // alloc assigns an offset for a cell of the given size and advances the allocator.
@@ -36,7 +45,18 @@ func (a *allocator) alloc(size int) int32 {
 	// Check if cell fits in current HBIN
 	if posInHBIN+int32(alignedSize) > hbinDataSize {
 		// Cell doesn't fit, skip to next HBIN
-		// The remaining space in current HBIN will be wasted (or filled with free cell)
+		// Write a free cell marker in the remaining space
+		remaining := hbinDataSize - posInHBIN
+		if remaining >= 8 && a.cellBuf != nil && int(a.nextOffset) < len(a.cellBuf) {
+			// Write free cell size (positive = free, negative = allocated)
+			// Only write free cells if we have at least 8 bytes (minimum valid cell size)
+			// Smaller gaps are left as padding, which is allowed by the hive format
+			freeSize := (remaining / 8) * 8
+			if freeSize >= 8 {
+				binary.LittleEndian.PutUint32(a.cellBuf[a.nextOffset:], uint32(freeSize))
+			}
+		}
+
 		a.nextOffset = (currentHBIN + 1) * hbinDataSize
 	}
 

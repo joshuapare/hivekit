@@ -236,4 +236,10 @@ const (
 	// DBBlockPadding is the number of padding bytes at the end of each DB data block.
 	// DB blocks include the next cell's header as padding that must be trimmed.
 	DBBlockPadding = 4
+
+	// DBBlockMaxSize is the maximum size for each data block in a DB record.
+	// Must fit within a 4KB HBIN (our standard HBIN size):
+	// 4096 (HBIN) - 32 (header) - 4 (cell header) - 12 (safety margin) = 4048 bytes
+	// Aligned to 8-byte boundary. Large values will use multiple blocks.
+	DBBlockMaxSize = 4048
 )

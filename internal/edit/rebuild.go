@@ -41,6 +41,9 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 	// Slice to working size
 	workBuf := (*cellBuf)[:bufferSize]
 
+	// Give allocator access to cell buffer for writing free cells
+	alloc.setCellBuffer(workBuf)
+
 	// Serialize the tree into the buffer
 	if err := serializeNode(root, alloc, workBuf, opts); err != nil {
 		return nil, err
@@ -757,6 +760,93 @@ func updateNKListOffsets(buf []byte, nkOff, valueListOffset, subkeyListOffset in
 	binary.LittleEndian.PutUint32(buf[pos+0x28:], uint32(valueListOffset))
 }
 
+// serializeBlocklist writes a blocklist cell (array of block offsets) for DB records.
+// Returns the HBIN-relative offset of the blocklist cell.
+func serializeBlocklist(blockOffsets []uint32, alloc *allocator, buf []byte) int32 {
+	// Calculate size: 4 bytes per offset
+	dataSize := len(blockOffsets) * 4
+	totalSize := dataSize + 4 // +4 for cell header
+
+	// Allocate cell
+	offset := alloc.alloc(totalSize)
+
+	// Calculate aligned size for cell header
+	alignedSize := totalSize
+	if totalSize%8 != 0 {
+		alignedSize = totalSize + (8 - totalSize%8)
+	}
+
+	// Write cell header (negative = allocated)
+	binary.LittleEndian.PutUint32(buf[offset:], uint32(-alignedSize))
+
+	// Write block offsets
+	pos := int(offset) + 4
+	for _, blockOffset := range blockOffsets {
+		binary.LittleEndian.PutUint32(buf[pos:], blockOffset)
+		pos += 4
+	}
+
+	return cellBufOffsetToHBINOffset(offset)
+}
+
+// serializeDBRecord writes a DB (Big Data) record structure for large values.
+// This creates: 1) data blocks, 2) blocklist, 3) DB record cell.
+// Returns the HBIN-relative offset of the DB record cell.
+func serializeDBRecord(data []byte, alloc *allocator, buf []byte) int32 {
+	// Calculate block chunking
+	numBlocks, blockSizes := format.CalculateDBBlocks(len(data))
+
+	// Allocate and write data blocks
+	blockOffsets := make([]uint32, numBlocks)
+	dataOffset := 0
+
+	for i, blockSize := range blockSizes {
+		// Allocate data block cell
+		totalSize := blockSize + 4 // +4 for cell header
+		blockOff := alloc.alloc(totalSize)
+
+		// Calculate aligned size
+		alignedSize := totalSize
+		if totalSize%8 != 0 {
+			alignedSize = totalSize + (8 - totalSize%8)
+		}
+
+		// Write cell header (negative = allocated)
+		binary.LittleEndian.PutUint32(buf[blockOff:], uint32(-alignedSize))
+
+		// Write data
+		copy(buf[blockOff+4:], data[dataOffset:dataOffset+blockSize])
+
+		// Store HBIN-relative offset
+		blockOffsets[i] = uint32(cellBufOffsetToHBINOffset(blockOff))
+
+		dataOffset += blockSize
+	}
+
+	// Write blocklist cell
+	blocklistOff := serializeBlocklist(blockOffsets, alloc, buf)
+
+	// Write DB record cell
+	dbRecordSize := format.DBMinSize + 4 // 12 bytes + 4 byte header
+	dbOff := alloc.alloc(dbRecordSize)
+
+	// Calculate aligned size
+	alignedSize := dbRecordSize
+	if dbRecordSize%8 != 0 {
+		alignedSize = dbRecordSize + (8 - dbRecordSize%8)
+	}
+
+	// Write cell header
+	binary.LittleEndian.PutUint32(buf[dbOff:], uint32(-alignedSize))
+
+	// Write DB record payload using format.EncodeDB
+	dbPayload := format.EncodeDB(uint16(numBlocks), uint32(blocklistOff))
+	copy(buf[dbOff+4:], dbPayload)
+
+	// Return HBIN-relative offset
+	return cellBufOffsetToHBINOffset(dbOff)
+}
+
 // serializeVKToBuf writes a VK cell (and optional data cell) directly to the buffer.
 func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 	// Use the encoding format from the original record (deterministic)
@@ -786,20 +876,29 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 	inline := dataLen <= 4
 
 	if !inline && dataLen > 0 {
-		// Write data cell with alignment
-		dataTotalSize := dataLen + 4
-		doff := alloc.alloc(dataTotalSize)
+		// Determine if we need DB records for large values (>4KB)
+		// Use conservative threshold to avoid HBIN boundary issues
+		const dbThreshold = 4096
 
-		// Calculate aligned size
-		alignedDataSize := dataTotalSize
-		if dataTotalSize%8 != 0 {
-			alignedDataSize = dataTotalSize + (8 - dataTotalSize%8)
+		if dataLen > dbThreshold {
+			// Use DB (Big Data) record for large values
+			dataOff = serializeDBRecord(val.data, alloc, buf)
+		} else {
+			// Write normal data cell with alignment
+			dataTotalSize := dataLen + 4
+			doff := alloc.alloc(dataTotalSize)
+
+			// Calculate aligned size
+			alignedDataSize := dataTotalSize
+			if dataTotalSize%8 != 0 {
+				alignedDataSize = dataTotalSize + (8 - dataTotalSize%8)
+			}
+
+			binary.LittleEndian.PutUint32(buf[doff:], uint32(-alignedDataSize))
+			copy(buf[doff+4:], val.data)
+			// Convert cellBuf offset to HBIN-relative offset
+			dataOff = cellBufOffsetToHBINOffset(doff)
 		}
-
-		binary.LittleEndian.PutUint32(buf[doff:], uint32(-alignedDataSize))
-		copy(buf[doff+4:], val.data)
-		// Convert cellBuf offset to HBIN-relative offset
-		dataOff = cellBufOffsetToHBINOffset(doff)
 	}
 
 	contentSize := format.VKFixedHeaderSize + len(nameBytes)
@@ -996,12 +1095,25 @@ func packCellBuffer(cellBuf []byte, _ bool) [][]byte {
 		// Fill remaining space with a free cell marker
 		// Per Windows Registry spec, all unused space must be marked as a free cell
 		// Free cells have positive size values (vs negative for used cells)
+		// IMPORTANT: Cell sizes must be ≥ 4 bytes and multiples of 8 for proper alignment
 		remaining := available - toCopy
-		if remaining >= 4 {
-			// Write free cell size marker (positive value indicates free)
-			freePos := dstPos + toCopy
-			binary.LittleEndian.PutUint32(hbins[i][freePos:], uint32(remaining))
+		if remaining >= 8 {
+			// Align to 8-byte boundary (Windows registry requirement)
+			freeSize := (remaining / 8) * 8
+			if freeSize >= 8 {
+				freePos := dstPos + toCopy
+				binary.LittleEndian.PutUint32(hbins[i][freePos:], uint32(freeSize))
+			}
+		} else if remaining >= 4 {
+			// Small remaining space (4-7 bytes) - write minimal free cell
+			// Round down to multiple of 4
+			freeSize := (remaining / 4) * 4
+			if freeSize >= 4 {
+				freePos := dstPos + toCopy
+				binary.LittleEndian.PutUint32(hbins[i][freePos:], uint32(freeSize))
+			}
 		}
+		// If remaining < 4 bytes, leave as padding (no free cell marker)
 	}
 
 	return hbins
