@@ -1,0 +1,28 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Delta 11 - adds new keys
+[\BenchSeq\Delta11\Key01]
+"KeyNumber"=dword:00000033
+"DeltaID"=dword:0000000b
+"Value"="Delta11_Key01"
+
+[\BenchSeq\Delta11\Key02]
+"KeyNumber"=dword:00000034
+"DeltaID"=dword:0000000b
+"Value"="Delta11_Key02"
+
+[\BenchSeq\Delta11\Key03]
+"KeyNumber"=dword:00000035
+"DeltaID"=dword:0000000b
+"Value"="Delta11_Key03"
+
+[\BenchSeq\Delta11\Key04]
+"KeyNumber"=dword:00000036
+"DeltaID"=dword:0000000b
+"Value"="Delta11_Key04"
+
+[\BenchSeq\Delta11\Key05]
+"KeyNumber"=dword:00000037
+"DeltaID"=dword:0000000b
+"Value"="Delta11_Key05"
+

@@ -167,19 +167,19 @@ func TestNewHiveValidation(t *testing.T) {
 	ed := NewEditor(nil)
 	tx := ed.Begin()
 
-	// Should fail: setting value on non-existent key
+	// Should succeed: SetValue auto-creates parent keys (matches Windows RegCreateKeyEx behavior)
 	err := tx.SetValue("NonExistent", "Value", types.REG_SZ, []byte("test"))
-	if err == nil {
-		t.Error("SetValue on non-existent key should fail")
+	if err != nil {
+		t.Errorf("SetValue with auto-create should succeed: %v", err)
 	}
 
 	// Should fail: deleting non-existent key
-	err = tx.DeleteKey("NonExistent", types.DeleteKeyOptions{})
+	err = tx.DeleteKey("DoesNotExist", types.DeleteKeyOptions{})
 	if err == nil {
 		t.Error("DeleteKey on non-existent key should fail")
 	}
 
-	// Should succeed: creating and setting value
+	// Should succeed: creating and setting value explicitly
 	if err := tx.CreateKey("TestKey", types.CreateKeyOptions{}); err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}

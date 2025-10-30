@@ -1,0 +1,9 @@
+Windows Registry Editor Version 5.00
+
+; Delete specific values from existing keys
+[\A\A giant\A giant elephant]
+"A"=-
+"B"=-
+
+; Delete an entire subkey
+[-\The\The giant\The giant zebra]

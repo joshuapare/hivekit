@@ -1,0 +1,63 @@
+Windows Registry Editor Version 5.00
+
+; Modify all existing values in large hive
+[\A\A giant\A giant elephant]
+"A"="Modified_A_elephant"
+"B"=dword:00000065
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\A\A giant\A giant goat]
+"A"="Modified_A_goat"
+"B"=dword:00000067
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\A\A giant\A giant mongoose]
+"A"="Modified_A_mongoose"
+"B"=dword:0000006d
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\A\A giant\A giant zebra]
+"A"="Modified_A_zebra"
+"B"=dword:0000007a
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\Another\Another giant\Another giant elephant]
+"A"="Modified_Another_elephant"
+"B"=dword:00000065
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\Another\Another giant\Another giant goat]
+"A"="Modified_Another_goat"
+"B"=dword:00000067
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\Another\Another giant\Another giant mongoose]
+"A"="Modified_Another_mongoose"
+"B"=dword:0000006d
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\Another\Another giant\Another giant zebra]
+"A"="Modified_Another_zebra"
+"B"=dword:0000007a
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\The\The giant\The giant elephant]
+"A"="Modified_The_elephant"
+"B"=dword:00000065
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\The\The giant\The giant goat]
+"A"="Modified_The_goat"
+"B"=dword:00000067
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\The\The giant\The giant mongoose]
+"A"="Modified_The_mongoose"
+"B"=dword:0000006d
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+
+[\The\The giant\The giant zebra]
+"A"="Modified_The_zebra"
+"B"=dword:0000007a
+"C"=hex(2):4d,00,6f,00,64,00,00,00
+

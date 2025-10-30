@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+; Add new key
+[BenchMixed\NewKey]
+"NewValue"="Added"
+
+; Modify existing
+[BenchMixed]
+"ExistingValue"="Modified"
+
+; Delete key
+[-BenchMixed\OldKey]

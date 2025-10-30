@@ -1,0 +1,17 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Patch 3 for Suite Hives - ControlSet001 Services
+
+[\ControlSet001\Services\SeqService03]
+"DisplayName"="Sequential Service 03"
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Dhcp]
+"SeqModify03"=dword:00000003
+
+[\ControlSet001\Control\Session Manager]
+"SeqValue03"="SessionPatch03"
+
+[\BenchSeq03]
+"Marker"="Sequential Patch 03"
+

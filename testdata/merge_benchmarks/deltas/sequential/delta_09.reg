@@ -1,0 +1,28 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Delta 9 - adds new keys
+[\BenchSeq\Delta09\Key01]
+"KeyNumber"=dword:00000029
+"DeltaID"=dword:00000009
+"Value"="Delta09_Key01"
+
+[\BenchSeq\Delta09\Key02]
+"KeyNumber"=dword:0000002a
+"DeltaID"=dword:00000009
+"Value"="Delta09_Key02"
+
+[\BenchSeq\Delta09\Key03]
+"KeyNumber"=dword:0000002b
+"DeltaID"=dword:00000009
+"Value"="Delta09_Key03"
+
+[\BenchSeq\Delta09\Key04]
+"KeyNumber"=dword:0000002c
+"DeltaID"=dword:00000009
+"Value"="Delta09_Key04"
+
+[\BenchSeq\Delta09\Key05]
+"KeyNumber"=dword:0000002d
+"DeltaID"=dword:00000009
+"Value"="Delta09_Key05"
+

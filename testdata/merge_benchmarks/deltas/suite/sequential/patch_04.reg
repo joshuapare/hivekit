@@ -1,0 +1,17 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Patch 4 for Suite Hives - ControlSet002 and DriverDatabase
+
+[\ControlSet002\Services\SeqService04]
+"DisplayName"="Sequential Service 04"
+"Start"=dword:00000003
+
+[\ControlSet002\Control\TimeZoneInformation]
+"SeqTimeZone"="Pacific Standard Time"
+
+[\DriverDatabase\DeviceIds\PCI\VEN_SEQ04]
+"seq04.inf"="Sequential Driver 04"
+
+[\BenchSeq04]
+"Marker"="Sequential Patch 04"
+

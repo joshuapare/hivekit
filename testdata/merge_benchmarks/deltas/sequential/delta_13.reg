@@ -1,0 +1,28 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Delta 13 - adds new keys
+[\BenchSeq\Delta13\Key01]
+"KeyNumber"=dword:0000003d
+"DeltaID"=dword:0000000d
+"Value"="Delta13_Key01"
+
+[\BenchSeq\Delta13\Key02]
+"KeyNumber"=dword:0000003e
+"DeltaID"=dword:0000000d
+"Value"="Delta13_Key02"
+
+[\BenchSeq\Delta13\Key03]
+"KeyNumber"=dword:0000003f
+"DeltaID"=dword:0000000d
+"Value"="Delta13_Key03"
+
+[\BenchSeq\Delta13\Key04]
+"KeyNumber"=dword:00000040
+"DeltaID"=dword:0000000d
+"Value"="Delta13_Key04"
+
+[\BenchSeq\Delta13\Key05]
+"KeyNumber"=dword:00000041
+"DeltaID"=dword:0000000d
+"Value"="Delta13_Key05"
+

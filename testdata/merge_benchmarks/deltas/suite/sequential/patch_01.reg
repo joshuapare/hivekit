@@ -1,0 +1,17 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Patch 1 for Suite Hives - Select and Setup
+
+[\Select]
+"SeqPatch01"=dword:00000001
+"Current"=dword:00000001
+
+[\Setup]
+"SeqValue"="Patch01"
+
+[\Setup\SystemPartition]
+"SeqGuid"="{SEQ-01-0001}"
+
+[\BenchSeq01]
+"Marker"="Sequential Patch 01"
+

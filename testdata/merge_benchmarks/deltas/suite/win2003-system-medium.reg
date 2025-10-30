@@ -1,0 +1,125 @@
+Windows Registry Editor Version 5.00
+
+; Medium patch for Windows 2003 Server System - 50+ ops across top-level keys
+
+; Select (5 ops)
+[\Select]
+"Current"=dword:00000001
+"Default"=dword:00000001
+"Failed"=dword:00000000
+"LastKnownGood"=dword:00000002
+"BenchmarkSelect"=dword:00000064
+
+; Setup (5 ops)
+[\Setup]
+"SetupType"=dword:00000004
+"SystemSetupInProgress"=dword:00000000
+"CmdLine"="setup -newsetup"
+"OsLoaderPath"="\\Device\\HarddiskVolume1"
+"BenchmarkSetup"="Medium_2003"
+
+; WPA (5 ops)
+[\WPA]
+"BenchmarkValue"="TEST_WPA_2003"
+"Installed"=dword:00000001
+"WPAEvents"=hex:01,02,03,04,05,06,07,08
+"OOBETimer"=hex:ff,ff,ff,ff,ff,ff,ff,ff
+"TestValue"=dword:00000032
+
+; ControlSet001 (15 ops - Services)
+[\ControlSet001\Services\Dhcp]
+"Start"=dword:00000003
+"Type"=dword:00000020
+
+[\ControlSet001\Services\Dnscache]
+"Start"=dword:00000002
+"ErrorControl"=dword:00000001
+
+[\ControlSet001\Services\W32Time]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\EventLog]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\PlugPlay]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\RpcSs]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\SENS]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\lanmanserver]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\lanmanworkstation]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\Netlogon]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Spooler]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Schedule]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Themes]
+"Start"=dword:00000003
+
+; ControlSet002 (10 ops - Control)
+[\ControlSet002\Control\Session Manager]
+"GlobalFlag"=dword:00000001
+
+[\ControlSet002\Control\TimeZoneInformation]
+"StandardName"="Pacific Standard Time"
+
+[\ControlSet002\Control\NetworkProvider\Order]
+"ProviderOrder"="RDPNP,LanmanWorkstation"
+
+[\ControlSet002\Control\FileSystem]
+"NtfsDisable8dot3NameCreation"=dword:00000001
+
+[\ControlSet002\Control\Lsa]
+"LimitBlankPasswordUse"=dword:00000001
+
+[\ControlSet002\Control\Terminal Server]
+"fDenyTSConnections"=dword:00000000
+
+[\ControlSet002\Control\CrashControl]
+"AutoReboot"=dword:00000001
+
+[\ControlSet002\Control\Windows]
+"ErrorMode"=dword:00000000
+
+[\ControlSet002\Control\Print\Printers]
+"DefaultSpoolDirectory"="%SystemRoot%\\system32\\spool\\PRINTERS"
+
+[\ControlSet002\Control\SecurityProviders]
+"SecurityProviders"="msapsspc.dll, schannel.dll"
+
+; LastKnownGoodRecovery (5 ops)
+[\LastKnownGoodRecovery\LastKnownGood]
+"Enabled"=dword:00000001
+
+[\LastKnownGoodRecovery\Control]
+"ServiceGroupOrder"="System Bus Extender"
+
+[\LastKnownGoodRecovery\Services]
+"BenchmarkService"=dword:00000001
+
+[\LastKnownGoodRecovery\Hardware]
+"SystemBiosVersion"="BENCH.01"
+
+[\LastKnownGoodRecovery\Enum]
+"NextInstance"=dword:00000064
+
+; MountedDevices (5 ops)
+[\MountedDevices]
+"BenchmarkDevice"=hex:00,01,02,03,04,05,06,07,08,09,0a,0b,0c,0d,0e,0f
+"DosDevices_C"=hex:10,11,12,13,14,15,16,17,18,19,1a,1b,1c,1d,1e,1f
+"DosDevices_D"=hex:20,21,22,23,24,25,26,27,28,29,2a,2b,2c,2d,2e,2f
+"Volume_A"=hex:30,31,32,33,34,35,36,37,38,39,3a,3b,3c,3d,3e,3f
+"Volume_B"=hex:40,41,42,43,44,45,46,47,48,49,4a,4b,4c,4d,4e,4f
+

@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+; Modify existing values in the large hive
+[\A\A giant\A giant elephant]
+"A"="Modified Value A"
+"B"=dword:12345678
+
+[\Another\Another giant\Another giant goat]
+"A"="Another Modified"
+
+[\The\The giant\The giant mongoose]
+"C"=hex(2):25,00,54,00,65,00,73,00,74,00,25,00,00,00

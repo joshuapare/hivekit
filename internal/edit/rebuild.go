@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/joshuapare/hivekit/internal/format"
@@ -119,10 +120,10 @@ type treeNode struct {
 	offset         int32  // cell offset (assigned during serialization)
 	parent         *treeNode
 	children       []*treeNode
-	childMap       map[string]*treeNode // O(1) lookup map for children
+	childMap       map[string]*treeNode // O(1) case-insensitive lookup map (keys are lowercase)
 	childrenSorted bool                 // true if children slice is sorted by name
 	values         []treeValue
-	valueMap       map[string]*treeValue // O(1) lookup map for values
+	valueMap       map[string]*treeValue // O(1) case-insensitive lookup map (keys are lowercase)
 	deleted        bool
 }
 
@@ -163,11 +164,26 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 		}
 	}
 
-	// Apply created keys
+	// Apply created keys (sorted by depth so parents are inserted before children)
+	// Map iteration order is randomized in Go, so we need to sort
+	createdPaths := make([]string, 0, len(tx.createdKeys))
 	for path, node := range tx.createdKeys {
-		if node.exists {
-			continue // already in tree
+		if !node.exists {
+			createdPaths = append(createdPaths, path)
 		}
+	}
+	// Sort by number of path segments (depth), then alphabetically
+	sort.Slice(createdPaths, func(i, j int) bool {
+		iSegments := len(splitPath(createdPaths[i]))
+		jSegments := len(splitPath(createdPaths[j]))
+		if iSegments != jSegments {
+			return iSegments < jSegments
+		}
+		return createdPaths[i] < createdPaths[j]
+	})
+
+	for _, path := range createdPaths {
+		node := tx.createdKeys[path]
 		if err := insertCreatedKey(root, path, node); err != nil {
 			return nil, err
 		}
@@ -238,8 +254,8 @@ func buildNodeFromBase(
 					typ:            vd.typ,
 					data:           vd.data,
 				})
-				// Add to valueMap for O(1) lookup
-				node.valueMap[vmeta.Name] = &node.values[len(node.values)-1]
+				// Add to valueMap for O(1) case-insensitive lookup
+				node.valueMap[strings.ToLower(vmeta.Name)] = &node.values[len(node.values)-1]
 			} else {
 				// Use original value
 				data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{CopyData: true})
@@ -252,8 +268,8 @@ func buildNodeFromBase(
 					typ:            vmeta.Type,
 					data:           data,
 				})
-				// Add to valueMap for O(1) lookup
-				node.valueMap[vmeta.Name] = &node.values[len(node.values)-1]
+				// Add to valueMap for O(1) case-insensitive lookup
+				node.valueMap[strings.ToLower(vmeta.Name)] = &node.values[len(node.values)-1]
 			}
 		}
 	}
@@ -281,7 +297,7 @@ func buildNodeFromBase(
 				return nil, err
 			}
 			node.children = append(node.children, child)
-			node.childMap[child.name] = child
+			node.childMap[strings.ToLower(child.name)] = child
 		}
 		// Children from base hive are already sorted (registry format guarantees this)
 		if len(node.children) > 0 {
@@ -298,7 +314,7 @@ func insertChildSorted(parent, child *treeNode) {
 	if !parent.childrenSorted || len(parent.children) == 0 {
 		// Not sorted or empty, just append
 		parent.children = append(parent.children, child)
-		parent.childMap[child.name] = child
+		parent.childMap[strings.ToLower(child.name)] = child
 		if len(parent.children) == 1 {
 			parent.childrenSorted = true // Single child is trivially sorted
 		}
@@ -314,7 +330,7 @@ func insertChildSorted(parent, child *treeNode) {
 	parent.children = append(parent.children, nil)
 	copy(parent.children[insertPos+1:], parent.children[insertPos:])
 	parent.children[insertPos] = child
-	parent.childMap[child.name] = child
+	parent.childMap[strings.ToLower(child.name)] = child
 	// Remains sorted
 }
 
@@ -327,10 +343,10 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 
 	current := root
 	for i, seg := range segments {
-		// Use childMap for O(1) lookup
-		child, found := current.childMap[seg]
+		// Use childMap for O(1) case-insensitive lookup
+		child, found := current.childMap[strings.ToLower(seg)]
 		if !found {
-			// Create new node with compressed name by default (deterministic: prefer compression)
+			// Create new node preserving original case from .reg file
 			newNode := &treeNode{
 				name:           seg,
 				nameCompressed: true,
@@ -362,8 +378,8 @@ func setValueInTree(root *treeNode, path, name string, typ types.RegType, data [
 		return fmt.Errorf("key not found: %s", path)
 	}
 
-	// Use valueMap for O(1) lookup
-	if val, found := node.valueMap[name]; found {
+	// Use valueMap for O(1) case-insensitive lookup
+	if val, found := node.valueMap[strings.ToLower(name)]; found {
 		// Update existing value
 		val.typ = typ
 		val.data = data
@@ -378,8 +394,8 @@ func setValueInTree(root *treeNode, path, name string, typ types.RegType, data [
 		typ:            typ,
 		data:           data,
 	})
-	// Add to valueMap for future O(1) lookups
-	node.valueMap[name] = &node.values[len(node.values)-1]
+	// Add to valueMap for future O(1) case-insensitive lookups
+	node.valueMap[strings.ToLower(name)] = &node.values[len(node.values)-1]
 	return nil
 }
 
@@ -390,33 +406,35 @@ func deleteValueInTree(root *treeNode, path, name string) error {
 		return nil
 	}
 
-	// Use valueMap for O(1) lookup
-	if _, found := node.valueMap[name]; !found {
+	// Use valueMap for O(1) case-insensitive lookup
+	lowerName := strings.ToLower(name)
+	if _, found := node.valueMap[lowerName]; !found {
 		return nil // Value doesn't exist, nothing to delete
 	}
 
-	// Find and remove from slice
+	// Find and remove from slice (case-insensitive comparison)
 	for i, v := range node.values {
-		if v.name == name {
+		if strings.EqualFold(v.name, name) {
 			node.values = append(node.values[:i], node.values[i+1:]...)
 			break
 		}
 	}
 
 	// Remove from map
-	delete(node.valueMap, name)
+	delete(node.valueMap, lowerName)
 
 	// Note: We need to rebuild the map because slice indices changed
 	// This is necessary because we store pointers to slice elements
 	node.valueMap = make(map[string]*treeValue, len(node.values))
 	for i := range node.values {
-		node.valueMap[node.values[i].name] = &node.values[i]
+		node.valueMap[strings.ToLower(node.values[i].name)] = &node.values[i]
 	}
 
 	return nil
 }
 
-// findNode finds a node by path in the tree.
+// findNode finds a node by path in the tree (case-insensitive).
+// Allocates one lowercase string per path segment for map lookup.
 func findNode(root *treeNode, path string) *treeNode {
 	if path == "" {
 		return root
@@ -424,22 +442,17 @@ func findNode(root *treeNode, path string) *treeNode {
 	segments := splitPath(path)
 	current := root
 	for _, seg := range segments {
-		found := false
-		for _, child := range current.children {
-			if child.name == seg {
-				current = child
-				found = true
-				break
-			}
-		}
+		// Use childMap for O(1) case-insensitive lookup
+		child, found := current.childMap[strings.ToLower(seg)]
 		if !found {
 			return nil
 		}
+		current = child
 	}
 	return current
 }
 
-// splitPath splits a path into segments.
+// splitPath splits a path into segments, preserving original case.
 func splitPath(path string) []string {
 	if path == "" {
 		return nil

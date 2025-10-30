@@ -1,0 +1,28 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Delta 7 - adds new keys
+[\BenchSeq\Delta07\Key01]
+"KeyNumber"=dword:0000001f
+"DeltaID"=dword:00000007
+"Value"="Delta07_Key01"
+
+[\BenchSeq\Delta07\Key02]
+"KeyNumber"=dword:00000020
+"DeltaID"=dword:00000007
+"Value"="Delta07_Key02"
+
+[\BenchSeq\Delta07\Key03]
+"KeyNumber"=dword:00000021
+"DeltaID"=dword:00000007
+"Value"="Delta07_Key03"
+
+[\BenchSeq\Delta07\Key04]
+"KeyNumber"=dword:00000022
+"DeltaID"=dword:00000007
+"Value"="Delta07_Key04"
+
+[\BenchSeq\Delta07\Key05]
+"KeyNumber"=dword:00000023
+"DeltaID"=dword:00000007
+"Value"="Delta07_Key05"
+

@@ -1,0 +1,248 @@
+Windows Registry Editor Version 5.00
+
+; Medium patch for Windows 2012 System - 100 ops across top-level keys
+
+; Select (10 ops)
+[\Select]
+"Current"=dword:00000001
+"Default"=dword:00000001
+"Failed"=dword:00000000
+"LastKnownGood"=dword:00000002
+"BenchmarkSelect"=dword:00000064
+"Alternate"=dword:00000001
+"Backup"=dword:00000002
+"Restore"=dword:00000001
+"Test1"=dword:00000003
+"Test2"=dword:00000004
+
+; Setup (10 ops)
+[\Setup]
+"SetupType"=dword:00000004
+"SystemSetupInProgress"=dword:00000000
+"CmdLine"="setup -newsetup"
+"OsLoaderPath"="\\Device\\HarddiskVolume1"
+"SystemPartition"="\\Device\\HarddiskVolume1"
+"OsLoader"="ntldr"
+"Upgrade"=dword:00000000
+"MiniBuild"=dword:00002328
+"SystemPrefix"=hex:00,01,02,03,04,05,06,07
+"CloneTag"=dword:00000000
+
+; WPA (10 ops)
+[\WPA]
+"BenchmarkValue"="TEST_WPA_2012"
+"Installed"=dword:00000001
+
+[\WPA\KeyManagementData]
+"TestValue1"=dword:00000001
+"TestValue2"=dword:00000002
+"TestValue3"=dword:00000003
+
+[\WPA\PolicyCache]
+"CachedPolicy1"=hex:01,02,03,04,05
+"CachedPolicy2"=hex:06,07,08,09,0a
+"CachedPolicy3"=hex:0b,0c,0d,0e,0f
+
+[\WPA\Events]
+"EventCount"=dword:00000005
+
+; ControlSet001 Control settings (10 ops)
+[\ControlSet001\Control\Session Manager]
+"BenchmarkFlag"=dword:00000001
+
+[\ControlSet001\Control\FileSystem]
+"BenchmarkFS"=dword:00000001
+
+[\ControlSet001\Control\Lsa]
+"BenchmarkLSA"=dword:00000001
+
+[\ControlSet001\Control\CrashControl]
+"BenchmarkCrash"=dword:00000001
+
+[\ControlSet001\Control\GraphicsDrivers]
+"BenchmarkGFX"=dword:00000001
+
+[\ControlSet001\Control\Class]
+"BenchmarkClass"="TestDriver"
+
+[\ControlSet001\Control\ACPI]
+"BenchmarkACPI"=dword:00000001
+
+[\ControlSet001\Control\AGP]
+"BenchmarkAGP"=dword:00000001
+
+[\ControlSet001\Control\ComputerName]
+"BenchmarkName"="BENCH-PC"
+
+[\ControlSet001\Control\CrashControl]
+"BenchmarkAutoReboot"=dword:00000001
+
+; ControlSet001 - Add new benchmark services (25 ops)
+[\ControlSet001\Services\BenchSvc01]
+"DisplayName"="Benchmark Service 01"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc02]
+"DisplayName"="Benchmark Service 02"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc03]
+"DisplayName"="Benchmark Service 03"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc04]
+"DisplayName"="Benchmark Service 04"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc05]
+"DisplayName"="Benchmark Service 05"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc06]
+"DisplayName"="Benchmark Service 06"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc07]
+"DisplayName"="Benchmark Service 07"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc08]
+"DisplayName"="Benchmark Service 08"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc09]
+"DisplayName"="Benchmark Service 09"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc10]
+"DisplayName"="Benchmark Service 10"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc11]
+"DisplayName"="Benchmark Service 11"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc12]
+"DisplayName"="Benchmark Service 12"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc13]
+"DisplayName"="Benchmark Service 13"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc14]
+"DisplayName"="Benchmark Service 14"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc15]
+"DisplayName"="Benchmark Service 15"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc16]
+"DisplayName"="Benchmark Service 16"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc17]
+"DisplayName"="Benchmark Service 17"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc18]
+"DisplayName"="Benchmark Service 18"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc19]
+"DisplayName"="Benchmark Service 19"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc20]
+"DisplayName"="Benchmark Service 20"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc21]
+"DisplayName"="Benchmark Service 21"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc22]
+"DisplayName"="Benchmark Service 22"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc23]
+"DisplayName"="Benchmark Service 23"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc24]
+"DisplayName"="Benchmark Service 24"
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BenchSvc25]
+"DisplayName"="Benchmark Service 25"
+"Start"=dword:00000003
+
+; DriverDatabase (10 ops)
+[\DriverDatabase\DeviceIds\PCI\VEN_BENCH]
+"bench01.inf"="Benchmark Driver 01"
+
+[\DriverDatabase\DeviceIds\PCI\VEN_TEST]
+"test01.inf"="Test Driver 01"
+
+[\DriverDatabase\DriverPackages\bench01.inf]
+"Version"=dword:00000001
+
+[\DriverDatabase\DriverPackages\test01.inf]
+"Version"=dword:00000001
+
+[\DriverDatabase\DriverInfFiles\bench01.inf]
+"Active"="bench01.inf"
+
+[\DriverDatabase\DriverInfFiles\test01.inf]
+"Active"="test01.inf"
+
+[\DriverDatabase\DeviceIds\USB\VID_BENCH]
+"benchusb.inf"="Benchmark USB Driver"
+
+[\DriverDatabase\DeviceIds\ACPI\BENCH0001]
+"benchacpi.inf"="Benchmark ACPI Driver"
+
+[\DriverDatabase\DriverPackages\benchusb.inf]
+"Catalog"="benchusb.cat"
+
+[\DriverDatabase\DriverPackages\benchacpi.inf]
+"Catalog"="benchacpi.cat"
+
+; HardwareConfig (5 ops)
+[\HardwareConfig\LastConfig]
+"BenchmarkHardwareID"="{BENCH-GUID-0001}"
+"BaseBoardProduct"="Benchmark Board"
+
+[\HardwareConfig\CurrentConfig]
+"HwProfileGuid"="{BENCH-PROF-0001}"
+"ProcessorIdentifier"="Intel64 Family 6 Model 60"
+
+[\HardwareConfig\Benchmark]
+"ConfigVersion"=dword:00000001
+
+; MountedDevices (10 ops)
+[\MountedDevices]
+"BenchmarkDevice2012"=hex:a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,aa,ab,ac,ad,ae,af
+"DosDevices_C"=hex:b0,b1,b2,b3,b4,b5,b6,b7,b8,b9,ba,bb,bc,bd,be,bf
+"DosDevices_D"=hex:c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,ca,cb,cc,cd,ce,cf
+"DosDevices_E"=hex:d0,d1,d2,d3,d4,d5,d6,d7,d8,d9,da,db,dc,dd,de,df
+"Volume_A"=hex:e0,e1,e2,e3,e4,e5,e6,e7,e8,e9,ea,eb,ec,ed,ee,ef
+"Volume_B"=hex:f0,f1,f2,f3,f4,f5,f6,f7,f8,f9,fa,fb,fc,fd,fe,ff
+"Volume_C"=hex:00,10,20,30,40,50,60,70,80,90,a0,b0,c0,d0,e0,f0
+"Volume_D"=hex:01,11,21,31,41,51,61,71,81,91,a1,b1,c1,d1,e1,f1
+"Device_Test1"=hex:02,12,22,32,42,52,62,72,82,92,a2,b2,c2,d2,e2,f2
+"Device_Test2"=hex:03,13,23,33,43,53,63,73,83,93,a3,b3,c3,d3,e3,f3
+
+; RNG (5 ops)
+[\RNG]
+"Seed"=hex:01,02,03,04,05,06,07,08,09,0a,0b,0c,0d,0e,0f,10
+"Counter"=dword:00000064
+
+[\RNG\State]
+"CurrentState"=hex:11,12,13,14,15,16,17,18,19,1a,1b,1c,1d,1e,1f,20
+"Initialized"=dword:00000001
+
+[\RNG\Config]
+"Algorithm"="SHA256"
+

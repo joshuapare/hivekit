@@ -1,0 +1,21 @@
+Windows Registry Editor Version 5.00
+
+; Delete values from existing keys
+[\A\A giant\A giant elephant]
+"A"=-
+"B"=-
+
+[\A\A giant\A giant goat]
+"A"=-
+"B"=-
+
+[\Another\Another giant\Another giant elephant]
+"A"=-
+"B"=-
+
+[\Another\Another giant\Another giant goat]
+"A"=-
+"B"=-
+
+[-\The\The giant\The giant zebra]
+[-\A\A giant\A giant mongoose]

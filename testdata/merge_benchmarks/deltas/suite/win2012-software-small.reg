@@ -1,0 +1,34 @@
+Windows Registry Editor Version 5.00
+
+; Small patch for Windows 2012 Software - 10 ops across top-level keys
+
+[\ATI Technologies\BenchmarkInstall]
+"Version"="1.0"
+
+[\Classes\BenchmarkFile]
+@="Benchmark File Type"
+
+[\Clients\StartMenuInternet\BENCHMARK.EXE]
+@="Benchmark Browser"
+
+[\Microsoft\Windows\CurrentVersion\Uninstall\BenchApp01]
+"DisplayName"="Benchmark Application 01"
+
+[\ODBC\ODBC.INI\BenchmarkDSN]
+"Driver"="Benchmark ODBC Driver"
+
+[\Policies\Microsoft\Windows\BenchmarkPolicy]
+"Enabled"=dword:00000001
+
+[\RegisteredApplications]
+"BenchmarkApp"="Software\\Benchmark\\Capabilities"
+
+[\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Bench32]
+"DisplayName"="Benchmark 32-bit App"
+
+[\BenchmarkRoot]
+"Version"="1.0.0"
+
+[\BenchmarkSoftware]
+"TestKey"="TestValue"
+

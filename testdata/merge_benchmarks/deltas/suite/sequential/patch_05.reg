@@ -1,0 +1,19 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Patch 5 for Suite Hives - HardwareConfig and RNG
+
+[\HardwareConfig\LastConfig]
+"SeqHardware"="{SEQ-HW-0005}"
+
+[\HardwareConfig\{SEQ-PROF-0005}]
+"FriendlyName"="Sequential Profile 05"
+
+[\RNG]
+"SeqSeed"=hex:05,05,05,05,05,05,05,05,05,05,05,05,05,05,05,05
+
+[\Select]
+"SeqComplete"=dword:00000005
+
+[\BenchSeq05]
+"Marker"="Sequential Patch 05 - Final"
+

@@ -1,0 +1,34 @@
+Windows Registry Editor Version 5.00
+
+; Small patch for Windows 2012 System - 10 ops across top-level keys
+
+[\Select]
+"Current"=dword:00000001
+
+[\Setup]
+"SetupType"=dword:00000004
+
+[\WPA]
+"BenchmarkValue"="TEST_WPA_2012"
+
+[\ControlSet001\Services\Dhcp]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\Dnscache]
+"Start"=dword:00000003
+
+[\DriverDatabase\DeviceIds\PCI\VEN_BENCH]
+"BenchmarkDriver"="bench.inf"
+
+[\HardwareConfig\LastConfig]
+"BenchmarkHardwareID"="{BENCH-GUID-0001}"
+
+[\MountedDevices]
+"BenchmarkDevice2012"=hex:a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,aa,ab,ac,ad,ae,af
+
+[\RNG]
+"Seed"=hex:01,02,03,04,05,06,07,08,09,0a,0b,0c,0d,0e,0f,10
+
+[\BenchmarkRoot2012]
+"TestKey"="Benchmark2012Small"
+

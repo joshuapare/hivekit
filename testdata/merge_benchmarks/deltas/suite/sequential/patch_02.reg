@@ -1,0 +1,16 @@
+Windows Registry Editor Version 5.00
+
+; Sequential Patch 2 for Suite Hives - WPA and MountedDevices
+
+[\WPA]
+"SeqPatch02"="Patch02Value"
+
+[\WPA\Events]
+"SeqEvent"=dword:00000002
+
+[\MountedDevices]
+"SeqDevice02"=hex:02,02,02,02,02,02,02,02,02,02,02,02,02,02,02,02
+
+[\BenchSeq02]
+"Marker"="Sequential Patch 02"
+

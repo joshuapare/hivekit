@@ -1,0 +1,1117 @@
+Windows Registry Editor Version 5.00
+
+; Large patch for Windows 2012 System - 500+ ops across top-level keys
+;
+; Distribution: Select(50), Setup(50), WPA(50), ControlSet001(125), 
+; ControlSet002(125), DriverDatabase(50), HardwareConfig(20), MountedDevices(20), RNG(10)
+
+; ===== Select (50 ops) =====
+[\Select]
+"Current"=dword:00000001
+"Default"=dword:00000001
+"Failed"=dword:00000000
+"LastKnownGood"=dword:00000002
+"BenchVal01"=dword:00000001
+"BenchVal02"=dword:00000002
+"BenchVal03"=dword:00000003
+"BenchVal04"=dword:00000004
+"BenchVal05"=dword:00000005
+"BenchVal06"=dword:00000006
+"BenchVal07"=dword:00000007
+"BenchVal08"=dword:00000008
+"BenchVal09"=dword:00000009
+"BenchVal10"=dword:0000000a
+"BenchVal11"=dword:0000000b
+"BenchVal12"=dword:0000000c
+"BenchVal13"=dword:0000000d
+"BenchVal14"=dword:0000000e
+"BenchVal15"=dword:0000000f
+"BenchVal16"=dword:00000010
+"BenchVal17"=dword:00000011
+"BenchVal18"=dword:00000012
+"BenchVal19"=dword:00000013
+"BenchVal20"=dword:00000014
+"BenchVal21"=dword:00000015
+"BenchVal22"=dword:00000016
+"BenchVal23"=dword:00000017
+"BenchVal24"=dword:00000018
+"BenchVal25"=dword:00000019
+"BenchVal26"=dword:0000001a
+"BenchVal27"=dword:0000001b
+"BenchVal28"=dword:0000001c
+"BenchVal29"=dword:0000001d
+"BenchVal30"=dword:0000001e
+"BenchVal31"=dword:0000001f
+"BenchVal32"=dword:00000020
+"BenchVal33"=dword:00000021
+"BenchVal34"=dword:00000022
+"BenchVal35"=dword:00000023
+"BenchVal36"=dword:00000024
+"BenchVal37"=dword:00000025
+"BenchVal38"=dword:00000026
+"BenchVal39"=dword:00000027
+"BenchVal40"=dword:00000028
+"BenchVal41"=dword:00000029
+"BenchVal42"=dword:0000002a
+"BenchVal43"=dword:0000002b
+"BenchVal44"=dword:0000002c
+"BenchVal45"=dword:0000002d
+"BenchVal46"=dword:0000002e
+
+; ===== Setup (50 ops) =====
+[\Setup]
+"SetupType"=dword:00000004
+"SystemSetupInProgress"=dword:00000000
+"CmdLine"="setup -newsetup"
+"OsLoaderPath"="\\Device\\HarddiskVolume1"
+"SystemPartition"="\\Device\\HarddiskVolume1"
+"OsLoader"="ntldr"
+"Upgrade"=dword:00000000
+"MiniBuild"=dword:00002328
+"SystemPrefix"=hex:00,01,02,03,04,05,06,07
+"CloneTag"=dword:00000000
+
+[\Setup\PnpLocks]
+"Lock01"=dword:00000001
+"Lock02"=dword:00000001
+"Lock03"=dword:00000001
+"Lock04"=dword:00000001
+"Lock05"=dword:00000001
+
+[\Setup\AllowStart]
+"Service01"="Dhcp"
+"Service02"="Dnscache"
+"Service03"="W32Time"
+
+[\Setup\SystemPartition]
+"Guid01"="{BENCH-SYS-0001}"
+"Guid02"="{BENCH-SYS-0002}"
+
+[\Setup\BootDriverFlags]
+"Flag01"=dword:00000030
+"Flag02"=dword:00000031
+"Flag03"=dword:00000032
+"Flag04"=dword:00000033
+"Flag05"=dword:00000034
+"Flag06"=dword:00000035
+"Flag07"=dword:00000036
+"Flag08"=dword:00000037
+"Flag09"=dword:00000038
+"Flag10"=dword:00000039
+"Flag11"=dword:0000003a
+"Flag12"=dword:0000003b
+"Flag13"=dword:0000003c
+"Flag14"=dword:0000003d
+"Flag15"=dword:0000003e
+"Flag16"=dword:0000003f
+"Flag17"=dword:00000040
+"Flag18"=dword:00000041
+"Flag19"=dword:00000042
+"Flag20"=dword:00000043
+
+[\Setup\NetSetup]
+"ComputerName"="BENCHMARK-PC"
+"DomainName"="BENCHMARK-DOMAIN"
+"Workgroup"="WORKGROUP"
+"JoinStatus"=dword:00000001
+
+; ===== WPA (50 ops) =====
+[\WPA]
+"BenchmarkValue"="TEST_WPA_2012"
+"Installed"=dword:00000001
+
+[\WPA\KeyManagementData]
+"Key01"=hex:01,02,03,04,05,06,07,08,09,0a
+"Key02"=hex:11,12,13,14,15,16,17,18,19,1a
+"Key03"=hex:21,22,23,24,25,26,27,28,29,2a
+"Key04"=hex:31,32,33,34,35,36,37,38,39,3a
+"Key05"=hex:41,42,43,44,45,46,47,48,49,4a
+"Key06"=hex:51,52,53,54,55,56,57,58,59,5a
+"Key07"=hex:61,62,63,64,65,66,67,68,69,6a
+"Key08"=hex:71,72,73,74,75,76,77,78,79,7a
+"Key09"=hex:81,82,83,84,85,86,87,88,89,8a
+"Key10"=hex:91,92,93,94,95,96,97,98,99,9a
+
+[\WPA\PolicyCache]
+"Policy01"=hex:a1,a2,a3,a4,a5
+"Policy02"=hex:b1,b2,b3,b4,b5
+"Policy03"=hex:c1,c2,c3,c4,c5
+"Policy04"=hex:d1,d2,d3,d4,d5
+"Policy05"=hex:e1,e2,e3,e4,e5
+"Policy06"=hex:f1,f2,f3,f4,f5
+"Policy07"=hex:01,12,23,34,45
+"Policy08"=hex:56,67,78,89,9a
+"Policy09"=hex:ab,bc,cd,de,ef
+"Policy10"=hex:f0,01,12,23,34
+
+[\WPA\Events]
+"Event01"=dword:00000001
+"Event02"=dword:00000002
+"Event03"=dword:00000003
+"Event04"=dword:00000004
+"Event05"=dword:00000005
+"Event06"=dword:00000006
+"Event07"=dword:00000007
+"Event08"=dword:00000008
+"Event09"=dword:00000009
+"Event10"=dword:0000000a
+
+[\WPA\State]
+"State01"="Active"
+"State02"="Pending"
+"State03"="Validated"
+
+[\WPA\Validation]
+"Val01"=dword:00000001
+"Val02"=dword:00000001
+"Val03"=dword:00000001
+"Val04"=dword:00000001
+"Val05"=dword:00000001
+"Val06"=dword:00000001
+"Val07"=dword:00000001
+"Val08"=dword:00000001
+
+
+; ===== ControlSet001 (125 ops) - Services, Control, Enum =====
+; Services (50 ops)
+[\ControlSet001\Services\Dhcp]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Dnscache]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\BITS]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\AudioSrv]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Browser]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\CryptSvc]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\EventLog]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\PlugPlay]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Spooler]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\W32Time]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Wlansvc]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\WinDefend]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\WinRM]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\wuauserv]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\Themes]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\TabletInputService]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\SENS]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Schedule]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\SamSs]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\RpcSs]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\LanmanServer]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\LanmanWorkstation]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Netlogon]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\EventSystem]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\FontCache]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\gpsvc]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\hidserv]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\iphlpsvc]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Power]
+"Start"=dword:00000001
+
+[\ControlSet001\Services\ProfSvc]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\DcomLaunch]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\Appinfo]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\BFE]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\CertPropSvc]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\DeviceInstall]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\Disk]
+"Start"=dword:00000000
+
+[\ControlSet001\Services\Dps]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\fdPHost]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\FDResPub]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\HomeGroupListener]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\HomeGroupProvider]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\KeyIso]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\Mcx2Svc]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\MMCSS]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\napagent]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\Netman]
+"Start"=dword:00000003
+
+[\ControlSet001\Services\NlaSvc]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\nsi]
+"Start"=dword:00000002
+
+[\ControlSet001\Services\p2pimsvc]
+"Start"=dword:00000003
+
+; Control (50 ops)
+[\ControlSet001\Control\Session Manager]
+"GlobalFlag"=dword:00000000
+
+[\ControlSet001\Control\FileSystem]
+"NtfsDisable8dot3NameCreation"=dword:00000001
+
+[\ControlSet001\Control\Lsa]
+"LimitBlankPasswordUse"=dword:00000001
+
+[\ControlSet001\Control\Terminal Server]
+"fDenyTSConnections"=dword:00000000
+
+[\ControlSet001\Control\TimeZoneInformation]
+"StandardName"="Pacific Standard Time"
+
+[\ControlSet001\Control\Network\Config]
+"LastKnownGoodTime"=hex(b):00,00,00,00,00,00,00,00
+
+[\ControlSet001\Control\Pnp]
+"DontStartRawDevices"=dword:00000001
+
+[\ControlSet001\Control\Update]
+"UpdateRevision"=dword:00000001
+
+[\ControlSet001\Control\CrashControl]
+"AutoReboot"=dword:00000001
+
+[\ControlSet001\Control\Windows]
+"ErrorMode"=dword:00000000
+
+[\ControlSet001\Control\Print\Printers]
+"DefaultSpoolDirectory"="%SystemRoot%\\system32\\spool"
+
+[\ControlSet001\Control\SecurityProviders]
+"SecurityProviders"="msapsspc.dll, schannel.dll"
+
+[\ControlSet001\Control\ContentIndex]
+"FilterRetries"=dword:00000004
+
+[\ControlSet001\Control\NetworkProvider\Order]
+"ProviderOrder"="RDPNP,LanmanWorkstation"
+
+[\ControlSet001\Control\Power]
+"HibernateEnabled"=dword:00000001
+
+[\ControlSet001\Control\GraphicsDrivers]
+"DpiSupport"=dword:00000001
+
+[\ControlSet001\Control\NLS\Language]
+"InstallLanguage"="0409"
+
+[\ControlSet001\Control\Keyboard Layout]
+"Scancode Map"=hex:00,00,00,00,00,00,00,00
+
+[\ControlSet001\Control\SystemStartOptions]
+"Options"="NOEXECUTE=OPTOUT"
+
+[\ControlSet001\Control\BackupRestore\FilesNotToBackup]
+"Test"="*test*"
+
+[\ControlSet001\Control\Biosinfo\SystemBiosVersion]
+"Version"="BENCH.01"
+
+[\ControlSet001\Control\CI\Config]
+"VulnerableDriverBlocklistEnable"=dword:00000001
+
+[\ControlSet001\Control\DeviceGuard]
+"EnableVirtualizationBasedSecurity"=dword:00000000
+
+[\ControlSet001\Control\EarlyLaunch]
+"DriverLoadPolicy"=dword:00000001
+
+[\ControlSet001\Control\Firmware]
+"BootMenuPolicy"=dword:00000001
+
+[\ControlSet001\Control\Hibernation]
+"HiberFileType"=dword:00000002
+
+[\ControlSet001\Control\IDConfigDB]
+"CurrentConfig"=dword:00000001
+
+[\ControlSet001\Control\MediaCategories]
+"Category01"="{BENCH-CAT-0001}"
+
+[\ControlSet001\Control\MediaInterfaces]
+"Interface01"="{BENCH-INT-0001}"
+
+[\ControlSet001\Control\MediaProperties]
+"Property01"="Benchmark"
+
+[\ControlSet001\Control\MediaResources]
+"Resource01"="BenchResource"
+
+[\ControlSet001\Control\MediaSets]
+"Set01"="BenchSet"
+
+[\ControlSet001\Control\NLS\CustomLocale]
+"Locale01"="en-BENCH"
+
+[\ControlSet001\Control\NLS\ExtendedLocale]
+"ExtLocale01"="en-US-BENCH"
+
+[\ControlSet001\Control\NLS\Sorting]
+"SortOrder01"=dword:00000001
+
+[\ControlSet001\Control\PnpResources]
+"ResourceList"=hex:00,00,00,00
+
+[\ControlSet001\Control\Processor]
+"CPUs"=dword:00000004
+
+[\ControlSet001\Control\ProductOptions]
+"ProductType"="ServerNT"
+
+[\ControlSet001\Control\SafeBoot\Minimal]
+"Policy"="Minimal"
+
+[\ControlSet001\Control\SafeBoot\Network]
+"Policy"="Network"
+
+[\ControlSet001\Control\ServiceGroupOrder]
+"GroupOrder01"="System Bus Extender"
+
+[\ControlSet001\Control\Session Manager\AppCompatCache]
+"CacheEnabled"=dword:00000001
+
+[\ControlSet001\Control\Session Manager\DOS Devices]
+"DosDevice01"="C:"
+
+[\ControlSet001\Control\Session Manager\Environment]
+"TEMP"="%SystemRoot%\\TEMP"
+
+[\ControlSet001\Control\Session Manager\kernel]
+"BufferSize"=dword:00000200
+
+[\ControlSet001\Control\Session Manager\Memory Management]
+"PagingFiles"="?:\\pagefile.sys"
+
+[\ControlSet001\Control\Session Manager\Power]
+"HiberFileSizePercent"=dword:00000050
+
+[\ControlSet001\Control\Session Manager\SubSystems]
+"Windows"="windows"
+
+; Enum (25 ops)
+[\ControlSet001\Enum\ROOT\SYSTEM\0001]
+"DeviceDesc"="Benchmark Device 0001"
+
+[\ControlSet001\Enum\ROOT\SYSTEM\0002]
+"DeviceDesc"="Benchmark Device 0002"
+
+[\ControlSet001\Enum\ROOT\SYSTEM\0003]
+"DeviceDesc"="Benchmark Device 0003"
+
+[\ControlSet001\Enum\ROOT\SYSTEM\0004]
+"DeviceDesc"="Benchmark Device 0004"
+
+[\ControlSet001\Enum\ROOT\SYSTEM\0005]
+"DeviceDesc"="Benchmark Device 0005"
+
+[\ControlSet001\Enum\PCI\BENCH0001]
+"DeviceDesc"="Benchmark PCI Device"
+
+[\ControlSet001\Enum\PCI\BENCH0002]
+"DeviceDesc"="Benchmark PCI Device 2"
+
+[\ControlSet001\Enum\USB\BENCH0001]
+"DeviceDesc"="Benchmark USB Device"
+
+[\ControlSet001\Enum\USB\BENCH0002]
+"DeviceDesc"="Benchmark USB Device 2"
+
+[\ControlSet001\Enum\ACPI\BENCH0001]
+"DeviceDesc"="Benchmark ACPI Device"
+
+[\ControlSet001\Enum\ACPI\BENCH0002]
+"DeviceDesc"="Benchmark ACPI Device 2"
+
+[\ControlSet001\Enum\STORAGE\BENCH0001]
+"DeviceDesc"="Benchmark Storage"
+
+[\ControlSet001\Enum\STORAGE\BENCH0002]
+"DeviceDesc"="Benchmark Storage 2"
+
+[\ControlSet001\Enum\HID\BENCH0001]
+"DeviceDesc"="Benchmark HID"
+
+[\ControlSet001\Enum\HID\BENCH0002]
+"DeviceDesc"="Benchmark HID 2"
+
+[\ControlSet001\Enum\DISPLAY\BENCH0001]
+"DeviceDesc"="Benchmark Display"
+
+[\ControlSet001\Enum\DISPLAY\BENCH0002]
+"DeviceDesc"="Benchmark Display 2"
+
+[\ControlSet001\Enum\SW\BENCH0001]
+"DeviceDesc"="Benchmark Software Device"
+
+[\ControlSet001\Enum\SW\BENCH0002]
+"DeviceDesc"="Benchmark Software Device 2"
+
+[\ControlSet001\Enum\SCSI\BENCH0001]
+"DeviceDesc"="Benchmark SCSI Device"
+
+[\ControlSet001\Enum\SCSI\BENCH0002]
+"DeviceDesc"="Benchmark SCSI Device 2"
+
+[\ControlSet001\Enum\BTH\BENCH0001]
+"DeviceDesc"="Benchmark Bluetooth"
+
+[\ControlSet001\Enum\BTH\BENCH0002]
+"DeviceDesc"="Benchmark Bluetooth 2"
+
+[\ControlSet001\Enum\PCMCIA\BENCH0001]
+"DeviceDesc"="Benchmark PCMCIA"
+
+[\ControlSet001\Enum\PCMCIA\BENCH0002]
+"DeviceDesc"="Benchmark PCMCIA 2"
+
+
+; ===== ControlSet002 (125 ops) - Services, Control, Enum =====
+; Services (50 ops)
+[\ControlSet002\Services\Dhcp]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\Dnscache]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\BITS]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\AudioSrv]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\Browser]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\CryptSvc]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\EventLog]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\PlugPlay]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\Spooler]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\W32Time]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\Wlansvc]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\WinDefend]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\WinRM]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\wuauserv]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\Themes]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\TabletInputService]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\SENS]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\Schedule]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\SamSs]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\RpcSs]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\LanmanServer]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\LanmanWorkstation]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\Netlogon]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\EventSystem]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\FontCache]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\gpsvc]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\hidserv]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\iphlpsvc]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\Power]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\ProfSvc]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\DcomLaunch]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\Appinfo]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\BFE]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\CertPropSvc]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\DeviceInstall]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\Disk]
+"Start"=dword:00000001
+
+[\ControlSet002\Services\Dps]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\fdPHost]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\FDResPub]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\HomeGroupListener]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\HomeGroupProvider]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\KeyIso]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\Mcx2Svc]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\MMCSS]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\napagent]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\Netman]
+"Start"=dword:00000002
+
+[\ControlSet002\Services\NlaSvc]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\nsi]
+"Start"=dword:00000003
+
+[\ControlSet002\Services\p2pimsvc]
+"Start"=dword:00000002
+
+; Control (50 ops)
+[\ControlSet002\Control\Session Manager]
+"GlobalFlag"=dword:00000001
+
+[\ControlSet002\Control\FileSystem]
+"NtfsDisable8dot3NameCreation"=dword:00000000
+
+[\ControlSet002\Control\Lsa]
+"LimitBlankPasswordUse"=dword:00000000
+
+[\ControlSet002\Control\Terminal Server]
+"fDenyTSConnections"=dword:00000001
+
+[\ControlSet002\Control\TimeZoneInformation]
+"StandardName"="Eastern Standard Time"
+
+[\ControlSet002\Control\Network\Config]
+"LastKnownGoodTime"=hex(b):01,00,00,00,00,00,00,00
+
+[\ControlSet002\Control\Pnp]
+"DontStartRawDevices"=dword:00000000
+
+[\ControlSet002\Control\Update]
+"UpdateRevision"=dword:00000002
+
+[\ControlSet002\Control\CrashControl]
+"AutoReboot"=dword:00000000
+
+[\ControlSet002\Control\Windows]
+"ErrorMode"=dword:00000001
+
+[\ControlSet002\Control\Print\Printers]
+"DefaultSpoolDirectory"="%SystemRoot%\\system32\\spool\\PRINTERS"
+
+[\ControlSet002\Control\SecurityProviders]
+"SecurityProviders"="credssp.dll, kerberos.dll"
+
+[\ControlSet002\Control\ContentIndex]
+"FilterRetries"=dword:00000005
+
+[\ControlSet002\Control\NetworkProvider\Order]
+"ProviderOrder"="WebClient,LanmanWorkstation"
+
+[\ControlSet002\Control\Power]
+"HibernateEnabled"=dword:00000000
+
+[\ControlSet002\Control\GraphicsDrivers]
+"DpiSupport"=dword:00000002
+
+[\ControlSet002\Control\NLS\Language]
+"InstallLanguage"="0809"
+
+[\ControlSet002\Control\Keyboard Layout]
+"Scancode Map"=hex:01,00,00,00,00,00,00,00
+
+[\ControlSet002\Control\SystemStartOptions]
+"Options"="NOEXECUTE=OPTIN"
+
+[\ControlSet002\Control\BackupRestore\FilesNotToBackup]
+"Test2"="*test2*"
+
+[\ControlSet002\Control\Biosinfo\SystemBiosVersion]
+"Version"="BENCH.02"
+
+[\ControlSet002\Control\CI\Config]
+"VulnerableDriverBlocklistEnable"=dword:00000000
+
+[\ControlSet002\Control\DeviceGuard]
+"EnableVirtualizationBasedSecurity"=dword:00000001
+
+[\ControlSet002\Control\EarlyLaunch]
+"DriverLoadPolicy"=dword:00000000
+
+[\ControlSet002\Control\Firmware]
+"BootMenuPolicy"=dword:00000000
+
+[\ControlSet002\Control\Hibernation]
+"HiberFileType"=dword:00000001
+
+[\ControlSet002\Control\IDConfigDB]
+"CurrentConfig"=dword:00000002
+
+[\ControlSet002\Control\MediaCategories]
+"Category02"="{BENCH-CAT-0002}"
+
+[\ControlSet002\Control\MediaInterfaces]
+"Interface02"="{BENCH-INT-0002}"
+
+[\ControlSet002\Control\MediaProperties]
+"Property02"="Benchmark2"
+
+[\ControlSet002\Control\MediaResources]
+"Resource02"="BenchResource2"
+
+[\ControlSet002\Control\MediaSets]
+"Set02"="BenchSet2"
+
+[\ControlSet002\Control\NLS\CustomLocale]
+"Locale02"="en-BENCH2"
+
+[\ControlSet002\Control\NLS\ExtendedLocale]
+"ExtLocale02"="en-GB-BENCH"
+
+[\ControlSet002\Control\NLS\Sorting]
+"SortOrder02"=dword:00000002
+
+[\ControlSet002\Control\PnpResources]
+"ResourceList"=hex:01,00,00,00
+
+[\ControlSet002\Control\Processor]
+"CPUs"=dword:00000008
+
+[\ControlSet002\Control\ProductOptions]
+"ProductType"="WinNT"
+
+[\ControlSet002\Control\SafeBoot\Minimal]
+"Policy"="Minimal_Secure"
+
+[\ControlSet002\Control\SafeBoot\Network]
+"Policy"="Network_Secure"
+
+[\ControlSet002\Control\ServiceGroupOrder]
+"GroupOrder02"="SCSI miniport"
+
+[\ControlSet002\Control\Session Manager\AppCompatCache]
+"CacheEnabled"=dword:00000000
+
+[\ControlSet002\Control\Session Manager\DOS Devices]
+"DosDevice02"="D:"
+
+[\ControlSet002\Control\Session Manager\Environment]
+"TMP"="%SystemRoot%\\TMP"
+
+[\ControlSet002\Control\Session Manager\kernel]
+"BufferSize"=dword:00000400
+
+[\ControlSet002\Control\Session Manager\Memory Management]
+"PagingFiles"="C:\\pagefile.sys"
+
+[\ControlSet002\Control\Session Manager\Power]
+"HiberFileSizePercent"=dword:00000075
+
+[\ControlSet002\Control\Session Manager\SubSystems]
+"Posix"="posix"
+
+; Enum (25 ops)
+[\ControlSet002\Enum\ROOT\SYSTEM\0001]
+"DeviceDesc"="Benchmark Device CS2-0001"
+
+[\ControlSet002\Enum\ROOT\SYSTEM\0002]
+"DeviceDesc"="Benchmark Device CS2-0002"
+
+[\ControlSet002\Enum\ROOT\SYSTEM\0003]
+"DeviceDesc"="Benchmark Device CS2-0003"
+
+[\ControlSet002\Enum\ROOT\SYSTEM\0004]
+"DeviceDesc"="Benchmark Device CS2-0004"
+
+[\ControlSet002\Enum\ROOT\SYSTEM\0005]
+"DeviceDesc"="Benchmark Device CS2-0005"
+
+[\ControlSet002\Enum\PCI\BENCH0003]
+"DeviceDesc"="Benchmark PCI Device CS2"
+
+[\ControlSet002\Enum\PCI\BENCH0004]
+"DeviceDesc"="Benchmark PCI Device CS2-2"
+
+[\ControlSet002\Enum\USB\BENCH0003]
+"DeviceDesc"="Benchmark USB Device CS2"
+
+[\ControlSet002\Enum\USB\BENCH0004]
+"DeviceDesc"="Benchmark USB Device CS2-2"
+
+[\ControlSet002\Enum\ACPI\BENCH0003]
+"DeviceDesc"="Benchmark ACPI Device CS2"
+
+[\ControlSet002\Enum\ACPI\BENCH0004]
+"DeviceDesc"="Benchmark ACPI Device CS2-2"
+
+[\ControlSet002\Enum\STORAGE\BENCH0003]
+"DeviceDesc"="Benchmark Storage CS2"
+
+[\ControlSet002\Enum\STORAGE\BENCH0004]
+"DeviceDesc"="Benchmark Storage CS2-2"
+
+[\ControlSet002\Enum\HID\BENCH0003]
+"DeviceDesc"="Benchmark HID CS2"
+
+[\ControlSet002\Enum\HID\BENCH0004]
+"DeviceDesc"="Benchmark HID CS2-2"
+
+[\ControlSet002\Enum\DISPLAY\BENCH0003]
+"DeviceDesc"="Benchmark Display CS2"
+
+[\ControlSet002\Enum\DISPLAY\BENCH0004]
+"DeviceDesc"="Benchmark Display CS2-2"
+
+[\ControlSet002\Enum\SW\BENCH0003]
+"DeviceDesc"="Benchmark Software Device CS2"
+
+[\ControlSet002\Enum\SW\BENCH0004]
+"DeviceDesc"="Benchmark Software Device CS2-2"
+
+[\ControlSet002\Enum\SCSI\BENCH0003]
+"DeviceDesc"="Benchmark SCSI Device CS2"
+
+[\ControlSet002\Enum\SCSI\BENCH0004]
+"DeviceDesc"="Benchmark SCSI Device CS2-2"
+
+[\ControlSet002\Enum\BTH\BENCH0003]
+"DeviceDesc"="Benchmark Bluetooth CS2"
+
+[\ControlSet002\Enum\BTH\BENCH0004]
+"DeviceDesc"="Benchmark Bluetooth CS2-2"
+
+[\ControlSet002\Enum\PCMCIA\BENCH0003]
+"DeviceDesc"="Benchmark PCMCIA CS2"
+
+[\ControlSet002\Enum\PCMCIA\BENCH0004]
+"DeviceDesc"="Benchmark PCMCIA CS2-2"
+
+
+
+; ===== DriverDatabase (50 ops) =====
+[\DriverDatabase\DeviceIds\PCI\VEN_BENCH&DEV_0001]
+"bench01.inf"="Benchmark PCI Driver 01"
+
+[\DriverDatabase\DeviceIds\PCI\VEN_BENCH&DEV_0002]
+"bench02.inf"="Benchmark PCI Driver 02"
+
+[\DriverDatabase\DeviceIds\PCI\VEN_BENCH&DEV_0003]
+"bench03.inf"="Benchmark PCI Driver 03"
+
+[\DriverDatabase\DeviceIds\PCI\VEN_BENCH&DEV_0004]
+"bench04.inf"="Benchmark PCI Driver 04"
+
+[\DriverDatabase\DeviceIds\PCI\VEN_BENCH&DEV_0005]
+"bench05.inf"="Benchmark PCI Driver 05"
+
+[\DriverDatabase\DeviceIds\USB\VID_BENCH&PID_0001]
+"benchusb01.inf"="Benchmark USB Driver 01"
+
+[\DriverDatabase\DeviceIds\USB\VID_BENCH&PID_0002]
+"benchusb02.inf"="Benchmark USB Driver 02"
+
+[\DriverDatabase\DeviceIds\USB\VID_BENCH&PID_0003]
+"benchusb03.inf"="Benchmark USB Driver 03"
+
+[\DriverDatabase\DeviceIds\USB\VID_BENCH&PID_0004]
+"benchusb04.inf"="Benchmark USB Driver 04"
+
+[\DriverDatabase\DeviceIds\USB\VID_BENCH&PID_0005]
+"benchusb05.inf"="Benchmark USB Driver 05"
+
+[\DriverDatabase\DeviceIds\ACPI\BENCH0001]
+"benchacpi01.inf"="Benchmark ACPI Driver 01"
+
+[\DriverDatabase\DeviceIds\ACPI\BENCH0002]
+"benchacpi02.inf"="Benchmark ACPI Driver 02"
+
+[\DriverDatabase\DeviceIds\ACPI\BENCH0003]
+"benchacpi03.inf"="Benchmark ACPI Driver 03"
+
+[\DriverDatabase\DeviceIds\HDAUDIO\BENCH0001]
+"benchhda01.inf"="Benchmark Audio Driver 01"
+
+[\DriverDatabase\DeviceIds\HDAUDIO\BENCH0002]
+"benchhda02.inf"="Benchmark Audio Driver 02"
+
+[\DriverDatabase\DriverPackages\bench01.inf]
+"Version"=dword:00000001
+"Catalog"="bench01.cat"
+
+[\DriverDatabase\DriverPackages\bench02.inf]
+"Version"=dword:00000002
+"Catalog"="bench02.cat"
+
+[\DriverDatabase\DriverPackages\bench03.inf]
+"Version"=dword:00000003
+"Catalog"="bench03.cat"
+
+[\DriverDatabase\DriverPackages\bench04.inf]
+"Version"=dword:00000004
+"Catalog"="bench04.cat"
+
+[\DriverDatabase\DriverPackages\bench05.inf]
+"Version"=dword:00000005
+"Catalog"="bench05.cat"
+
+[\DriverDatabase\DriverPackages\benchusb01.inf]
+"Version"=dword:00000001
+"Catalog"="benchusb01.cat"
+
+[\DriverDatabase\DriverPackages\benchusb02.inf]
+"Version"=dword:00000002
+"Catalog"="benchusb02.cat"
+
+[\DriverDatabase\DriverPackages\benchusb03.inf]
+"Version"=dword:00000003
+"Catalog"="benchusb03.cat"
+
+[\DriverDatabase\DriverPackages\benchusb04.inf]
+"Version"=dword:00000004
+"Catalog"="benchusb04.cat"
+
+[\DriverDatabase\DriverPackages\benchusb05.inf]
+"Version"=dword:00000005
+"Catalog"="benchusb05.cat"
+
+[\DriverDatabase\DriverInfFiles\bench01.inf]
+"Active"="bench01.inf"
+"ConfigFlags"=dword:00000000
+
+[\DriverDatabase\DriverInfFiles\bench02.inf]
+"Active"="bench02.inf"
+"ConfigFlags"=dword:00000000
+
+[\DriverDatabase\DriverInfFiles\bench03.inf]
+"Active"="bench03.inf"
+"ConfigFlags"=dword:00000000
+
+[\DriverDatabase\DriverInfFiles\bench04.inf]
+"Active"="bench04.inf"
+"ConfigFlags"=dword:00000000
+
+[\DriverDatabase\DriverInfFiles\bench05.inf]
+"Active"="bench05.inf"
+"ConfigFlags"=dword:00000000
+
+[\DriverDatabase\DriverInfFiles\benchusb01.inf]
+"Active"="benchusb01.inf"
+"ConfigFlags"=dword:00000001
+
+[\DriverDatabase\DriverInfFiles\benchusb02.inf]
+"Active"="benchusb02.inf"
+"ConfigFlags"=dword:00000001
+
+[\DriverDatabase\DriverInfFiles\benchusb03.inf]
+"Active"="benchusb03.inf"
+"ConfigFlags"=dword:00000001
+
+[\DriverDatabase\DriverInfFiles\benchacpi01.inf]
+"Active"="benchacpi01.inf"
+"ConfigFlags"=dword:00000002
+
+[\DriverDatabase\DriverInfFiles\benchacpi02.inf]
+"Active"="benchacpi02.inf"
+"ConfigFlags"=dword:00000002
+
+; ===== HardwareConfig (20 ops) =====
+[\HardwareConfig\LastConfig]
+"BenchmarkHardwareID"="{BENCH-GUID-0001}"
+"BaseBoardProduct"="Benchmark Board"
+"BaseBoardManufacturer"="Benchmark Inc"
+"SystemFamily"="Benchmark Family"
+
+[\HardwareConfig\CurrentConfig]
+"HwProfileGuid"="{BENCH-PROF-0001}"
+"ProcessorIdentifier"="Intel64 Family 6 Model 60"
+"SystemManufacturer"="Benchmark Systems"
+"SystemProductName"="Benchmark Pro"
+
+[\HardwareConfig\{BENCH-PROF-0001}]
+"FriendlyName"="Benchmark Profile 01"
+"PreferenceOrder"=dword:00000001
+
+[\HardwareConfig\{BENCH-PROF-0002}]
+"FriendlyName"="Benchmark Profile 02"
+"PreferenceOrder"=dword:00000002
+
+[\HardwareConfig\{BENCH-PROF-0003}]
+"FriendlyName"="Benchmark Profile 03"
+"PreferenceOrder"=dword:00000003
+
+[\HardwareConfig\Benchmark]
+"ConfigVersion"=dword:00000001
+"ConfigRevision"=dword:00000001
+"ConfigDate"="2024-01-01"
+"ConfigAuthor"="Benchmark System"
+"ConfigNotes"="Benchmark hardware configuration"
+
+; ===== MountedDevices (20 ops) =====
+[\MountedDevices]
+"BenchmarkDevice2012"=hex:a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,aa,ab,ac,ad,ae,af
+"DosDevices_C"=hex:b0,b1,b2,b3,b4,b5,b6,b7,b8,b9,ba,bb,bc,bd,be,bf
+"DosDevices_D"=hex:c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,ca,cb,cc,cd,ce,cf
+"DosDevices_E"=hex:d0,d1,d2,d3,d4,d5,d6,d7,d8,d9,da,db,dc,dd,de,df
+"DosDevices_F"=hex:e0,e1,e2,e3,e4,e5,e6,e7,e8,e9,ea,eb,ec,ed,ee,ef
+"Volume_A"=hex:f0,f1,f2,f3,f4,f5,f6,f7,f8,f9,fa,fb,fc,fd,fe,ff
+"Volume_B"=hex:00,10,20,30,40,50,60,70,80,90,a0,b0,c0,d0,e0,f0
+"Volume_C"=hex:01,11,21,31,41,51,61,71,81,91,a1,b1,c1,d1,e1,f1
+"Volume_D"=hex:02,12,22,32,42,52,62,72,82,92,a2,b2,c2,d2,e2,f2
+"Volume_E"=hex:03,13,23,33,43,53,63,73,83,93,a3,b3,c3,d3,e3,f3
+"Device_Test1"=hex:04,14,24,34,44,54,64,74,84,94,a4,b4,c4,d4,e4,f4
+"Device_Test2"=hex:05,15,25,35,45,55,65,75,85,95,a5,b5,c5,d5,e5,f5
+"Device_Test3"=hex:06,16,26,36,46,56,66,76,86,96,a6,b6,c6,d6,e6,f6
+"Device_Test4"=hex:07,17,27,37,47,57,67,77,87,97,a7,b7,c7,d7,e7,f7
+"Device_Test5"=hex:08,18,28,38,48,58,68,78,88,98,a8,b8,c8,d8,e8,f8
+"Device_Test6"=hex:09,19,29,39,49,59,69,79,89,99,a9,b9,c9,d9,e9,f9
+"Device_Test7"=hex:0a,1a,2a,3a,4a,5a,6a,7a,8a,9a,aa,ba,ca,da,ea,fa
+"Device_Test8"=hex:0b,1b,2b,3b,4b,5b,6b,7b,8b,9b,ab,bb,cb,db,eb,fb
+"Device_Test9"=hex:0c,1c,2c,3c,4c,5c,6c,7c,8c,9c,ac,bc,cc,dc,ec,fc
+"Device_Test10"=hex:0d,1d,2d,3d,4d,5d,6d,7d,8d,9d,ad,bd,cd,dd,ed,fd
+
+; ===== RNG (10 ops) =====
+[\RNG]
+"Seed"=hex:01,02,03,04,05,06,07,08,09,0a,0b,0c,0d,0e,0f,10
+"Counter"=dword:00000064
+"Algorithm"="SHA256"
+
+[\RNG\State]
+"CurrentState"=hex:11,12,13,14,15,16,17,18,19,1a,1b,1c,1d,1e,1f,20
+"PreviousState"=hex:21,22,23,24,25,26,27,28,29,2a,2b,2c,2d,2e,2f,30
+"Initialized"=dword:00000001
+
+[\RNG\Config]
+"BufferSize"=dword:00001000
+"RefreshInterval"=dword:00000064
+
+[\RNG\Entropy]
+"EntropyPool"=hex:31,32,33,34,35,36,37,38,39,3a,3b,3c,3d,3e,3f,40
+"EntropyLevel"=dword:00000080
+

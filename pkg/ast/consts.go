@@ -8,13 +8,16 @@ const (
 	// Different Windows versions may have slightly different limits, but these
 	// represent the most commonly documented values.
 
-	// WindowsMaxSubkeysDefault is the standard maximum number of subkeys per key
-	// for most registry key types in Windows.
-	WindowsMaxSubkeysDefault = 512
+	// WindowsMaxSubkeysDefault is a practical default limit for subkeys per key.
+	// Windows does not impose a hard limit on subkeys per key (only limited by
+	// available memory). Real-world system keys like \Classes can have thousands
+	// of subkeys. This default provides a reasonable safety limit for most use cases.
+	// Reference: Production Windows hives commonly contain keys with 2000+ subkeys.
+	WindowsMaxSubkeysDefault = 10000
 
 	// WindowsMaxSubkeysAbsolute is the absolute maximum number of subkeys
-	// that can exist under a single key. Some system keys can have more
-	// than the default limit.
+	// that can exist under a single key. This is limited by the REGF format's
+	// use of uint16 for subkey list counts.
 	WindowsMaxSubkeysAbsolute = 65535
 
 	// WindowsMaxValues is the hard limit for the number of values per key
@@ -49,9 +52,10 @@ const (
 	// validation scenarios.
 	WindowsMaxValueNameLenSmall = 255
 
-	// WindowsMaxTreeDepthPractical is the practical limit for registry
-	// tree depth. While Windows has no hard limit, depths beyond this
-	// are extremely rare and may cause performance issues.
+	// WindowsMaxTreeDepthPractical is the official Windows Registry limit for
+	// tree depth (nesting levels). The registry tree can be 512 levels deep.
+	// You can create up to 32 levels at a time through a single registry API call.
+	// Reference: https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-element-size-limits
 	WindowsMaxTreeDepthPractical = 512
 
 	// WindowsMaxTreeDepthDeep allows very deep trees for special cases.

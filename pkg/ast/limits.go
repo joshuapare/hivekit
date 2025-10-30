@@ -11,8 +11,9 @@ import (
 // corruption, resource exhaustion, and malformed hives.
 type Limits struct {
 	// MaxSubkeys is the maximum number of subkeys a node can have.
-	// Windows registry limit is typically 512 for most key types,
-	// but can be higher (up to ~65535) for some system keys.
+	// Windows does not impose a hard limit on subkeys per key (only limited by
+	// available memory), but this provides a practical safety limit. Production
+	// Windows keys like \Classes commonly have 2000+ subkeys.
 	MaxSubkeys int
 
 	// MaxValues is the maximum number of values a node can have.
@@ -31,8 +32,9 @@ type Limits struct {
 	// Windows registry limit is 16,383 characters.
 	MaxValueNameLen int
 
-	// MaxTreeDepth is the maximum depth of the registry tree.
-	// Windows registry has no hard limit, but practical limit is ~512 levels.
+	// MaxTreeDepth is the maximum depth of the registry tree (nesting levels).
+	// Windows registry officially limits tree depth to 512 levels.
+	// Reference: https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-element-size-limits
 	MaxTreeDepth int
 
 	// MaxTotalSize is the maximum total size of a hive in bytes.

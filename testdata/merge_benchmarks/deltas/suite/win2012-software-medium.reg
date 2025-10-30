@@ -1,0 +1,158 @@
+Windows Registry Editor Version 5.00
+
+; Medium patch for Windows 2012 Software - 50 ops across top-level keys
+
+; ATI Technologies (5 ops)
+[\ATI Technologies]
+"BenchmarkValue"="ATI_BENCH_2012"
+
+[\ATI Technologies\Install]
+"Version"="12.1"
+
+[\ATI Technologies\CBT]
+"NewCBT"=dword:00000001
+
+[\ATI Technologies\Desktop]
+"Scheme"="Default"
+
+[\ATI Technologies\Multimedia]
+"Enabled"=dword:00000001
+
+; Classes (10 ops - add new file types and COM objects)
+[\Classes\.bench]
+@="BenchmarkFile"
+
+[\Classes\.benchx]
+@="BenchmarkExecutable"
+
+[\Classes\BenchmarkFile]
+@="Benchmark File"
+
+[\Classes\BenchmarkFile\shell\open\command]
+@="\"C:\\BenchApp\\bench.exe\" \"%1\""
+
+[\Classes\CLSID\{BENCH-0001-0000-0000-000000000000}]
+@="Benchmark COM Object"
+
+[\Classes\CLSID\{BENCH-0002-0000-0000-000000000000}]
+@="Benchmark COM Object 2"
+
+[\Classes\Interface\{BENCH-INT-0001}]
+@="Benchmark Interface"
+
+[\Classes\TypeLib\{BENCH-LIB-0001}]
+@="Benchmark Type Library"
+
+[\Classes\AppID\{BENCH-APP-0001}]
+@="Benchmark AppID"
+
+[\Classes\Wow6432Node\CLSID\{BENCH-WOW-0001}]
+@="Benchmark WOW64 COM Object"
+
+; Clients (5 ops)
+[\Clients\StartMenuInternet\BENCHMARK.EXE]
+@="Benchmark Browser"
+
+[\Clients\StartMenuInternet\BENCHMARK.EXE\Capabilities]
+"ApplicationName"="Benchmark Browser"
+
+[\Clients\Mail\BenchMail]
+@="Benchmark Mail Client"
+
+[\Clients\Media\BenchMedia]
+@="Benchmark Media Player"
+
+[\Clients\Calendar\BenchCal]
+@="Benchmark Calendar"
+
+; Microsoft (15 ops)
+[\Microsoft\Windows\CurrentVersion]
+"ProgramFilesDir"="C:\\Program Files"
+"CommonFilesDir"="C:\\Program Files\\Common Files"
+
+[\Microsoft\Windows\CurrentVersion\Uninstall\BenchApp01]
+"DisplayName"="Benchmark Application 01"
+"DisplayVersion"="1.0.1"
+"Publisher"="Benchmark Software"
+
+[\Microsoft\Windows\CurrentVersion\Uninstall\BenchApp02]
+"DisplayName"="Benchmark Application 02"
+"DisplayVersion"="1.0.2"
+
+[\Microsoft\Windows\CurrentVersion\Uninstall\BenchApp03]
+"DisplayName"="Benchmark Application 03"
+"DisplayVersion"="1.0.3"
+
+[\Microsoft\Windows\CurrentVersion\App Paths\benchapp1.exe]
+@="C:\\BenchApps\\benchapp1.exe"
+
+[\Microsoft\Windows\CurrentVersion\App Paths\benchapp2.exe]
+@="C:\\BenchApps\\benchapp2.exe"
+
+[\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders]
+"BenchmarkFolder"="C:\\Users\\Benchmark"
+
+[\Microsoft\Windows\CurrentVersion\Run]
+"BenchApp"="C:\\BenchApps\\bench.exe"
+
+[\Microsoft\Windows NT\CurrentVersion]
+"RegisteredOwner"="Benchmark User"
+
+[\Microsoft\Office\15.0\Common]
+"BenchmarkOffice"=dword:00000001
+
+[\Microsoft\.NETFramework\v4.0.30319]
+"SchUseStrongCrypto"=dword:00000001
+
+; ODBC (5 ops)
+[\ODBC\ODBC.INI\BenchmarkDSN]
+"Driver"="Benchmark ODBC Driver"
+"Server"="localhost"
+"Database"="benchmark"
+
+[\ODBC\ODBC.INI\BenchmarkDSN2]
+"Driver"="Benchmark ODBC Driver 2"
+
+[\ODBC\ODBCINST.INI\Benchmark ODBC Driver]
+"Driver"="C:\\Drivers\\benchodbc.dll"
+
+; Policies (5 ops)
+[\Policies\Microsoft\Windows]
+"BenchmarkPolicy"=dword:00000001
+
+[\Policies\Microsoft\Windows\System]
+"DisableCMD"=dword:00000000
+
+[\Policies\Microsoft\Windows NT\Terminal Services]
+"fAllowToGetHelp"=dword:00000001
+
+[\Policies\Microsoft\WindowsFirewall]
+"BenchmarkFirewall"=dword:00000001
+
+[\Policies\Benchmark]
+"SecurityLevel"=dword:00000002
+
+; RegisteredApplications (5 ops)
+[\RegisteredApplications]
+"BenchmarkApp"="Software\\Benchmark\\Capabilities"
+"BenchmarkBrowser"="Software\\BenchBrowser\\Capabilities"
+"BenchmarkMail"="Software\\BenchMail\\Capabilities"
+"BenchmarkMedia"="Software\\BenchMedia\\Capabilities"
+"BenchmarkEdit"="Software\\BenchEdit\\Capabilities"
+
+; Wow6432Node (5 ops - 32-bit apps on 64-bit Windows)
+[\Wow6432Node\Microsoft\Windows\CurrentVersion]
+"ProgramFilesDir (x86)"="C:\\Program Files (x86)"
+
+[\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Bench32App01]
+"DisplayName"="Benchmark 32-bit App 01"
+
+[\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Bench32App02]
+"DisplayName"="Benchmark 32-bit App 02"
+
+[\Wow6432Node\Benchmark]
+"Version"="1.0"
+
+[\Wow6432Node\Classes\CLSID\{BENCH-32-0001}]
+@="Benchmark 32-bit COM"
+

@@ -1,0 +1,63 @@
+Windows Registry Editor Version 5.00
+
+; Delete values from all existing keys
+[\A\A giant\A giant elephant]
+"A"=-
+"B"=-
+"C"=-
+
+[\A\A giant\A giant goat]
+"A"=-
+"B"=-
+"C"=-
+
+[\A\A giant\A giant mongoose]
+"A"=-
+"B"=-
+"C"=-
+
+[\A\A giant\A giant zebra]
+"A"=-
+"B"=-
+"C"=-
+
+[\Another\Another giant\Another giant elephant]
+"A"=-
+"B"=-
+"C"=-
+
+[\Another\Another giant\Another giant goat]
+"A"=-
+"B"=-
+"C"=-
+
+[\Another\Another giant\Another giant mongoose]
+"A"=-
+"B"=-
+"C"=-
+
+[\Another\Another giant\Another giant zebra]
+"A"=-
+"B"=-
+"C"=-
+
+[\The\The giant\The giant elephant]
+"A"=-
+"B"=-
+"C"=-
+
+[\The\The giant\The giant goat]
+"A"=-
+"B"=-
+"C"=-
+
+[\The\The giant\The giant mongoose]
+"A"=-
+"B"=-
+"C"=-
+
+[\The\The giant\The giant zebra]
+"A"=-
+"B"=-
+"C"=-
+

@@ -264,7 +264,11 @@ func (tx *transaction) SetValue(path, name string, t types.RegType, data []byte)
 		_, err := findInBase(tx.editor.r, path)
 		keyExists = err == nil
 		if !keyExists && tx.createdKeys[path] == nil {
-			return &types.Error{Kind: types.ErrKindNotFound, Msg: fmt.Sprintf("key %q not found; create it first", path)}
+			// Auto-create the key and its parents (matches Windows RegCreateKeyEx behavior)
+			// This allows .reg files to set values without explicitly creating keys first
+			if err := tx.CreateKey(path, types.CreateKeyOptions{CreateParents: true}); err != nil {
+				return fmt.Errorf("failed to auto-create parent key %q: %w", path, err)
+			}
 		}
 	}
 
