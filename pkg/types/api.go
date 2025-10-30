@@ -73,16 +73,19 @@ type (
 type RegType uint32
 
 const (
-	REG_NONE      RegType = 0
-	REG_SZ        RegType = 1
-	REG_EXPAND_SZ RegType = 2
-	REG_BINARY    RegType = 3
-	REG_DWORD     RegType = 4
-	REG_DWORD_LE  RegType = 4 // alias for clarity
-	REG_DWORD_BE  RegType = 5
-	REG_LINK      RegType = 6
-	REG_MULTI_SZ  RegType = 7
-	REG_QWORD     RegType = 11
+	REG_NONE                        RegType = 0
+	REG_SZ                          RegType = 1
+	REG_EXPAND_SZ                   RegType = 2
+	REG_BINARY                      RegType = 3
+	REG_DWORD                       RegType = 4
+	REG_DWORD_LE                    RegType = 4 // alias for clarity
+	REG_DWORD_BE                    RegType = 5
+	REG_LINK                        RegType = 6
+	REG_MULTI_SZ                    RegType = 7
+	REG_RESOURCE_LIST               RegType = 8
+	REG_FULL_RESOURCE_DESCRIPTOR    RegType = 9
+	REG_RESOURCE_REQUIREMENTS_LIST  RegType = 10
+	REG_QWORD                       RegType = 11
 )
 
 // String implements the Stringer interface for RegType
@@ -104,6 +107,12 @@ func (t RegType) String() string {
 		return "REG_LINK"
 	case REG_MULTI_SZ:
 		return "REG_MULTI_SZ"
+	case REG_RESOURCE_LIST:
+		return "REG_RESOURCE_LIST"
+	case REG_FULL_RESOURCE_DESCRIPTOR:
+		return "REG_FULL_RESOURCE_DESCRIPTOR"
+	case REG_RESOURCE_REQUIREMENTS_LIST:
+		return "REG_RESOURCE_REQUIREMENTS_LIST"
 	case REG_QWORD:
 		return "REG_QWORD"
 	default:
@@ -514,6 +523,16 @@ type RegParseOptions struct {
 	// InputEncoding declares the .reg text encoding (e.g., "UTF-16LE").
 	// Implementations may transcode to UTF-8 internally.
 	InputEncoding string
+
+	// Prefix to strip from all key paths in the .reg file.
+	// Example: "HKEY_LOCAL_MACHINE\\SOFTWARE" for SOFTWARE hive
+	// If empty and AutoPrefix is false, paths are used as-is.
+	Prefix string
+
+	// AutoPrefix automatically detects and strips standard Windows registry
+	// prefixes (HKEY_LOCAL_MACHINE\SOFTWARE, HKEY_LOCAL_MACHINE\SYSTEM, etc.)
+	// This is useful when the target hive is unknown but standard prefixes apply.
+	AutoPrefix bool
 }
 
 type RegExportOptions struct {

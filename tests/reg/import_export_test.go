@@ -40,7 +40,8 @@ func TestParseReg(t *testing.T) {
 	if set, ok := ops[2].(hive.OpSetValue); !ok || set.Type != hive.REG_DWORD {
 		t.Fatalf("expected REG_DWORD, got %T", ops[2])
 	}
-	if del, ok := ops[len(ops)-1].(hive.OpDeleteKey); !ok || del.Path != "HKEY_LOCAL_MACHINE\\SOFTWARE\\Obsolete" {
+	// Default behavior strips root key (HKEY_LOCAL_MACHINE\)
+	if del, ok := ops[len(ops)-1].(hive.OpDeleteKey); !ok || del.Path != "SOFTWARE\\Obsolete" {
 		t.Fatalf("unexpected delete op: %#v", ops[len(ops)-1])
 	}
 }

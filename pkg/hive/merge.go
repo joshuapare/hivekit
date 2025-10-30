@@ -148,7 +148,11 @@ func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
 
 	// Parse .reg file
 	codec := regtext.NewCodec()
-	ops, err := codec.ParseReg(regData, RegParseOptions{})
+	parseOpts := RegParseOptions{
+		Prefix:     opts.Prefix,
+		AutoPrefix: opts.AutoPrefix,
+	}
+	ops, err := codec.ParseReg(regData, parseOpts)
 	if err != nil {
 		return fmt.Errorf("failed to parse .reg data: %w", err)
 	}

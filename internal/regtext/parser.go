@@ -45,11 +45,21 @@ func ParseReg(data []byte, opts types.RegParseOptions) ([]types.EditOp, error) {
 			section := strings.TrimSuffix(strings.TrimPrefix(trim, KeyOpenBracket), KeyCloseBracket)
 			if strings.HasPrefix(section, DeleteKeyPrefix) {
 				path := strings.TrimSpace(section[1:])
-				ops = append(ops, types.OpDeleteKey{Path: path, Recursive: true})
+				// Strip prefix from delete key path
+				strippedPath, err := stripPrefix(path, opts)
+				if err != nil {
+					return nil, err
+				}
+				ops = append(ops, types.OpDeleteKey{Path: strippedPath, Recursive: true})
 				current = ""
 				continue
 			}
-			current = section
+			// Strip prefix from regular key path
+			strippedSection, err := stripPrefix(section, opts)
+			if err != nil {
+				return nil, err
+			}
+			current = strippedSection
 			if _, ok := seenKeys[current]; !ok {
 				ops = append(ops, types.OpCreateKey{Path: current})
 				seenKeys[current] = true
@@ -130,16 +140,21 @@ func parseValue(path, name, payload string) (types.EditOp, error) {
 func parseHexPayload(payload string) (types.RegType, []byte, error) {
 	var typ = types.REG_BINARY
 
-	// Check for typed hex values like hex(2), hex(7)
+	// Check for typed hex values like hex(0), hex(2), hex(7), hex(b)
 	if typeNum, found := parseHexValueType(payload); found {
-		switch typeNum {
-		case "2":
-			typ = types.REG_EXPAND_SZ
-		case "7":
-			typ = types.REG_MULTI_SZ
-		default:
-			typ = types.REG_BINARY
+		// Parse the type number (supports both decimal and hex notation)
+		var parsed uint64
+		var err error
+
+		// Try parsing as hex first (for types like 'b' for REG_QWORD)
+		parsed, err = strconv.ParseUint(typeNum, 16, 32)
+		if err != nil {
+			// If hex parsing fails, it might be an invalid type
+			return 0, nil, fmt.Errorf("regtext: invalid hex type number %q", typeNum)
 		}
+
+		// Convert to RegType - this preserves all type values (0-11 and beyond)
+		typ = types.RegType(parsed)
 	}
 
 	// Parse the hex bytes
@@ -149,4 +164,126 @@ func parseHexPayload(payload string) (types.RegType, []byte, error) {
 	}
 
 	return typ, data, nil
+}
+
+// stripPrefix removes registry root key prefixes from a path according to the
+// provided options. It handles:
+// - Root key alias expansion (HKLM → HKEY_LOCAL_MACHINE)
+// - Manual prefix stripping (opts.Prefix)
+// - Automatic standard prefix detection (opts.AutoPrefix)
+func stripPrefix(path string, opts types.RegParseOptions) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+
+	// First, expand any root key aliases
+	path = expandRootKeyAlias(path)
+
+	// If no prefix stripping is requested, strip only the root key name
+	// (for backward compatibility with old behavior)
+	if opts.Prefix == "" && !opts.AutoPrefix {
+		return stripRootKeyOnly(path), nil
+	}
+
+	// Manual prefix stripping
+	if opts.Prefix != "" {
+		stripped, err := tryStripPrefix(path, opts.Prefix)
+		if err != nil {
+			return "", err
+		}
+		return stripped, nil
+	}
+
+	// AutoPrefix: try standard Windows registry prefixes
+	if opts.AutoPrefix {
+		standardPrefixes := []string{
+			HKEYLocalMachine + Backslash + "SOFTWARE",
+			HKEYLocalMachine + Backslash + "SYSTEM",
+			HKEYLocalMachine + Backslash + "SAM",
+			HKEYLocalMachine + Backslash + "SECURITY",
+			HKEYLocalMachine + Backslash + "HARDWARE",
+			HKEYCurrentUser,
+			HKEYUsers,
+			HKEYClassesRoot,
+			HKEYCurrentConfig,
+		}
+
+		for _, prefix := range standardPrefixes {
+			if hasPrefix(path, prefix) {
+				// Strip the prefix, keeping the remainder
+				stripped := path[len(prefix):]
+				// Remove leading backslash if present
+				stripped = strings.TrimPrefix(stripped, Backslash)
+				return stripped, nil
+			}
+		}
+		// If no standard prefix matched, return as-is (could be a relative path)
+	}
+
+	return path, nil
+}
+
+// expandRootKeyAlias expands abbreviated root key names to their full forms.
+// Examples: HKLM → HKEY_LOCAL_MACHINE, HKCU → HKEY_CURRENT_USER
+func expandRootKeyAlias(path string) string {
+	aliases := map[string]string{
+		HKEYLocalMachineShort:   HKEYLocalMachine,
+		HKEYCurrentUserShort:    HKEYCurrentUser,
+		HKEYClassesRootShort:    HKEYClassesRoot,
+		HKEYUsersShort:          HKEYUsers,
+		HKEYCurrentConfigShort:  HKEYCurrentConfig,
+	}
+
+	for short, long := range aliases {
+		if hasPrefix(path, short) {
+			// Replace the short form with the long form
+			return long + path[len(short):]
+		}
+	}
+
+	return path
+}
+
+// tryStripPrefix attempts to strip the given prefix from the path (case-insensitive).
+// Returns an error if the path doesn't start with the expected prefix.
+func tryStripPrefix(path, prefix string) (string, error) {
+	if !hasPrefix(path, prefix) {
+		return "", fmt.Errorf("regtext: path %q does not start with expected prefix %q", path, prefix)
+	}
+
+	// Strip the prefix
+	stripped := path[len(prefix):]
+	// Remove leading backslash if present
+	stripped = strings.TrimPrefix(stripped, Backslash)
+
+	return stripped, nil
+}
+
+// hasPrefix performs a case-insensitive prefix check.
+func hasPrefix(s, prefix string) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	return strings.EqualFold(s[:len(prefix)], prefix)
+}
+
+// stripRootKeyOnly strips only the root key name (HKEY_LOCAL_MACHINE\, etc.)
+// but keeps the rest of the path. This maintains backward compatibility with
+// the old normalizePath behavior.
+func stripRootKeyOnly(path string) string {
+	rootKeys := []string{
+		HKEYLocalMachine + Backslash,
+		HKEYCurrentUser + Backslash,
+		HKEYUsers + Backslash,
+		HKEYClassesRoot + Backslash,
+		HKEYCurrentConfig + Backslash,
+	}
+
+	for _, rootKey := range rootKeys {
+		if hasPrefix(path, rootKey) {
+			return path[len(rootKey):]
+		}
+	}
+
+	return path
 }

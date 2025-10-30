@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-
+	"strings"
 )
 
 // bufWriter implements Writer for in-memory buffers.
@@ -58,10 +58,20 @@ func applyOperation(tx Tx, op EditOp) error {
 		return tx.SetValue(op.Path, op.Name, op.Type, op.Data)
 
 	case OpDeleteKey:
-		return tx.DeleteKey(op.Path, DeleteKeyOptions{Recursive: op.Recursive})
+		err := tx.DeleteKey(op.Path, DeleteKeyOptions{Recursive: op.Recursive})
+		// Windows regedit silently ignores deleting non-existent keys
+		if err != nil && strings.Contains(err.Error(), "not found") {
+			return nil
+		}
+		return err
 
 	case OpDeleteValue:
-		return tx.DeleteValue(op.Path, op.Name)
+		err := tx.DeleteValue(op.Path, op.Name)
+		// Windows regedit silently ignores deleting non-existent values
+		if err != nil && strings.Contains(err.Error(), "not found") {
+			return nil
+		}
+		return err
 
 	default:
 		return fmt.Errorf("unknown operation type: %T", op)

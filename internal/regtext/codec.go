@@ -1,7 +1,6 @@
 package regtext
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -19,48 +18,8 @@ func NewCodec() *Codec {
 
 // ParseReg converts .reg text into edit operations.
 func (c *Codec) ParseReg(regText []byte, opts types.RegParseOptions) ([]types.EditOp, error) {
-	// Parse the .reg file to get structure
-	stats, err := ParseRegFile(bytes.NewReader(regText))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse .reg file: %w", err)
-	}
-
-	// Convert to edit operations
-	// Pre-allocate: 1 CreateKey + N SetValue ops per key
-	capacity := len(stats.Structure)
-	for _, key := range stats.Structure {
-		capacity += len(key.Values)
-	}
-	ops := make([]types.EditOp, 0, capacity)
-
-	for _, key := range stats.Structure {
-		// Normalize path (remove HKEY_ prefix if present)
-		path := normalizePath(key.Path)
-
-		// Create key operation
-		ops = append(ops, types.OpCreateKey{
-			Path: path,
-		})
-
-		// Create set value operations for each value
-		for _, value := range key.Values {
-			// Convert reg value to hive value
-			regType, data, err := convertRegValue(value)
-			if err != nil {
-				// Skip invalid values but continue processing
-				continue
-			}
-
-			ops = append(ops, types.OpSetValue{
-				Path: path,
-				Name: value.Name,
-				Type: regType,
-				Data: data,
-			})
-		}
-	}
-
-	return ops, nil
+	// Use the parser.go ParseReg function which supports prefix stripping
+	return ParseReg(regText, opts)
 }
 
 // ExportReg walks a subtree and emits .reg text.

@@ -8,12 +8,14 @@ import (
 )
 
 var (
-	mergeBackup    bool
-	mergeDryRun    bool
-	mergeDefrag    bool
-	mergeProgress  bool
-	mergeLimits    string
-	mergeContinue  bool
+	mergeBackup     bool
+	mergeDryRun     bool
+	mergeDefrag     bool
+	mergeProgress   bool
+	mergeLimits     string
+	mergeContinue   bool
+	mergePrefix     string
+	mergeAutoPrefix bool
 )
 
 func init() {
@@ -24,6 +26,8 @@ func init() {
 	cmd.Flags().BoolVar(&mergeProgress, "progress", false, "Show progress during merge")
 	cmd.Flags().StringVar(&mergeLimits, "limits", "default", "Limits preset (default, strict, relaxed)")
 	cmd.Flags().BoolVar(&mergeContinue, "continue", false, "Continue on errors")
+	cmd.Flags().StringVar(&mergePrefix, "prefix", "", "Registry prefix to strip from paths (e.g., \"HKEY_LOCAL_MACHINE\\\\SOFTWARE\")")
+	cmd.Flags().BoolVar(&mergeAutoPrefix, "auto-prefix", false, "Auto-detect and strip standard registry prefixes")
 	rootCmd.AddCommand(cmd)
 }
 
@@ -78,6 +82,8 @@ func runMerge(args []string) error {
 		DryRun:       mergeDryRun,
 		CreateBackup: mergeBackup,
 		Defragment:   mergeDefrag,
+		Prefix:       mergePrefix,
+		AutoPrefix:   mergeAutoPrefix,
 	}
 
 	if mergeProgress {

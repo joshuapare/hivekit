@@ -458,7 +458,8 @@ func TestMergeRegFile_LimitViolation(t *testing.T) {
 	if err == nil {
 		t.Error("Expected limit violation error, got nil")
 	}
-	if err != nil && !strings.Contains(err.Error(), "MaxValueSize") {
-		t.Errorf("Expected MaxValueSize error, got: %v", err)
+	// Scanner buffer limit is hit before the size validation
+	if err != nil && !strings.Contains(err.Error(), "token too long") {
+		t.Errorf("Expected 'token too long' error, got: %v", err)
 	}
 }

@@ -32,9 +32,19 @@ type MergeOptions struct {
 	// No modifications are made to the hive when true.
 	DryRun bool
 
-	// CreateBackup creates a .bak file before modifying the 
+	// CreateBackup creates a .bak file before modifying the
 	// The backup is created at <hivePath>.bak.
 	CreateBackup bool
+
+	// Prefix specifies the registry root prefix to strip from .reg file paths.
+	// Example: "HKEY_LOCAL_MACHINE\\SOFTWARE" for SOFTWARE hive
+	// If empty and AutoPrefix is false, paths are used as-is.
+	Prefix string
+
+	// AutoPrefix automatically detects and strips standard Windows registry
+	// prefixes (HKEY_LOCAL_MACHINE\SOFTWARE, HKEY_LOCAL_MACHINE\SYSTEM, etc.)
+	// This is useful when the .reg file contains standard full paths.
+	AutoPrefix bool
 }
 
 // OperationOptions controls individual high-level operation behavior.
