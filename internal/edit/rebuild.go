@@ -16,6 +16,11 @@ import (
 // ErrKeyDeleted is returned when a key has been marked for deletion
 var ErrKeyDeleted = errors.New("key is deleted")
 
+// childMapThreshold is the minimum number of children before we create a childMap.
+// For nodes with fewer children, we use linear search on the slice which is faster
+// and avoids map allocation overhead for leaf-heavy trees.
+const childMapThreshold = 8
+
 // rebuildHive creates a new hive image from the transaction plan.
 // The cellBuf parameter should be a pooled buffer that will be used for intermediate
 // cell serialization. It will be grown if needed.
@@ -205,9 +210,9 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 			nameCompressed: true,
 			parent:         nil,
 			children:       make([]*treeNode, 0),
-			childMap:       make(map[string]*treeNode),
+			childMap:       nil, // Will be created when threshold is exceeded
 			values:         make([]treeValue, 0),
-			valueMap:       make(map[string]*treeValue),
+			valueMap:       nil, // Will be created when threshold is exceeded
 			deleted:        false,
 		}
 	} else {
@@ -399,15 +404,18 @@ func buildNodeFromBase(
 				return nil, err
 			}
 			node.children = append(node.children, child)
-			// Lazy-init childMap on first child
-			if node.childMap == nil {
-				node.childMap = make(map[string]*treeNode, 4) // Pre-allocate small capacity
-			}
-			node.childMap[child.nameLower] = child
 		}
 		// Children from base hive are already sorted (registry format guarantees this)
 		if len(node.children) > 0 {
 			node.childrenSorted = true
+			// Only create childMap if we exceed the threshold
+			// For small child counts, linear search is faster and uses less memory
+			if len(node.children) > childMapThreshold {
+				node.childMap = make(map[string]*treeNode, len(node.children))
+				for _, child := range node.children {
+					node.childMap[child.nameLower] = child
+				}
+			}
 		}
 	}
 
@@ -420,11 +428,17 @@ func insertChildSorted(parent, child *treeNode) {
 	if !parent.childrenSorted || len(parent.children) == 0 {
 		// Not sorted or empty, just append
 		parent.children = append(parent.children, child)
-		// Lazy-init childMap on first child
-		if parent.childMap == nil {
-			parent.childMap = make(map[string]*treeNode, 4) // Pre-allocate small capacity
+		// Update or create map based on threshold
+		if parent.childMap != nil {
+			// Map already exists, update it
+			parent.childMap[child.nameLower] = child
+		} else if len(parent.children) > childMapThreshold {
+			// Just crossed threshold, create map and populate with all children
+			parent.childMap = make(map[string]*treeNode, len(parent.children))
+			for _, c := range parent.children {
+				parent.childMap[c.nameLower] = c
+			}
 		}
-		parent.childMap[child.nameLower] = child
 		if len(parent.children) == 1 {
 			parent.childrenSorted = true // Single child is trivially sorted
 		}
@@ -440,11 +454,17 @@ func insertChildSorted(parent, child *treeNode) {
 	parent.children = append(parent.children, nil)
 	copy(parent.children[insertPos+1:], parent.children[insertPos:])
 	parent.children[insertPos] = child
-	// Lazy-init childMap on first child
-	if parent.childMap == nil {
-		parent.childMap = make(map[string]*treeNode, 4) // Pre-allocate small capacity
+	// Update or create map based on threshold
+	if parent.childMap != nil {
+		// Map already exists, update it
+		parent.childMap[child.nameLower] = child
+	} else if len(parent.children) > childMapThreshold {
+		// Just crossed threshold, create map and populate with all children
+		parent.childMap = make(map[string]*treeNode, len(parent.children))
+		for _, c := range parent.children {
+			parent.childMap[c.nameLower] = c
+		}
 	}
-	parent.childMap[child.nameLower] = child
 	// Remains sorted
 }
 
@@ -457,13 +477,8 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 
 	current := root
 	for i, seg := range segments {
-		// Use childMap for O(1) case-insensitive lookup
 		segLower := strings.ToLower(seg)
-		var child *treeNode
-		var found bool
-		if current.childMap != nil {
-			child, found = current.childMap[segLower]
-		}
+		child, found := findChild(current, segLower)
 		if !found {
 			// For the last segment, use the original case-preserving name from keyNode
 			// For intermediate segments, use the segment from the path
@@ -573,6 +588,24 @@ func deleteValueInTree(root *treeNode, path, name string) error {
 	return nil
 }
 
+// findChild finds a child node by name (case-insensitive).
+// Uses map lookup if available, otherwise linear search on the children slice.
+func findChild(parent *treeNode, nameLower string) (*treeNode, bool) {
+	// Try map lookup first (O(1) if map exists)
+	if parent.childMap != nil {
+		child, found := parent.childMap[nameLower]
+		return child, found
+	}
+
+	// Fall back to linear search (acceptable for small child counts)
+	for _, child := range parent.children {
+		if child.nameLower == nameLower {
+			return child, true
+		}
+	}
+	return nil, false
+}
+
 // findNode finds a node by path in the tree (case-insensitive).
 func findNode(root *treeNode, path string) *treeNode {
 	if path == "" {
@@ -581,13 +614,8 @@ func findNode(root *treeNode, path string) *treeNode {
 	segments := splitPath(path)
 	current := root
 	for _, seg := range segments {
-		// Use childMap for O(1) case-insensitive lookup
 		segLower := strings.ToLower(seg)
-		var child *treeNode
-		var found bool
-		if current.childMap != nil {
-			child, found = current.childMap[segLower]
-		}
+		child, found := findChild(current, segLower)
 		if !found {
 			return nil
 		}
@@ -716,11 +744,14 @@ func serializeNKToBuf(
 ) int32 {
 	// Use the encoding format from the original record (deterministic)
 	var nameBytes []byte
+	var nameSize int
 	var flags uint16
+	var needsEncoding bool
 
 	// Zero-copy optimization: Use original bytes if unchanged
 	if node.nameBytes != nil {
 		nameBytes = node.nameBytes
+		nameSize = len(nameBytes)
 		if node.nameCompressed {
 			flags = format.NKFlagCompressedName
 		} else {
@@ -733,18 +764,21 @@ func serializeNKToBuf(
 		if err != nil {
 			// If encoding fails, the name has characters not in Windows-1252
 			// Fall back to UTF-16LE and clear the compressed flag
-			nameBytes = encodeUTF16LE(node.name)
+			nameSize = utf16LESize(node.name)
+			needsEncoding = true
 			flags = 0x00
 		} else {
+			nameSize = len(nameBytes)
 			flags = format.NKFlagCompressedName // compressed name flag
 		}
 	} else {
 		// Uncompressed name - encode to UTF-16LE
-		nameBytes = encodeUTF16LE(node.name)
+		nameSize = utf16LESize(node.name)
+		needsEncoding = true
 		flags = 0x00
 	}
 
-	contentSize := format.NKFixedHeaderSize + len(nameBytes) // Fixed from 0x50 to 0x4C
+	contentSize := format.NKFixedHeaderSize + nameSize // Fixed from 0x50 to 0x4C
 	// Ensure NK payload meets minimum size requirement (80 bytes)
 	// This is needed for keys with short/empty names (e.g., root)
 	if contentSize < format.NKMinSize {
@@ -850,7 +884,7 @@ func serializeNKToBuf(
 	pos += 4
 
 	// Name length (at 0x48 relative to payload start) - Fixed from 0x4C
-	binary.LittleEndian.PutUint16(buf[pos:], uint16(len(nameBytes)))
+	binary.LittleEndian.PutUint16(buf[pos:], uint16(nameSize))
 	pos += 2
 
 	// Class length (at 0x4A relative to payload start) - Fixed from 0x4E
@@ -858,7 +892,13 @@ func serializeNKToBuf(
 	pos += 2
 
 	// Name (at 0x4C relative to payload start) - Fixed from 0x50
-	copy(buf[pos:], nameBytes)
+	if needsEncoding {
+		// Encode UTF-16LE directly to buffer (zero allocation)
+		encodeUTF16LETo(buf[pos:], node.name)
+	} else {
+		// Copy pre-encoded bytes
+		copy(buf[pos:], nameBytes)
+	}
 
 	return offset
 }
@@ -1018,11 +1058,14 @@ func serializeDBRecord(data []byte, alloc *allocator, buf []byte) int32 {
 func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 	// Use the encoding format from the original record (deterministic)
 	var nameBytes []byte
+	var nameSize int
 	var flags uint16
+	var needsEncoding bool
 
 	// Zero-copy optimization: Use original bytes if unchanged
 	if val.nameBytes != nil {
 		nameBytes = val.nameBytes
+		nameSize = len(nameBytes)
 		if val.nameCompressed {
 			flags = format.VKFlagASCIIName
 		} else {
@@ -1035,14 +1078,17 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 		if err != nil {
 			// If encoding fails, the name has characters not in Windows-1252
 			// Fall back to UTF-16LE and clear the compressed flag
-			nameBytes = encodeUTF16LE(val.name)
+			nameSize = utf16LESize(val.name)
+			needsEncoding = true
 			flags = 0x00
 		} else {
+			nameSize = len(nameBytes)
 			flags = format.VKFlagASCIIName // compressed/ASCII flag
 		}
 	} else {
 		// Uncompressed name - encode to UTF-16LE
-		nameBytes = encodeUTF16LE(val.name)
+		nameSize = utf16LESize(val.name)
+		needsEncoding = true
 		flags = 0x00
 	}
 	dataLen := len(val.data)
@@ -1077,7 +1123,7 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 		}
 	}
 
-	contentSize := format.VKFixedHeaderSize + len(nameBytes)
+	contentSize := format.VKFixedHeaderSize + nameSize
 	totalSize := contentSize + 4
 	offset := alloc.alloc(totalSize)
 
@@ -1134,7 +1180,13 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 	pos += 2
 
 	// Name
-	copy(buf[pos:], nameBytes)
+	if needsEncoding {
+		// Encode UTF-16LE directly to buffer (zero allocation)
+		encodeUTF16LETo(buf[pos:], val.name)
+	} else {
+		// Copy pre-encoded bytes
+		copy(buf[pos:], nameBytes)
+	}
 
 	return offset
 }
@@ -1261,25 +1313,53 @@ func serializeRIWithLFs(offsets []int32, alloc *allocator, buf []byte, maxPerLF 
 	return riOffset
 }
 
-// encodeUTF16LE encodes a UTF-8 string to UTF-16LE bytes.
-func encodeUTF16LE(s string) []byte {
-	// Estimate 2 bytes per character
-	result := make([]byte, 0, len(s)*2)
+// utf16LESize calculates the size in bytes needed for UTF-16LE encoding of s.
+// Does not allocate.
+func utf16LESize(s string) int {
+	size := 0
+	for _, r := range s {
+		if r <= format.UTF16BMPMax {
+			size += 2 // BMP character - single UTF-16 code unit
+		} else {
+			size += 4 // Supplementary character - surrogate pair
+		}
+	}
+	return size
+}
 
-	// Range over string directly to get runes (Unicode code points)
+// encodeUTF16LETo encodes a UTF-8 string to UTF-16LE bytes, writing to dst.
+// Returns the number of bytes written. Assumes dst has sufficient capacity.
+// Does not allocate.
+func encodeUTF16LETo(dst []byte, s string) int {
+	pos := 0
 	for _, r := range s {
 		if r <= format.UTF16BMPMax {
 			// BMP character - single UTF-16 code unit
-			result = append(result, byte(r), byte(r>>8))
+			dst[pos] = byte(r)
+			dst[pos+1] = byte(r >> 8)
+			pos += 2
 		} else {
 			// Supplementary character - surrogate pair
 			r -= format.UTF16SurrogateBase
 			high := uint16(format.UTF16HighSurrogateStart + (r >> 10))
 			low := uint16(format.UTF16LowSurrogateStart + (r & format.UTF16SurrogateMask))
-			result = append(result, byte(high), byte(high>>8))
-			result = append(result, byte(low), byte(low>>8))
+			dst[pos] = byte(high)
+			dst[pos+1] = byte(high >> 8)
+			dst[pos+2] = byte(low)
+			dst[pos+3] = byte(low >> 8)
+			pos += 4
 		}
 	}
+	return pos
+}
+
+// encodeUTF16LE encodes a UTF-8 string to UTF-16LE bytes.
+// This is a convenience wrapper for tests that allocates.
+// Production code should use utf16LESize + encodeUTF16LETo for zero allocation.
+func encodeUTF16LE(s string) []byte {
+	size := utf16LESize(s)
+	result := make([]byte, size)
+	encodeUTF16LETo(result, s)
 	return result
 }
 
