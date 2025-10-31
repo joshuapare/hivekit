@@ -34,7 +34,9 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 	}
 
 	// Pre-calculate buffer size needed
-	neededSize := calculateBufferSize(root)
+	// Pass changeIdx to enable on-demand materialization of base-ref nodes
+	changeIdx := tx.getChangeIndex()
+	neededSize := calculateBufferSize(root, tx, changeIdx)
 	// Add 10% padding for safety margin and any minor alignment discrepancies
 	// Our calculation now accounts for NK min size, DB records, and RI/LF overhead
 	// so we don't need the previous 100% padding
@@ -50,7 +52,8 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 	alloc.setCellBuffer(workBuf)
 
 	// Serialize the tree into the buffer
-	if err := serializeNode(root, alloc, workBuf, opts); err != nil {
+	// Pass tx and changeIdx to enable on-demand materialization during serialization
+	if err := serializeNode(root, alloc, workBuf, opts, tx, changeIdx); err != nil {
 		return nil, err
 	}
 
@@ -61,17 +64,20 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 	}
 	workBuf = workBuf[:alloc.nextOffset]
 
-	// Build HBINs from the cell buffer using allocator's HBIN layout
-	hbins := packCellBuffer(workBuf, alloc, opts.Repack)
-
-	// Build final hive with header
-	return buildFinalHive(hbins, root.offset, alloc)
+	// Build final hive with header directly from the cell buffer layout
+	return buildFinalHive(workBuf, root.offset, alloc)
 }
 
 // calculateBufferSize recursively calculates the total buffer size needed
 // for all cells in the tree.
-func calculateBufferSize(node *treeNode) int {
+func calculateBufferSize(node *treeNode, tx *transaction, changeIdx *changeIndex) int {
 	if node == nil {
+		return 0
+	}
+
+	// Materialize base-ref nodes on-demand before calculating size
+	if err := node.ensureMaterialized(tx, changeIdx); err != nil {
+		// If materialization fails, skip this node (shouldn't happen in practice)
 		return 0
 	}
 
@@ -155,7 +161,7 @@ func calculateBufferSize(node *treeNode) int {
 
 	// Recursively calculate for all children
 	for _, child := range node.children {
-		total += calculateBufferSize(child)
+		total += calculateBufferSize(child, tx, changeIdx)
 	}
 
 	return total
@@ -169,10 +175,23 @@ func alignTo8(size int) int {
 	return size + (8 - size%8)
 }
 
+// nodeKind represents the materialization state of a tree node.
+type nodeKind int
+
+const (
+	// nodeMaterialized indicates the node is fully loaded with children, values, and maps.
+	nodeMaterialized nodeKind = iota
+	// nodeBaseRef indicates the node is a lightweight reference to base hive data.
+	// Children and values are NOT loaded; maps are nil.
+	nodeBaseRef
+)
+
 // treeNode represents a key in the logical tree.
 type treeNode struct {
 	name           string
 	nameLower      string // cached lowercase name for map lookups (eliminates repeated ToLower calls)
+	path           string // cached canonical path with original casing
+	pathLower      string // cached lowercase path for change-index lookups
 	nameBytes      []byte // original encoded bytes from base hive (nil if new/modified)
 	nameCompressed bool   // true if name should be stored in compressed (Windows-1252) format
 	offset         int32  // cell offset (assigned during serialization)
@@ -183,6 +202,10 @@ type treeNode struct {
 	values         []treeValue
 	valueMap       map[string]*treeValue // O(1) case-insensitive lookup map (keys are lowercase)
 	deleted        bool
+
+	// Lazy materialization fields
+	kind       nodeKind     // materialization state: nodeMaterialized or nodeBaseRef
+	baseNodeID types.NodeID // source node ID if kind == nodeBaseRef
 }
 
 // treeValue represents a value in the tree.
@@ -207,6 +230,8 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 		root = &treeNode{
 			name:           "",
 			nameLower:      "", // Empty root has empty lowercase name
+			path:           "",
+			pathLower:      "",
 			nameCompressed: true,
 			parent:         nil,
 			children:       make([]*treeNode, 0),
@@ -214,6 +239,7 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 			values:         make([]treeValue, 0),
 			valueMap:       nil, // Will be created when threshold is exceeded
 			deleted:        false,
+			kind:           nodeMaterialized, // Created from scratch, already materialized
 		}
 	} else {
 		// Start with root from base hive
@@ -222,7 +248,7 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 			return nil, err
 		}
 
-		root, err = buildNodeFromBase(tx, alloc, changeIdx, rootID, "", nil)
+		root, err = buildNodeFromBase(tx, alloc, changeIdx, rootID, "", "", nil) // Root: both path and pathLower are ""
 		if err != nil {
 			return nil, err
 		}
@@ -255,14 +281,14 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 
 	// Apply value changes
 	for vk, vd := range tx.setValues {
-		if err := setValueInTree(root, vk.path, vk.name, vd.typ, vd.data); err != nil {
+		if err := setValueInTree(root, vk.path, vk.name, vd.typ, vd.data, tx, changeIdx); err != nil {
 			return nil, err
 		}
 	}
 
 	// Apply value deletions
 	for vk := range tx.deletedVals {
-		if err := deleteValueInTree(root, vk.path, vk.name); err != nil {
+		if err := deleteValueInTree(root, vk.path, vk.name, tx, changeIdx); err != nil {
 			return nil, err
 		}
 	}
@@ -277,10 +303,11 @@ func buildNodeFromBase(
 	changeIdx *changeIndex,
 	id types.NodeID,
 	path string,
+	pathLower string, // Pre-normalized path to avoid repeated ToLower calls
 	parent *treeNode,
 ) (*treeNode, error) {
 	// Check if this key is deleted (use ChangeIndex for O(1) lookup)
-	if changeIdx.HasDeleted(path) {
+	if changeIdx.HasDeleted(pathLower) {
 		return nil, ErrKeyDeleted
 	}
 
@@ -289,10 +316,33 @@ func buildNodeFromBase(
 		return nil, err
 	}
 
+	// Lazy materialization: if this subtree has no changes, create a lightweight base-ref node
+	// This avoids allocating maps/slices for unchanged subtrees (88% memory reduction for sparse changes)
+	// Use pre-normalized pathLower to avoid calling ToLower
+	normalizedPath := pathLower
+	if !changeIdx.HasSubtree(normalizedPath) && !changeIdx.HasExact(normalizedPath) {
+		return &treeNode{
+			kind:           nodeBaseRef,
+			baseNodeID:     id,
+			name:           meta.Name,
+			nameLower:      meta.NameLower, // Use pre-computed lowercase from reader
+			path:           path,
+			pathLower:      normalizedPath,
+			nameBytes:      meta.NameRaw,
+			nameCompressed: meta.NameCompressed,
+			parent:         parent,
+			// NO allocations: children, childMap, values, valueMap are all nil
+			// They will be loaded on-demand by ensureMaterialized() during size/serialize passes
+		}, nil
+	}
+
 	node := &treeNode{
+		kind:           nodeMaterialized, // This node has changes, so materialize it
 		name:           meta.Name,
-		nameLower:      strings.ToLower(meta.Name), // Cache once for all map operations
-		nameBytes:      meta.NameRaw,               // Store original bytes for zero-copy serialization
+		nameLower:      meta.NameLower, // Use pre-computed lowercase from reader // Cache once for all map operations
+		path:           path,
+		pathLower:      normalizedPath,
+		nameBytes:      meta.NameRaw, // Store original bytes for zero-copy serialization
 		nameCompressed: meta.NameCompressed,
 		parent:         parent,
 		children:       make([]*treeNode, 0),
@@ -306,24 +356,23 @@ func buildNodeFromBase(
 	valueIDs, err := tx.editor.r.Values(id)
 	if err == nil {
 		hasAnyChanges := changeIdx.ChangeCount() > 0
-		if hasAnyChanges && changeIdx.HasValueChanges(path) {
+		if hasAnyChanges && changeIdx.HasValueChanges(normalizedPath) {
 			// Path has value changes - need to check for modifications/deletions
 			for _, vid := range valueIDs {
 				vmeta, err := tx.editor.r.StatValue(vid)
 				if err != nil {
 					continue
 				}
-				vk := valueKey{path: path, name: vmeta.Name}
+				vk := valueKey{path: normalizedPath, name: vmeta.Name}
 				if tx.deletedVals[vk] {
 					continue // value is deleted
 				}
-				nameLower := strings.ToLower(vmeta.Name) // Cache lowercase once
 				// Check if value is overridden
 				if vd, ok := tx.setValues[vk]; ok {
 					node.values = append(node.values, treeValue{
 						name:           vmeta.Name,
-						nameLower:      nameLower,
-						nameBytes:      nil, // Modified value, no zero-copy
+						nameLower:      vmeta.NameLower, // Use pre-computed lowercase from reader
+						nameBytes:      nil,             // Modified value, no zero-copy
 						nameCompressed: vmeta.NameCompressed,
 						typ:            vd.typ,
 						data:           vd.data,
@@ -332,17 +381,17 @@ func buildNodeFromBase(
 					if node.valueMap == nil {
 						node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
 					}
-					node.valueMap[nameLower] = &node.values[len(node.values)-1]
+					node.valueMap[vmeta.NameLower] = &node.values[len(node.values)-1]
 				} else {
 					// Use original value
-					data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{CopyData: true})
+					data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{})
 					if err != nil {
 						continue
 					}
 					node.values = append(node.values, treeValue{
 						name:           vmeta.Name,
-						nameLower:      nameLower,
-						nameBytes:      vmeta.NameRaw, // Store original bytes for zero-copy
+						nameLower:      vmeta.NameLower, // Use pre-computed lowercase from reader
+						nameBytes:      vmeta.NameRaw,   // Store original bytes for zero-copy
 						nameCompressed: vmeta.NameCompressed,
 						typ:            vmeta.Type,
 						data:           data,
@@ -351,7 +400,7 @@ func buildNodeFromBase(
 					if node.valueMap == nil {
 						node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
 					}
-					node.valueMap[nameLower] = &node.values[len(node.values)-1]
+					node.valueMap[vmeta.NameLower] = &node.values[len(node.values)-1]
 				}
 			}
 		} else {
@@ -361,15 +410,14 @@ func buildNodeFromBase(
 				if err != nil {
 					continue
 				}
-				data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{CopyData: true})
+				data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{})
 				if err != nil {
 					continue
 				}
-				nameLower := strings.ToLower(vmeta.Name) // Cache lowercase once
 				node.values = append(node.values, treeValue{
 					name:           vmeta.Name,
-					nameLower:      nameLower,
-					nameBytes:      vmeta.NameRaw, // Store original bytes for zero-copy
+					nameLower:      vmeta.NameLower, // Use pre-computed lowercase from reader
+					nameBytes:      vmeta.NameRaw,   // Store original bytes for zero-copy
 					nameCompressed: vmeta.NameCompressed,
 					typ:            vmeta.Type,
 					data:           data,
@@ -378,7 +426,7 @@ func buildNodeFromBase(
 				if node.valueMap == nil {
 					node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
 				}
-				node.valueMap[nameLower] = &node.values[len(node.values)-1]
+				node.valueMap[vmeta.NameLower] = &node.values[len(node.values)-1]
 			}
 		}
 	}
@@ -393,9 +441,10 @@ func buildNodeFromBase(
 				continue
 			}
 			// Build child path efficiently (avoid per-iteration allocation)
-			childPath := joinPath(path, smeta.Name)
+			childPath := concatPath(path, smeta.Name)
+			childPathLower := concatPathLower(pathLower, smeta.NameLower)
 
-			child, err := buildNodeFromBase(tx, alloc, changeIdx, sid, childPath, node)
+			child, err := buildNodeFromBase(tx, alloc, changeIdx, sid, childPath, childPathLower, node)
 			if err != nil {
 				// Skip deleted keys (they return ErrKeyDeleted)
 				if errors.Is(err, ErrKeyDeleted) {
@@ -420,6 +469,108 @@ func buildNodeFromBase(
 	}
 
 	return node, nil
+}
+
+// ensureMaterialized converts a base-ref node to a materialized node by loading
+// children and values from the base hive. If the node is already materialized, this is a no-op.
+func (n *treeNode) ensureMaterialized(tx *transaction, changeIdx *changeIndex) error {
+	// Already materialized? Nothing to do
+	if n.kind == nodeMaterialized {
+		return nil
+	}
+
+	// Get reader from transaction (not stored on node to avoid interface overhead)
+	r := tx.editor.r
+	if r == nil {
+		return fmt.Errorf("cannot materialize node: no base reader available")
+	}
+
+	parentPath := n.path
+	parentPathLower := n.pathLower
+
+	// Load children from base hive
+	subkeys, err := r.Subkeys(n.baseNodeID)
+	if err == nil && len(subkeys) > 0 {
+		// Allocate children slice
+		n.children = make([]*treeNode, 0, len(subkeys))
+
+		for _, sid := range subkeys {
+			smeta, err := r.StatKey(sid)
+			if err != nil {
+				continue
+			}
+
+			// Build child path efficiently without recursion
+			childPath := concatPath(parentPath, smeta.Name)
+			childPathLower := concatPathLower(parentPathLower, smeta.NameLower)
+
+			// Create child as base-ref (lazy materialization continues recursively)
+			// The child will be materialized when/if it's accessed during size/serialize
+			child := &treeNode{
+				kind:           nodeBaseRef,
+				baseNodeID:     sid,
+				name:           smeta.Name,
+				nameLower:      smeta.NameLower, // Use pre-computed lowercase from reader
+				path:           childPath,
+				pathLower:      childPathLower,
+				nameBytes:      smeta.NameRaw,
+				nameCompressed: smeta.NameCompressed,
+				parent:         n,
+				// Children and values remain nil (lazy)
+			}
+			n.children = append(n.children, child)
+		}
+
+		// Children from base hive are already sorted
+		n.childrenSorted = true
+
+		// Only create childMap if we exceed the threshold
+		if len(n.children) > childMapThreshold {
+			n.childMap = make(map[string]*treeNode, len(n.children))
+			for _, child := range n.children {
+				n.childMap[child.nameLower] = child
+			}
+		}
+	}
+
+	// Load values from base hive
+	valueIDs, err := r.Values(n.baseNodeID)
+	if err == nil && len(valueIDs) > 0 {
+		// Allocate values slice
+		n.values = make([]treeValue, 0, len(valueIDs))
+
+		for _, vid := range valueIDs {
+			vmeta, err := r.StatValue(vid)
+			if err != nil {
+				continue
+			}
+
+			data, err := r.ValueBytes(vid, types.ReadOptions{})
+			if err != nil {
+				continue
+			}
+
+			n.values = append(n.values, treeValue{
+				name:           vmeta.Name,
+				nameLower:      vmeta.NameLower, // Use pre-computed lowercase from reader
+				nameBytes:      vmeta.NameRaw,
+				nameCompressed: vmeta.NameCompressed,
+				typ:            vmeta.Type,
+				data:           data,
+			})
+
+			// Lazy-init valueMap on first value
+			if n.valueMap == nil {
+				n.valueMap = make(map[string]*treeValue, 4)
+			}
+			n.valueMap[vmeta.NameLower] = &n.values[len(n.values)-1]
+		}
+	}
+
+	// Mark as materialized
+	n.kind = nodeMaterialized
+
+	return nil
 }
 
 // insertChildSorted inserts a child node while maintaining sort order if possible.
@@ -476,6 +627,9 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 	}
 
 	current := root
+	// Build path incrementally as we walk down the tree
+	currentPath := current.path
+	currentPathLower := current.pathLower
 	for i, seg := range segments {
 		segLower := strings.ToLower(seg)
 		child, found := findChild(current, segLower)
@@ -486,23 +640,33 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 			if i == len(segments)-1 {
 				nodeName = node.name
 			}
+			nodeLower := strings.ToLower(nodeName)
+			newPath := concatPath(currentPath, nodeName)
+			newPathLower := concatPathLower(currentPathLower, nodeLower)
 			// Create new node preserving original case
 			newNode := &treeNode{
 				name:           nodeName,
-				nameLower:      segLower, // Cache lowercase for lookups
+				nameLower:      nodeLower, // Cache lowercase for lookups
+				path:           newPath,
+				pathLower:      newPathLower,
 				nameCompressed: true,
 				parent:         current,
 				children:       make([]*treeNode, 0),
-				childMap:       nil, // Lazy-init: only allocate when first child is added
+				childMap:       nil,  // Lazy-init: only allocate when first child is added
 				childrenSorted: true, // New node starts sorted (empty)
 				values:         make([]treeValue, 0),
-				valueMap:       nil, // Lazy-init: only allocate when first value is added
+				valueMap:       nil,              // Lazy-init: only allocate when first value is added
+				kind:           nodeMaterialized, // Created keys are always materialized
 			}
 			insertChildSorted(current, newNode)
 			current = newNode
+			currentPath = newPath
+			currentPathLower = newPathLower
 		} else {
-			// Use the child we found in the map
+			// Use the child we found in the map; reuse cached path metadata
 			current = child
+			currentPath = child.path
+			currentPathLower = child.pathLower
 		}
 		// If this is the last segment, we're at the target
 		if i == len(segments)-1 {
@@ -513,8 +677,9 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 }
 
 // setValueInTree sets a value in the tree.
-func setValueInTree(root *treeNode, path, name string, typ types.RegType, data []byte) error {
-	node := findNode(root, path)
+// Materializes base-ref nodes along the path as needed.
+func setValueInTree(root *treeNode, path, name string, typ types.RegType, data []byte, tx *transaction, changeIdx *changeIndex) error {
+	node := findNodeAndMaterialize(root, path, tx, changeIdx)
 	if node == nil {
 		return fmt.Errorf("key not found: %s", path)
 	}
@@ -551,8 +716,9 @@ func setValueInTree(root *treeNode, path, name string, typ types.RegType, data [
 }
 
 // deleteValueInTree deletes a value from the tree.
-func deleteValueInTree(root *treeNode, path, name string) error {
-	node := findNode(root, path)
+// Materializes base-ref nodes along the path as needed.
+func deleteValueInTree(root *treeNode, path, name string, tx *transaction, changeIdx *changeIndex) error {
+	node := findNodeAndMaterialize(root, path, tx, changeIdx)
 	if node == nil {
 		return nil
 	}
@@ -624,18 +790,58 @@ func findNode(root *treeNode, path string) *treeNode {
 	return current
 }
 
-// joinPath efficiently joins parent path and child name with backslash separator.
-// Optimized to minimize allocations during tree building.
-func joinPath(parent, child string) string {
+// findNodeAndMaterialize finds a node by path in the tree, materializing base-ref nodes along the way.
+// This is needed when applying value changes during buildTree, as base-ref nodes don't have their
+// children loaded yet.
+func findNodeAndMaterialize(root *treeNode, path string, tx *transaction, changeIdx *changeIndex) *treeNode {
+	if path == "" {
+		if root.kind == nodeBaseRef {
+			if err := root.ensureMaterialized(tx, changeIdx); err != nil {
+				return nil
+			}
+		}
+		return root
+	}
+	segments := splitPath(path)
+	current := root
+
+	for _, seg := range segments {
+		// Materialize the current node (parent) if it's a base-ref
+		if current.kind == nodeBaseRef {
+			if err := current.ensureMaterialized(tx, changeIdx); err != nil {
+				return nil
+			}
+		}
+
+		// Now we can safely find the child
+		segLower := strings.ToLower(seg)
+		child, found := findChild(current, segLower)
+		if !found {
+			return nil
+		}
+
+		// Move to child
+		current = child
+	}
+	return current
+}
+
+// concatPath efficiently joins parent path and child name with backslash separator.
+// Paths are computed once per node and cached on treeNode to avoid repeated work.
+func concatPath(parent, child string) string {
 	if parent == "" {
 		return child
 	}
-	// Pre-allocate exact size: parent + "\" + child
-	result := make([]byte, 0, len(parent)+1+len(child))
-	result = append(result, parent...)
-	result = append(result, '\\')
-	result = append(result, child...)
-	return string(result)
+	return parent + "\\" + child
+}
+
+// concatPathLower joins already-lowercase parent and child paths.
+// Used for building normalized paths efficiently without repeated ToLower calls.
+func concatPathLower(parentLower, childLower string) string {
+	if parentLower == "" {
+		return childLower
+	}
+	return parentLower + "\\" + childLower
 }
 
 // splitPath splits a path into segments, preserving original case.
@@ -663,7 +869,12 @@ func splitPath(path string) []string {
 // 2. Serialize children (so we know their offsets)
 // 3. Serialize lists using known child offsets
 // 4. Update parent NK with list offsets
-func serializeNode(node *treeNode, alloc *allocator, buf []byte, opts types.WriteOptions) error {
+func serializeNode(node *treeNode, alloc *allocator, buf []byte, opts types.WriteOptions, tx *transaction, changeIdx *changeIndex) error {
+	// Materialize base-ref nodes on-demand before serializing
+	if err := node.ensureMaterialized(tx, changeIdx); err != nil {
+		return fmt.Errorf("failed to materialize node at %q: %w", node.path, err)
+	}
+
 	// Sort children by name only if not already sorted
 	if !node.childrenSorted && len(node.children) > 0 {
 		sort.Slice(node.children, func(i, j int) bool {
@@ -678,7 +889,7 @@ func serializeNode(node *treeNode, alloc *allocator, buf []byte, opts types.Writ
 
 	// Serialize children recursively (so we know their offsets)
 	for _, child := range node.children {
-		if err := serializeNode(child, alloc, buf, opts); err != nil {
+		if err := serializeNode(child, alloc, buf, opts, tx, changeIdx); err != nil {
 			return err
 		}
 	}
@@ -784,7 +995,7 @@ func serializeNKToBuf(
 	if contentSize < format.NKMinSize {
 		contentSize = format.NKMinSize
 	}
-	totalSize := contentSize + 4         // +4 for cell header
+	totalSize := contentSize + 4 // +4 for cell header
 
 	// Allocate (will be 8-byte aligned)
 	offset := alloc.alloc(totalSize)
@@ -903,49 +1114,94 @@ func serializeNKToBuf(
 	return offset
 }
 
-// buildFinalHive assembles the final hive with REGF header + HBINs.
-func buildFinalHive(hbins [][]byte, rootOffset int32, alloc *allocator) ([]byte, error) {
-	header := make([]byte, format.HeaderSize)
-	// REGF Base Block Header (per Windows Registry File Format Specification)
-	copy(header[:4], format.REGFSignature)           // 0x00: Signature "regf"
-	binary.LittleEndian.PutUint32(header[4:], 1)     // 0x04: Primary sequence number
-	binary.LittleEndian.PutUint32(header[8:], 1)     // 0x08: Secondary sequence number
-	binary.LittleEndian.PutUint64(header[12:], 0)    // 0x0C: Last written timestamp (FILETIME)
-	binary.LittleEndian.PutUint32(header[20:], 1)    // 0x14: Major version
-	binary.LittleEndian.PutUint32(header[24:], 5)    // 0x18: Minor version (5 = Windows 2000+)
-	binary.LittleEndian.PutUint32(header[28:], 0)    // 0x1C: File type (0 = primary file)
-	binary.LittleEndian.PutUint32(header[32:], 1)    // 0x20: File format (1 = direct memory load)
-	// Root offset - convert from cellBuf offset to HBIN-relative offset
-	binary.LittleEndian.PutUint32(header[36:], uint32(alloc.cellBufOffsetToHBINOffset(rootOffset))) // 0x24: Root cell offset
-
-	// Calculate total HBIN data size
-	totalHBINSize := 0
-	for _, hbin := range hbins {
-		totalHBINSize += len(hbin)
+// buildFinalHive assembles the final hive with REGF header + HBINs directly from the cell buffer.
+func buildFinalHive(cellBuf []byte, rootOffset int32, alloc *allocator) ([]byte, error) {
+	hbinInfos := alloc.getHBINs()
+	if len(hbinInfos) == 0 {
+		return nil, fmt.Errorf("no HBINs recorded in allocator")
 	}
-	binary.LittleEndian.PutUint32(header[40:], uint32(totalHBINSize)) // 0x28: Hive bins data size
-	binary.LittleEndian.PutUint32(header[44:], 1)                     // 0x2C: Clustering factor (sector_size/512)
 
-	// Calculate checksum (XOR of first 508 bytes as 127 DWORDs)
+	// Calculate total HBIN size (including headers).
+	totalHBINSize := 0
+	for _, info := range hbinInfos {
+		totalHBINSize += int(info.size)
+	}
+
+	// Allocate final hive buffer (header + HBIN data).
+	totalSize := format.HeaderSize + totalHBINSize
+	result := make([]byte, totalSize)
+	header := result[:format.HeaderSize]
+
+	// Populate REGF base block header.
+	copy(header[:4], format.REGFSignature)        // 0x00: Signature "regf"
+	binary.LittleEndian.PutUint32(header[4:], 1)  // 0x04: Primary sequence number
+	binary.LittleEndian.PutUint32(header[8:], 1)  // 0x08: Secondary sequence number
+	binary.LittleEndian.PutUint64(header[12:], 0) // 0x0C: Last written timestamp (FILETIME)
+	binary.LittleEndian.PutUint32(header[20:], 1) // 0x14: Major version
+	binary.LittleEndian.PutUint32(header[24:], 5) // 0x18: Minor version (5 = Windows 2000+)
+	binary.LittleEndian.PutUint32(header[28:], 0) // 0x1C: File type (0 = primary file)
+	binary.LittleEndian.PutUint32(header[32:], 1) // 0x20: File format (1 = direct memory load)
+
+	// Root offset (0x24) converted from cell buffer offset to HBIN-relative offset.
+	rootHBINOffset := alloc.cellBufOffsetToHBINOffset(rootOffset)
+	binary.LittleEndian.PutUint32(header[36:], uint32(rootHBINOffset))
+
+	// Hive bins data size (0x28) and clustering factor (0x2C).
+	binary.LittleEndian.PutUint32(header[40:], uint32(totalHBINSize))
+	binary.LittleEndian.PutUint32(header[44:], 1)
+
+	// Emit HBINs directly into the result buffer.
+	destPos := format.HeaderSize
+	fileOffset := 0
+	for idx, info := range hbinInfos {
+		if destPos+int(info.size) > len(result) {
+			return nil, fmt.Errorf("hbin %d exceeds allocated buffer", idx)
+		}
+
+		dest := result[destPos : destPos+int(info.size)]
+		copy(dest[:4], format.HBINSignature)
+		binary.LittleEndian.PutUint32(dest[4:], uint32(fileOffset))
+		binary.LittleEndian.PutUint32(dest[8:], uint32(info.size))
+		binary.LittleEndian.PutUint64(dest[12:], 0)
+		binary.LittleEndian.PutUint32(dest[20:], 0)
+
+		dataSize := int(info.size) - format.HBINHeaderSize
+		srcStart := int(info.offset)
+		var srcEnd int
+		if idx < len(hbinInfos)-1 {
+			srcEnd = int(hbinInfos[idx+1].offset)
+		} else {
+			srcEnd = len(cellBuf)
+		}
+		if srcEnd > len(cellBuf) {
+			srcEnd = len(cellBuf)
+		}
+
+		toCopy := srcEnd - srcStart
+		if toCopy > dataSize {
+			toCopy = dataSize
+		}
+		if toCopy > 0 && srcStart < len(cellBuf) {
+			copy(dest[format.HBINHeaderSize:], cellBuf[srcStart:srcStart+toCopy])
+		}
+
+		// Mark remaining space as a free cell if needed.
+		remaining := dataSize - toCopy
+		if remaining >= 4 {
+			freePos := format.HBINHeaderSize + toCopy
+			binary.LittleEndian.PutUint32(dest[freePos:], uint32(remaining))
+		}
+
+		destPos += int(info.size)
+		fileOffset += int(info.size)
+	}
+
+	// Compute checksum (XOR of first 508 bytes as 127 DWORDs).
 	var checksum uint32
 	for i := 0; i < 0x1FC; i += 4 {
 		checksum ^= binary.LittleEndian.Uint32(header[i : i+4])
 	}
 	binary.LittleEndian.PutUint32(header[0x1FC:], checksum)
-
-	// Calculate total hive size
-	totalSize := format.HeaderSize
-	for _, hbin := range hbins {
-		totalSize += len(hbin)
-	}
-
-	result := make([]byte, totalSize)
-	copy(result, header)
-	pos := format.HeaderSize
-	for _, hbin := range hbins {
-		copy(result[pos:], hbin)
-		pos += len(hbin)
-	}
 
 	return result, nil
 }
@@ -1361,69 +1617,4 @@ func encodeUTF16LE(s string) []byte {
 	result := make([]byte, size)
 	encodeUTF16LETo(result, s)
 	return result
-}
-
-// packCellBuffer packs the cell buffer into HBINs using the allocator's HBIN layout.
-// Supports variable-sized HBINs (4KB, 8KB, 12KB, 16KB) based on cell requirements.
-func packCellBuffer(cellBuf []byte, alloc *allocator, _ bool) [][]byte {
-	const hbinHeaderSize = format.HBINHeaderSize
-
-	// Get HBIN layout from allocator
-	hbinInfos := alloc.getHBINs()
-	numHBINs := len(hbinInfos)
-
-	hbins := make([][]byte, numHBINs)
-	fileOffset := 0 // Track file offset from start of first HBIN
-
-	for i, hbinInfo := range hbinInfos {
-		hbinSize := int(hbinInfo.size)
-		hbins[i] = make([]byte, hbinSize)
-
-		// HBIN header
-		copy(hbins[i][:4], format.HBINSignature)
-		binary.LittleEndian.PutUint32(hbins[i][4:], uint32(fileOffset))       // offset from first HBIN
-		binary.LittleEndian.PutUint32(hbins[i][8:], uint32(hbinSize))         // size of this HBIN
-		binary.LittleEndian.PutUint64(hbins[i][12:], 0)                       // timestamp
-		binary.LittleEndian.PutUint32(hbins[i][20:], 0)                       // spare
-
-		// Copy cell data for this HBIN
-		srcStart := int(hbinInfo.offset)
-		dataSize := hbinSize - hbinHeaderSize
-
-		// Determine how much data belongs to this HBIN
-		var srcEnd int
-		if i < numHBINs-1 {
-			srcEnd = int(hbinInfos[i+1].offset)
-		} else {
-			srcEnd = len(cellBuf)
-		}
-
-		if srcEnd > len(cellBuf) {
-			srcEnd = len(cellBuf)
-		}
-
-		toCopy := srcEnd - srcStart
-		if toCopy > dataSize {
-			toCopy = dataSize
-		}
-
-		if toCopy > 0 && srcStart < len(cellBuf) {
-			copy(hbins[i][hbinHeaderSize:], cellBuf[srcStart:srcStart+toCopy])
-		}
-
-		// Fill remaining space with a free cell marker
-		// Windows Registry requires ALL unused space to be marked as free
-		remaining := dataSize - toCopy
-		if remaining >= 4 {
-			// Mark ALL remaining space as free (no alignment rounding)
-			// The free cell size includes the 4-byte size header itself
-			freePos := hbinHeaderSize + toCopy
-			binary.LittleEndian.PutUint32(hbins[i][freePos:], uint32(remaining))
-		}
-		// If remaining < 4 bytes, leave as padding (cannot write a size marker)
-
-		fileOffset += hbinSize
-	}
-
-	return hbins
 }

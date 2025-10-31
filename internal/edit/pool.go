@@ -54,7 +54,5 @@ func ensureCapacity(buf *[]byte, minCapacity int) {
 		newCap = minCapacity
 	}
 
-	newBuf := make([]byte, newCap)
-	copy(newBuf, *buf)
-	*buf = newBuf
+	*buf = make([]byte, newCap)
 }

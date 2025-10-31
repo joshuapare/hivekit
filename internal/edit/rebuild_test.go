@@ -12,19 +12,12 @@ import (
 // TestChecksumCalculation verifies that buildFinalHive calculates
 // the correct XOR-32 checksum of the REGF header.
 func TestChecksumCalculation(t *testing.T) {
-	// Create minimal HBIN data for testing
-	hbin := make([]byte, 0x1000)
-	copy(hbin[:4], []byte("hbin"))
-	binary.LittleEndian.PutUint32(hbin[4:], 0)          // offset
-	binary.LittleEndian.PutUint32(hbin[8:], 0x1000)     // size
-	binary.LittleEndian.PutUint64(hbin[16:], 0)         // timestamp
-	binary.LittleEndian.PutUint32(hbin[24:], 0)         // spare
-
-	hbins := [][]byte{hbin}
+	// Create minimal cell buffer (root NK would typically be at 0x20).
+	cellBuf := make([]byte, 0x100)
 	rootOffset := int32(0x20)
 
 	alloc := newAllocator()
-	result, err := buildFinalHive(hbins, rootOffset, alloc)
+	result, err := buildFinalHive(cellBuf, rootOffset, alloc)
 	if err != nil {
 		t.Fatalf("buildFinalHive failed: %v", err)
 	}
@@ -55,17 +48,11 @@ func TestChecksumCalculation(t *testing.T) {
 // TestREGFHeaderFields verifies that all required REGF header fields
 // are set correctly according to the Windows Registry file format specification.
 func TestREGFHeaderFields(t *testing.T) {
-	// Create minimal HBIN data
-	hbin := make([]byte, 0x1000)
-	copy(hbin[:4], []byte("hbin"))
-	binary.LittleEndian.PutUint32(hbin[4:], 0)
-	binary.LittleEndian.PutUint32(hbin[8:], 0x1000)
-
-	hbins := [][]byte{hbin}
+	cellBuf := make([]byte, 0x100)
 	rootOffset := int32(0x20)
 
 	alloc := newAllocator()
-	result, err := buildFinalHive(hbins, rootOffset, alloc)
+	result, err := buildFinalHive(cellBuf, rootOffset, alloc)
 	if err != nil {
 		t.Fatalf("buildFinalHive failed: %v", err)
 	}
@@ -108,14 +95,9 @@ func TestREGFHeaderFields(t *testing.T) {
 
 // TestREGFHeaderSize verifies the header is exactly 4096 bytes (0x1000).
 func TestREGFHeaderSize(t *testing.T) {
-	hbin := make([]byte, 0x1000)
-	copy(hbin[:4], []byte("hbin"))
-	binary.LittleEndian.PutUint32(hbin[4:], 0)
-	binary.LittleEndian.PutUint32(hbin[8:], 0x1000)
-
-	hbins := [][]byte{hbin}
+	cellBuf := make([]byte, 0x100)
 	alloc := newAllocator()
-	result, err := buildFinalHive(hbins, int32(0x20), alloc)
+	result, err := buildFinalHive(cellBuf, int32(0x20), alloc)
 	if err != nil {
 		t.Fatalf("buildFinalHive failed: %v", err)
 	}
@@ -141,15 +123,13 @@ func TestFreeCellPadding(t *testing.T) {
 	copy(cellBuf[4:8], []byte("test")) // Some cell signature
 
 	alloc := newAllocator()
-	hbins := packCellBuffer(cellBuf, alloc, false)
-
-	if len(hbins) != 1 {
-		t.Fatalf("Expected 1 HBIN, got %d", len(hbins))
+	result, err := buildFinalHive(cellBuf, 0, alloc)
+	if err != nil {
+		t.Fatalf("buildFinalHive failed: %v", err)
 	}
-
-	hbin := hbins[0]
-	const hbinHeaderSize = 32
-	const hbinSize = 4096
+	hbinSize := int(alloc.getHBINs()[0].size)
+	hbin := result[format.HeaderSize : format.HeaderSize+hbinSize]
+	hbinHeaderSize := format.HBINHeaderSize
 
 	// After the cell data (100 bytes), there should be a free cell marker
 	// Free cell is at offset: hbinHeaderSize + len(cellBuf)
@@ -179,9 +159,10 @@ func TestFreeCellPadding(t *testing.T) {
 
 // TestNoFreeCellWhenFull verifies that no free cell is added when HBIN is exactly full.
 func TestNoFreeCellWhenFull(t *testing.T) {
-	const hbinSize = 4096
-	const hbinHeaderSize = 32
-	const hbinDataSize = hbinSize - hbinHeaderSize // 4064 bytes
+	alloc := newAllocator()
+	hbinSize := int(alloc.getHBINs()[0].size)
+	hbinHeaderSize := format.HBINHeaderSize
+	hbinDataSize := hbinSize - hbinHeaderSize // 4064 bytes
 
 	// Create a cell buffer that exactly fills the HBIN data area
 	cellBuf := make([]byte, hbinDataSize)
@@ -189,14 +170,11 @@ func TestNoFreeCellWhenFull(t *testing.T) {
 	fullCellSize := -int32(hbinDataSize)
 	binary.LittleEndian.PutUint32(cellBuf[0:], uint32(fullCellSize))
 
-	alloc := newAllocator()
-	hbins := packCellBuffer(cellBuf, alloc, false)
-
-	if len(hbins) != 1 {
-		t.Fatalf("Expected 1 HBIN, got %d", len(hbins))
+	result, err := buildFinalHive(cellBuf, 0, alloc)
+	if err != nil {
+		t.Fatalf("buildFinalHive failed: %v", err)
 	}
-
-	hbin := hbins[0]
+	hbin := result[format.HeaderSize : format.HeaderSize+hbinSize]
 
 	// Verify the HBIN is exactly filled
 	// The last 4 bytes should be part of the cell data, not a free cell marker
@@ -272,9 +250,9 @@ func TestNKMinimumSize(t *testing.T) {
 		name string
 		path string
 	}{
-		{"root", ""},        // Empty name - most likely to trigger bug
-		{"single char", "A"}, // Single character name
-		{"short", "AB"},      // Two character name
+		{"root", ""},              // Empty name - most likely to trigger bug
+		{"single char", "A"},      // Single character name
+		{"short", "AB"},           // Two character name
 		{"longer", "TypedValues"}, // Longer name that should be fine
 	}
 

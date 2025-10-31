@@ -389,6 +389,7 @@ func (r *reader) StatValue(id types.ValueID) (types.ValueMeta, error) {
 
 	return types.ValueMeta{
 		Name:           name,
+		NameLower:      strings.ToLower(name), // Cache lowercase once for case-insensitive comparisons
 		Type:           types.RegType(valType),
 		Size:           size,
 		Inline:         inline,

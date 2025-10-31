@@ -11,11 +11,11 @@ import (
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
-// MergeRegFile merges a .reg file into a registry 
+// MergeRegFile merges a .reg file into a registry
 //
 // The hive file is modified in-place. Registry limits are enforced by default
 // (use opts.Limits to customize). The operation is atomic - if any error occurs
-// (and OnError is not set), no changes are made to the 
+// (and OnError is not set), no changes are made to the
 //
 // Example:
 //
@@ -159,7 +159,9 @@ func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) (*MergeS
 		return nil, fmt.Errorf("failed to read hive %s: %w", hivePath, err)
 	}
 
-	r, err := reader.OpenBytes(hiveData, OpenOptions{})
+	r, err := reader.OpenBytes(hiveData, OpenOptions{
+		ZeroCopy: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open hive %s: %w", hivePath, err)
 	}

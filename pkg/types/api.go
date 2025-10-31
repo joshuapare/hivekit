@@ -125,6 +125,7 @@ func (t RegType) String() string {
 // Implementations should fill this from the VK header only.
 type ValueMeta struct {
 	Name           string  // value name ("" for default/unnamed)
+	NameLower      string  // cached lowercase name for case-insensitive comparisons (avoids repeated ToLower calls)
 	Type           RegType // declared registry type
 	Size           int     // logical payload size (from VK)
 	Inline         bool    // true if VK embeds data inline per spec heuristics
