@@ -439,7 +439,9 @@ func (r *reader) ValueRecord(id types.ValueID) (types.ValueRecord, error) {
 	return types.ValueRecord{
 		NameLen:        int(vk.NameLength),
 		NameCompressed: vk.NameIsASCII(),
+		Type:           types.RegType(vk.Type),
 		DataLength:     vk.DataLength,
+		NameRaw:        vk.NameRaw,
 	}, nil
 }
 

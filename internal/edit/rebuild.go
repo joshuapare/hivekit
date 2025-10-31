@@ -1181,9 +1181,9 @@ func serializeBaseRefNode(node *treeNode, alloc *allocator, buf []byte, opts typ
 		}
 
 		for i, vid := range valueIDs {
-			vmeta, err := r.StatValue(vid)
+			rec, err := r.ValueRecord(vid)
 			if err != nil {
-				return fmt.Errorf("failed to stat value in %q: %w", node.pathString(), err)
+				return fmt.Errorf("failed to get value record in %q: %w", node.pathString(), err)
 			}
 
 			data, err := r.ValueBytes(vid, types.ReadOptions{})
@@ -1191,12 +1191,25 @@ func serializeBaseRefNode(node *treeNode, alloc *allocator, buf []byte, opts typ
 				return fmt.Errorf("failed to read value data in %q: %w", node.pathString(), err)
 			}
 
+			vk := format.VKRecord{
+				NameLength: uint16(rec.NameLen),
+				Flags:      0,
+				NameRaw:    rec.NameRaw,
+			}
+			if rec.NameCompressed {
+				vk.Flags = format.VKFlagASCIIName
+			}
+			name, err := reader.DecodeValueName(vk)
+			if err != nil {
+				return fmt.Errorf("failed to decode value name in %q: %w", node.pathString(), err)
+			}
+
 			tv := treeValue{
-				name:           vmeta.Name,
-				nameLower:      vmeta.NameLower,
-				nameBytes:      vmeta.NameRaw,
-				nameCompressed: vmeta.NameCompressed,
-				typ:            vmeta.Type,
+				name:           name,
+				nameLower:      strings.ToLower(name),
+				nameBytes:      rec.NameRaw,
+				nameCompressed: rec.NameCompressed,
+				typ:            rec.Type,
 				data:           data,
 			}
 

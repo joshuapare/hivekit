@@ -137,7 +137,9 @@ type ValueMeta struct {
 type ValueRecord struct {
 	NameLen        int
 	NameCompressed bool
+	Type           RegType
 	DataLength     uint32
+	NameRaw        []byte
 }
 
 // KeyMeta exposes cheap NK-level information useful for listings and planning.
