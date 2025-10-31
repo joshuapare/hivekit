@@ -73,19 +73,19 @@ type (
 type RegType uint32
 
 const (
-	REG_NONE                        RegType = 0
-	REG_SZ                          RegType = 1
-	REG_EXPAND_SZ                   RegType = 2
-	REG_BINARY                      RegType = 3
-	REG_DWORD                       RegType = 4
-	REG_DWORD_LE                    RegType = 4 // alias for clarity
-	REG_DWORD_BE                    RegType = 5
-	REG_LINK                        RegType = 6
-	REG_MULTI_SZ                    RegType = 7
-	REG_RESOURCE_LIST               RegType = 8
-	REG_FULL_RESOURCE_DESCRIPTOR    RegType = 9
-	REG_RESOURCE_REQUIREMENTS_LIST  RegType = 10
-	REG_QWORD                       RegType = 11
+	REG_NONE                       RegType = 0
+	REG_SZ                         RegType = 1
+	REG_EXPAND_SZ                  RegType = 2
+	REG_BINARY                     RegType = 3
+	REG_DWORD                      RegType = 4
+	REG_DWORD_LE                   RegType = 4 // alias for clarity
+	REG_DWORD_BE                   RegType = 5
+	REG_LINK                       RegType = 6
+	REG_MULTI_SZ                   RegType = 7
+	REG_RESOURCE_LIST              RegType = 8
+	REG_FULL_RESOURCE_DESCRIPTOR   RegType = 9
+	REG_RESOURCE_REQUIREMENTS_LIST RegType = 10
+	REG_QWORD                      RegType = 11
 )
 
 // String implements the Stringer interface for RegType
@@ -133,6 +133,13 @@ type ValueMeta struct {
 	NameRaw        []byte  // original encoded name bytes (for zero-copy serialization)
 }
 
+// ValueRecord exposes raw VK header information without decoding strings.
+type ValueRecord struct {
+	NameLen        int
+	NameCompressed bool
+	DataLength     uint32
+}
+
 // KeyMeta exposes cheap NK-level information useful for listings and planning.
 type KeyMeta struct {
 	Name           string    // key name as UTF-8 (decoded lazily)
@@ -147,18 +154,18 @@ type KeyMeta struct {
 
 // KeyDetail exposes detailed NK record metadata for inspection/forensics.
 type KeyDetail struct {
-	KeyMeta                      // Embedded basic metadata
-	Flags              uint16    // NK flags (compressed name, root key, etc.)
-	ParentOffset       uint32    // Cell offset of parent NK
-	SubkeyListOffset   uint32    // Cell offset of subkey list
-	ValueListOffset    uint32    // Cell offset of value list
-	SecurityOffset     uint32    // Cell offset of security descriptor (SK)
-	ClassNameOffset    uint32    // Cell offset of class name
-	MaxNameLength      uint32    // Maximum subkey name length
-	MaxClassLength     uint32    // Maximum class length
-	MaxValueNameLength uint32    // Maximum value name length
-	MaxValueDataLength uint32    // Maximum value data length
-	ClassName          string    // Class name (if present)
+	KeyMeta                   // Embedded basic metadata
+	Flags              uint16 // NK flags (compressed name, root key, etc.)
+	ParentOffset       uint32 // Cell offset of parent NK
+	SubkeyListOffset   uint32 // Cell offset of subkey list
+	ValueListOffset    uint32 // Cell offset of value list
+	SecurityOffset     uint32 // Cell offset of security descriptor (SK)
+	ClassNameOffset    uint32 // Cell offset of class name
+	MaxNameLength      uint32 // Maximum subkey name length
+	MaxClassLength     uint32 // Maximum class length
+	MaxValueNameLength uint32 // Maximum value name length
+	MaxValueDataLength uint32 // Maximum value data length
+	ClassName          string // Class name (if present)
 }
 
 // HiveInfo exposes registry hive header (REGF) metadata.
@@ -279,6 +286,9 @@ type Reader interface {
 	// for string decoding (Windows-1252/UTF-16LE → UTF-8).
 	// Equivalent to StatValue().Name but faster.
 	ValueName(ValueID) (string, error)
+
+	// ValueRecord returns raw VK metadata without string decoding.
+	ValueRecord(ValueID) (ValueRecord, error)
 
 	// ValueBytes returns raw value bytes. If ZeroCopy is enabled and safe—and
 	// CopyData is false—the returned slice aliases the backing buffer.

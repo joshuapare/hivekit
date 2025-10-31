@@ -73,11 +73,11 @@ func (e *Editor) BeginWithLimits(limits ast.Limits) types.Tx {
 // transaction implements types.Tx and accumulates planned changes.
 type transaction struct {
 	editor      *Editor
-	createdKeys map[string]*keyNode   // path -> node metadata
-	deletedKeys map[string]bool       // path -> deleted
+	createdKeys map[string]*keyNode    // path -> node metadata
+	deletedKeys map[string]bool        // path -> deleted
 	setValues   map[valueKey]valueData // (path, name) -> value data
-	deletedVals map[valueKey]bool     // (path, name) -> deleted
-	limits      *ast.Limits        // registry limits to enforce
+	deletedVals map[valueKey]bool      // (path, name) -> deleted
+	limits      *ast.Limits            // registry limits to enforce
 	committed   bool
 	rolledBack  bool
 	changeIdx   *changeIndex // lazy-built index for efficient change queries
@@ -86,7 +86,7 @@ type transaction struct {
 // keyNode represents metadata for a key (new or existing).
 type keyNode struct {
 	exists bool            // true if key exists in base hive
-	nodeID types.NodeID     // ID if exists
+	nodeID types.NodeID    // ID if exists
 	parent string          // parent path
 	name   string          // key name
 	values map[string]bool // local value names (for conflict detection)

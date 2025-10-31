@@ -61,8 +61,8 @@ func TestChangeIndex_HasExact(t *testing.T) {
 func TestChangeIndex_HasSubtree(t *testing.T) {
 	tx := &transaction{
 		createdKeys: map[string]*keyNode{
-			normalizePath(`A\B\C`):       {exists: false, name: "C"},
-			normalizePath(`A\B\D`):       {exists: false, name: "D"},
+			normalizePath(`A\B\C`):      {exists: false, name: "C"},
+			normalizePath(`A\B\D`):      {exists: false, name: "D"},
 			normalizePath(`X\Y\Z\Deep`): {exists: false, name: "Deep"},
 		},
 		deletedKeys: map[string]bool{

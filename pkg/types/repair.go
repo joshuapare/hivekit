@@ -11,23 +11,23 @@ import (
 
 // RepairOptions configures how repairs are applied
 type RepairOptions struct {
-	DryRun         bool   // Preview repairs without applying
-	AutoOnly       bool   // Only apply auto-repairable fixes
-	MaxRisk        RiskLevel // Maximum risk level to apply
-	BackupSuffix   string // Suffix for backup file (default: ".backup")
-	NoBackup       bool   // Skip creating backup (dangerous!)
-	Verbose        bool   // Enable verbose logging
+	DryRun       bool      // Preview repairs without applying
+	AutoOnly     bool      // Only apply auto-repairable fixes
+	MaxRisk      RiskLevel // Maximum risk level to apply
+	BackupSuffix string    // Suffix for backup file (default: ".backup")
+	NoBackup     bool      // Skip creating backup (dangerous!)
+	Verbose      bool      // Enable verbose logging
 }
 
 // RepairResult describes the outcome of a repair operation
 type RepairResult struct {
-	Applied        int       // Number of repairs applied
-	Skipped        int       // Number of repairs skipped
-	Failed         int       // Number of repairs that failed
-	BackupPath     string    // Path to backup file
-	DryRun         bool      // Whether this was a dry-run
-	Duration       time.Duration
-	Diagnostics    []RepairDiagnostic
+	Applied     int    // Number of repairs applied
+	Skipped     int    // Number of repairs skipped
+	Failed      int    // Number of repairs that failed
+	BackupPath  string // Path to backup file
+	DryRun      bool   // Whether this was a dry-run
+	Duration    time.Duration
+	Diagnostics []RepairDiagnostic
 }
 
 // RepairDiagnostic describes what happened during a repair

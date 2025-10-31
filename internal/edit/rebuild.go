@@ -75,6 +75,11 @@ func calculateBufferSize(node *treeNode, tx *transaction, changeIdx *changeIndex
 		return 0
 	}
 
+	// For base-ref nodes, compute size directly from the base hive without materializing.
+	if node.kind == nodeBaseRef {
+		return calculateBaseRefSize(node, tx)
+	}
+
 	// Materialize base-ref nodes on-demand before calculating size
 	if err := node.ensureMaterialized(tx, changeIdx); err != nil {
 		// If materialization fails, skip this node (shouldn't happen in practice)
@@ -167,6 +172,143 @@ func calculateBufferSize(node *treeNode, tx *transaction, changeIdx *changeIndex
 	return total
 }
 
+// calculateBaseRefSize computes the serialized size of a base-ref subtree directly from the base hive reader.
+func calculateBaseRefSize(node *treeNode, tx *transaction) int {
+	if node == nil || tx == nil || tx.editor == nil || tx.editor.r == nil {
+		return 0
+	}
+
+	if node.baseComputed {
+		return node.baseSize
+	}
+
+	r := tx.editor.r
+
+	var total int
+
+	// NK cell size
+	nkContentSize := format.NKFixedHeaderSize + len(node.name)
+	if nkContentSize < format.NKMinSize {
+		nkContentSize = format.NKMinSize
+	}
+	total += alignTo8(format.CellHeaderSize + nkContentSize)
+
+	// Values (streamed-only; no caches)
+	valueIDs, err := r.Values(node.baseNodeID)
+	if err == nil {
+		node.baseValueCount = len(valueIDs)
+		if len(node.baseValueIDs) < len(valueIDs) {
+			node.baseValueIDs = make([]types.ValueID, len(valueIDs))
+		} else {
+			node.baseValueIDs = node.baseValueIDs[:len(valueIDs)]
+		}
+		copy(node.baseValueIDs, valueIDs)
+		const dbThreshold = 4096
+		for _, vid := range valueIDs {
+			rec, err := tx.editor.r.ValueRecord(vid)
+			if err != nil {
+				continue
+			}
+
+			vkSize := format.CellHeaderSize + format.VKFixedHeaderSize + rec.NameLen
+			total += alignTo8(vkSize)
+
+			dataLen := int(rec.DataLength & format.VKDataLengthMask)
+			inline := (rec.DataLength & format.VKDataInlineBit) != 0
+			if inline && dataLen > format.OffsetFieldSize {
+				dataLen = format.OffsetFieldSize
+			}
+			if !inline && dataLen > 0 {
+				if dataLen > dbThreshold {
+					numBlocks, blockSizes := format.CalculateDBBlocks(dataLen)
+					for _, blockSize := range blockSizes {
+						blockCellSize := 4 + blockSize
+						total += alignTo8(blockCellSize)
+					}
+					blocklistSize := 4 + numBlocks*4
+					total += alignTo8(blocklistSize)
+					dbRecordSize := 4 + format.DBMinSize
+					total += alignTo8(dbRecordSize)
+				} else {
+					dataSize := 4 + dataLen
+					total += alignTo8(dataSize)
+				}
+			}
+		}
+
+		if len(valueIDs) > 0 {
+			valListSize := 4 + len(valueIDs)*4
+			total += alignTo8(valListSize)
+		}
+	} else {
+		node.baseValueCount = 0
+		node.baseValueIDs = node.baseValueIDs[:0]
+	}
+
+	// Subkeys (streamed-only; no caches)
+	subkeys, err := r.Subkeys(node.baseNodeID)
+	if err == nil {
+		const maxLFEntries = 500
+		count := len(subkeys)
+
+		if count <= maxLFEntries {
+			lfSize := 4 + 4 + count*8
+			total += alignTo8(lfSize)
+		} else {
+			numLFs := (count + maxLFEntries - 1) / maxLFEntries
+			for i := 0; i < numLFs; i++ {
+				entries := maxLFEntries
+				if i == numLFs-1 {
+					entries = count - (i * maxLFEntries)
+				}
+				lfSize := 4 + 4 + entries*8
+				total += alignTo8(lfSize)
+			}
+			riSize := 4 + 4 + numLFs*4
+			total += alignTo8(riSize)
+		}
+
+		oldChildren := node.baseChildren
+		node.baseChildren = node.baseChildren[:0]
+
+		for _, sid := range subkeys {
+			smeta, err := r.StatKey(sid)
+			if err != nil {
+				continue
+			}
+
+			reuse := len(node.baseChildren) < len(oldChildren)
+			var child *treeNode
+			if reuse {
+				child = oldChildren[len(node.baseChildren)]
+			} else {
+				child = &treeNode{}
+			}
+
+			child.kind = nodeBaseRef
+			child.baseNodeID = sid
+			child.name = smeta.Name
+			child.nameLower = smeta.NameLower
+			child.nameBytes = smeta.NameRaw
+			child.nameCompressed = smeta.NameCompressed
+			child.parent = node
+
+			if !reuse {
+				child.path = ""
+				child.pathLower = ""
+			}
+
+			node.baseChildren = append(node.baseChildren, child)
+
+			total += calculateBaseRefSize(child, tx)
+		}
+	}
+
+	node.baseComputed = true
+	node.baseSize = total
+	return total
+}
+
 // alignTo8 returns the size aligned to 8-byte boundary.
 func alignTo8(size int) int {
 	if size%8 == 0 {
@@ -191,7 +333,7 @@ type treeNode struct {
 	name           string
 	nameLower      string // cached lowercase name for map lookups (eliminates repeated ToLower calls)
 	path           string // cached canonical path with original casing
-	pathLower      string // cached lowercase path for change-index lookups
+	pathLower      string // lazily cached lowercase path for change-index lookups
 	nameBytes      []byte // original encoded bytes from base hive (nil if new/modified)
 	nameCompressed bool   // true if name should be stored in compressed (Windows-1252) format
 	offset         int32  // cell offset (assigned during serialization)
@@ -206,6 +348,52 @@ type treeNode struct {
 	// Lazy materialization fields
 	kind       nodeKind     // materialization state: nodeMaterialized or nodeBaseRef
 	baseNodeID types.NodeID // source node ID if kind == nodeBaseRef
+
+	// Base-ref caching keeps precalculated size and child references to avoid duplicate passes.
+	baseComputed   bool
+	baseSize       int
+	baseValueCount int
+	baseValueIDs   []types.ValueID
+	baseChildren   []*treeNode
+}
+
+// pathString returns the canonical path for the node, computing and caching it lazily.
+func (n *treeNode) pathString() string {
+	if n == nil {
+		return ""
+	}
+	if n.parent == nil {
+		return n.path
+	}
+	if n.path == "" {
+		parentPath := n.parent.pathString()
+		if parentPath == "" {
+			n.path = n.name
+		} else {
+			n.path = concatPath(parentPath, n.name)
+		}
+	}
+	return n.path
+}
+
+// pathLowerString returns the lowercase canonical path, computing lazily when required.
+func (n *treeNode) pathLowerString() string {
+	if n == nil {
+		return ""
+	}
+	if n.parent == nil {
+		return n.pathLower
+	}
+	if n.pathLower == "" {
+		parentLower := n.parent.pathLowerString()
+		nameLower := strings.ToLower(n.name)
+		if parentLower == "" {
+			n.pathLower = nameLower
+		} else {
+			n.pathLower = concatPathLower(parentLower, nameLower)
+		}
+	}
+	return n.pathLower
 }
 
 // treeValue represents a value in the tree.
@@ -327,7 +515,7 @@ func buildNodeFromBase(
 			name:           meta.Name,
 			nameLower:      meta.NameLower, // Use pre-computed lowercase from reader
 			path:           path,
-			pathLower:      normalizedPath,
+			pathLower:      "",
 			nameBytes:      meta.NameRaw,
 			nameCompressed: meta.NameCompressed,
 			parent:         parent,
@@ -485,8 +673,8 @@ func (n *treeNode) ensureMaterialized(tx *transaction, changeIdx *changeIndex) e
 		return fmt.Errorf("cannot materialize node: no base reader available")
 	}
 
-	parentPath := n.path
-	parentPathLower := n.pathLower
+	parentPath := n.pathString()
+	parentPathLower := n.pathLowerString()
 
 	// Load children from base hive
 	subkeys, err := r.Subkeys(n.baseNodeID)
@@ -628,8 +816,8 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 
 	current := root
 	// Build path incrementally as we walk down the tree
-	currentPath := current.path
-	currentPathLower := current.pathLower
+	currentPath := current.pathString()
+	currentPathLower := current.pathLowerString()
 	for i, seg := range segments {
 		segLower := strings.ToLower(seg)
 		child, found := findChild(current, segLower)
@@ -663,10 +851,10 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 			currentPath = newPath
 			currentPathLower = newPathLower
 		} else {
-			// Use the child we found in the map; reuse cached path metadata
+			// Use the child we found in the map; reuse cached path metadata (compute lazily if needed)
 			current = child
-			currentPath = child.path
-			currentPathLower = child.pathLower
+			currentPath = child.pathString()
+			currentPathLower = child.pathLowerString()
 		}
 		// If this is the last segment, we're at the target
 		if i == len(segments)-1 {
@@ -870,9 +1058,21 @@ func splitPath(path string) []string {
 // 3. Serialize lists using known child offsets
 // 4. Update parent NK with list offsets
 func serializeNode(node *treeNode, alloc *allocator, buf []byte, opts types.WriteOptions, tx *transaction, changeIdx *changeIndex) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unchanged base-ref subtrees can be serialized directly from the base hive without materializing.
+	if node.kind == nodeBaseRef {
+		if tx == nil || tx.editor == nil || tx.editor.r == nil {
+			return fmt.Errorf("cannot serialize base-ref node %q without base reader", node.pathString())
+		}
+		return serializeBaseRefNode(node, alloc, buf, opts, tx)
+	}
+
 	// Materialize base-ref nodes on-demand before serializing
 	if err := node.ensureMaterialized(tx, changeIdx); err != nil {
-		return fmt.Errorf("failed to materialize node at %q: %w", node.path, err)
+		return fmt.Errorf("failed to materialize node at %q: %w", node.pathString(), err)
 	}
 
 	// Sort children by name only if not already sorted
@@ -940,6 +1140,105 @@ func serializeNode(node *treeNode, alloc *allocator, buf []byte, opts types.Writ
 	}
 
 	// Update NK with correct list offsets
+	updateNKListOffsets(buf, nkOff, valueListOffset, subkeyListOffset)
+
+	return nil
+}
+
+// serializeBaseRefNode serializes an unchanged subtree directly from the base hive without materializing it.
+func serializeBaseRefNode(node *treeNode, alloc *allocator, buf []byte, opts types.WriteOptions, tx *transaction) error {
+	r := tx.editor.r
+
+	// Ensure metadata caches are populated.
+	if !node.baseComputed {
+		calculateBaseRefSize(node, tx)
+	}
+
+	// Serialize NK with placeholder offsets.
+	nkOff := serializeNKToBuf(node, 0, 0, alloc, buf, opts)
+	node.offset = nkOff
+
+	// Serialize values directly.
+	var valueListOffset int32
+	valueIDs := node.baseValueIDs
+	if len(valueIDs) == 0 && node.baseValueCount > 0 {
+		var err error
+		valueIDs, err = r.Values(node.baseNodeID)
+		if err != nil {
+			return fmt.Errorf("failed to enumerate values for %q: %w", node.pathString(), err)
+		}
+	}
+
+	if len(valueIDs) > 0 {
+		const maxStackOffsets = 32
+		var stackBuf [maxStackOffsets]int32
+		var valueOffsets []int32
+
+		if len(valueIDs) <= maxStackOffsets {
+			valueOffsets = stackBuf[:len(valueIDs)]
+		} else {
+			valueOffsets = make([]int32, len(valueIDs))
+		}
+
+		for i, vid := range valueIDs {
+			vmeta, err := r.StatValue(vid)
+			if err != nil {
+				return fmt.Errorf("failed to stat value in %q: %w", node.pathString(), err)
+			}
+
+			data, err := r.ValueBytes(vid, types.ReadOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to read value data in %q: %w", node.pathString(), err)
+			}
+
+			tv := treeValue{
+				name:           vmeta.Name,
+				nameLower:      vmeta.NameLower,
+				nameBytes:      vmeta.NameRaw,
+				nameCompressed: vmeta.NameCompressed,
+				typ:            vmeta.Type,
+				data:           data,
+			}
+
+			vkOff := serializeVKToBuf(tv, alloc, buf)
+			valueOffsets[i] = alloc.cellBufOffsetToHBINOffset(vkOff)
+		}
+
+		valListOff := serializeValueListToBuf(valueOffsets, alloc, buf)
+		valueListOffset = alloc.cellBufOffsetToHBINOffset(valListOff)
+	}
+
+	// Serialize children recursively.
+	var subkeyListOffset int32
+	if len(node.baseChildren) > 0 {
+		const maxStackOffsets = 32
+		var stackBuf [maxStackOffsets]int32
+		var childOffsets []int32
+
+		if len(node.baseChildren) <= maxStackOffsets {
+			childOffsets = stackBuf[:len(node.baseChildren)]
+		} else {
+			childOffsets = make([]int32, len(node.baseChildren))
+		}
+
+		for i, child := range node.baseChildren {
+			child.parent = node
+			if err := serializeBaseRefNode(child, alloc, buf, opts, tx); err != nil {
+				return err
+			}
+			childOffsets[i] = alloc.cellBufOffsetToHBINOffset(child.offset)
+		}
+
+		subkeyListOff := serializeSubkeyListToBuf(childOffsets, alloc, buf)
+		subkeyListOffset = alloc.cellBufOffsetToHBINOffset(subkeyListOff)
+	}
+
+	// Update NK counts (subkeys/value counts) based on base hive data.
+	payloadStart := int(nkOff) + 4
+	binary.LittleEndian.PutUint32(buf[payloadStart+0x14:], uint32(len(node.baseChildren)))
+	binary.LittleEndian.PutUint32(buf[payloadStart+0x24:], uint32(node.baseValueCount))
+
+	// Update NK to point at the generated lists.
 	updateNKListOffsets(buf, nkOff, valueListOffset, subkeyListOffset)
 
 	return nil

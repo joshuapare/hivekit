@@ -46,9 +46,9 @@ type reader struct {
 	opts           types.OpenOptions
 	head           format.Header
 	closed         bool
-	validatedHBINs map[uint32]bool        // HBIN offset -> validated (populated at Open)
-	hbinIndex      []hbinIndexEntry       // Fast HBIN lookup index (built at Open)
-	diagnostics    *diagnosticCollector   // nil unless CollectDiagnostics=true (zero-cost)
+	validatedHBINs map[uint32]bool      // HBIN offset -> validated (populated at Open)
+	hbinIndex      []hbinIndexEntry     // Fast HBIN lookup index (built at Open)
+	diagnostics    *diagnosticCollector // nil unless CollectDiagnostics=true (zero-cost)
 }
 
 // hbinIndexEntry stores HBIN position for fast lookup
@@ -426,6 +426,21 @@ func (r *reader) ValueName(id types.ValueID) (string, error) {
 		return "", wrapFormatErr(err)
 	}
 	return name, nil
+}
+
+func (r *reader) ValueRecord(id types.ValueID) (types.ValueRecord, error) {
+	if err := r.ensureOpen(); err != nil {
+		return types.ValueRecord{}, err
+	}
+	vk, err := r.vkOnly(uint32(id))
+	if err != nil {
+		return types.ValueRecord{}, err
+	}
+	return types.ValueRecord{
+		NameLen:        int(vk.NameLength),
+		NameCompressed: vk.NameIsASCII(),
+		DataLength:     vk.DataLength,
+	}, nil
 }
 
 func (r *reader) ValueBytes(id types.ValueID, ro types.ReadOptions) ([]byte, error) {

@@ -1,3 +1,4 @@
+//go:build hivex
 // +build hivex
 
 package reader
@@ -20,18 +21,18 @@ func TestLargeValue_BindingsVsReader(t *testing.T) {
 		expected  int // expected size in bytes
 	}{
 		{
-			name:     "BootPlan",
-			hivePath: "../../testdata/suite/windows-xp-system",
-			keyPath:  []string{"ControlSet001", "Services", "RdyBoost", "Parameters"},
+			name:      "BootPlan",
+			hivePath:  "../../testdata/suite/windows-xp-system",
+			keyPath:   []string{"ControlSet001", "Services", "RdyBoost", "Parameters"},
 			valueName: "BootPlan",
-			expected: 25544,
+			expected:  25544,
 		},
 		{
-			name:     "ProductPolicy",
-			hivePath: "../../testdata/suite/windows-xp-system",
-			keyPath:  []string{"ControlSet001", "Control", "ProductOptions"},
+			name:      "ProductPolicy",
+			hivePath:  "../../testdata/suite/windows-xp-system",
+			keyPath:   []string{"ControlSet001", "Control", "ProductOptions"},
 			valueName: "ProductPolicy",
-			expected: 22224,
+			expected:  22224,
 		},
 	}
 

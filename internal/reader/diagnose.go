@@ -12,15 +12,15 @@ import (
 
 // diagnosticScanner encapsulates the state for a full diagnostic scan
 type diagnosticScanner struct {
-	r              *reader
-	report         *types.DiagnosticReport
-	visitedCells   map[uint32]bool // Track cells we've seen (detect cycles)
-	visitedNodes   map[uint32]bool // Track NK nodes we've traversed
-	orphanedCells  map[uint32]bool // Cells not referenced by tree
-	startTime      time.Time
-	cellCount      int
-	nodeCount      int
-	valueCount     int
+	r             *reader
+	report        *types.DiagnosticReport
+	visitedCells  map[uint32]bool // Track cells we've seen (detect cycles)
+	visitedNodes  map[uint32]bool // Track NK nodes we've traversed
+	orphanedCells map[uint32]bool // Cells not referenced by tree
+	startTime     time.Time
+	cellCount     int
+	nodeCount     int
+	valueCount    int
 }
 
 // newDiagnosticScanner creates a scanner for full hive validation
