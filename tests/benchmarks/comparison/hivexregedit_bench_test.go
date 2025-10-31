@@ -65,11 +65,6 @@ func TestComparison_SuiteBenchmarks(t *testing.T) {
 	for _, tc := range suiteBenchmarks {
 		t.Run(tc.name, func(t *testing.T) {
 			// Skip tests with known issues
-			// TODO: Investigate data ordering differences in win2003-system/medium
-			if tc.name == "win2003-system/medium" {
-				t.Skip("Skipping: semantic differences between gohivex and hivexregedit output (needs investigation)")
-			}
-
 			// TODO: Fix gohivex block size validation bug that prevents hivex library from opening output
 			if tc.name == "win2012-system/large" {
 				t.Skip("Skipping: gohivex block size validation bug (block size <= 4 or not multiple of 4)")
@@ -146,9 +141,6 @@ func BenchmarkComparison_Gohivex(b *testing.B) {
 	for _, tc := range suiteBenchmarks {
 		b.Run(tc.name, func(b *testing.B) {
 			// Skip benchmarks with known issues
-			if tc.name == "win2003-system/medium" {
-				b.Skip("Skipping: semantic differences (needs investigation)")
-			}
 			if tc.name == "win2012-system/large" {
 				b.Skip("Skipping: gohivex block size validation bug")
 			}
@@ -206,9 +198,6 @@ func BenchmarkComparison_Hivexregedit(b *testing.B) {
 	for _, tc := range suiteBenchmarks {
 		b.Run(tc.name, func(b *testing.B) {
 			// Skip benchmarks with known issues
-			if tc.name == "win2003-system/medium" {
-				b.Skip("Skipping: semantic differences (needs investigation)")
-			}
 			if tc.name == "win2012-system/large" {
 				b.Skip("Skipping: gohivex block size validation bug")
 			}

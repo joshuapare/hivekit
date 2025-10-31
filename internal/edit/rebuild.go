@@ -1,7 +1,6 @@
 package edit
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -288,9 +287,9 @@ func buildNodeFromBase(
 		nameCompressed: meta.NameCompressed,
 		parent:         parent,
 		children:       make([]*treeNode, 0),
-		childMap:       make(map[string]*treeNode),
+		childMap:       nil, // Lazy-init: only allocate when first child is added
 		values:         make([]treeValue, 0),
-		valueMap:       make(map[string]*treeValue),
+		valueMap:       nil, // Lazy-init: only allocate when first value is added
 	}
 
 	// Load values
@@ -316,7 +315,10 @@ func buildNodeFromBase(
 					typ:            vd.typ,
 					data:           vd.data,
 				})
-				// Add to valueMap using cached lowercase
+				// Lazy-init valueMap on first value
+				if node.valueMap == nil {
+					node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
+				}
 				node.valueMap[nameLower] = &node.values[len(node.values)-1]
 			} else {
 				// Use original value
@@ -332,7 +334,10 @@ func buildNodeFromBase(
 					typ:            vmeta.Type,
 					data:           data,
 				})
-				// Add to valueMap using cached lowercase
+				// Lazy-init valueMap on first value
+				if node.valueMap == nil {
+					node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
+				}
 				node.valueMap[nameLower] = &node.values[len(node.values)-1]
 			}
 		}
@@ -358,6 +363,10 @@ func buildNodeFromBase(
 				return nil, err
 			}
 			node.children = append(node.children, child)
+			// Lazy-init childMap on first child
+			if node.childMap == nil {
+				node.childMap = make(map[string]*treeNode, 4) // Pre-allocate small capacity
+			}
 			node.childMap[child.nameLower] = child
 		}
 		// Children from base hive are already sorted (registry format guarantees this)
@@ -375,6 +384,10 @@ func insertChildSorted(parent, child *treeNode) {
 	if !parent.childrenSorted || len(parent.children) == 0 {
 		// Not sorted or empty, just append
 		parent.children = append(parent.children, child)
+		// Lazy-init childMap on first child
+		if parent.childMap == nil {
+			parent.childMap = make(map[string]*treeNode, 4) // Pre-allocate small capacity
+		}
 		parent.childMap[child.nameLower] = child
 		if len(parent.children) == 1 {
 			parent.childrenSorted = true // Single child is trivially sorted
@@ -391,6 +404,10 @@ func insertChildSorted(parent, child *treeNode) {
 	parent.children = append(parent.children, nil)
 	copy(parent.children[insertPos+1:], parent.children[insertPos:])
 	parent.children[insertPos] = child
+	// Lazy-init childMap on first child
+	if parent.childMap == nil {
+		parent.childMap = make(map[string]*treeNode, 4) // Pre-allocate small capacity
+	}
 	parent.childMap[child.nameLower] = child
 	// Remains sorted
 }
@@ -406,7 +423,11 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 	for i, seg := range segments {
 		// Use childMap for O(1) case-insensitive lookup
 		segLower := strings.ToLower(seg)
-		child, found := current.childMap[segLower]
+		var child *treeNode
+		var found bool
+		if current.childMap != nil {
+			child, found = current.childMap[segLower]
+		}
 		if !found {
 			// Create new node preserving original case from .reg file
 			newNode := &treeNode{
@@ -415,10 +436,10 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 				nameCompressed: true,
 				parent:         current,
 				children:       make([]*treeNode, 0),
-				childMap:       make(map[string]*treeNode),
+				childMap:       nil, // Lazy-init: only allocate when first child is added
 				childrenSorted: true, // New node starts sorted (empty)
 				values:         make([]treeValue, 0),
-				valueMap:       make(map[string]*treeValue),
+				valueMap:       nil, // Lazy-init: only allocate when first value is added
 			}
 			insertChildSorted(current, newNode)
 			current = newNode
@@ -443,7 +464,12 @@ func setValueInTree(root *treeNode, path, name string, typ types.RegType, data [
 
 	nameLower := strings.ToLower(name) // Cache lowercase once
 	// Use valueMap for O(1) case-insensitive lookup
-	if val, found := node.valueMap[nameLower]; found {
+	var val *treeValue
+	var found bool
+	if node.valueMap != nil {
+		val, found = node.valueMap[nameLower]
+	}
+	if found {
 		// Update existing value
 		val.typ = typ
 		val.data = data
@@ -459,7 +485,10 @@ func setValueInTree(root *treeNode, path, name string, typ types.RegType, data [
 		typ:            typ,
 		data:           data,
 	})
-	// Add to valueMap using cached lowercase
+	// Lazy-init valueMap on first value
+	if node.valueMap == nil {
+		node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
+	}
 	node.valueMap[nameLower] = &node.values[len(node.values)-1]
 	return nil
 }
@@ -473,8 +502,12 @@ func deleteValueInTree(root *treeNode, path, name string) error {
 
 	// Use valueMap for O(1) case-insensitive lookup
 	lowerName := strings.ToLower(name)
-	if _, found := node.valueMap[lowerName]; !found {
-		return nil // Value doesn't exist, nothing to delete
+	if node.valueMap != nil {
+		if _, found := node.valueMap[lowerName]; !found {
+			return nil // Value doesn't exist, nothing to delete
+		}
+	} else {
+		return nil // No values at all, nothing to delete
 	}
 
 	// Find and remove from slice (case-insensitive comparison)
@@ -508,7 +541,11 @@ func findNode(root *treeNode, path string) *treeNode {
 	for _, seg := range segments {
 		// Use childMap for O(1) case-insensitive lookup
 		segLower := strings.ToLower(seg)
-		child, found := current.childMap[segLower]
+		var child *treeNode
+		var found bool
+		if current.childMap != nil {
+			child, found = current.childMap[segLower]
+		}
 		if !found {
 			return nil
 		}
@@ -532,15 +569,18 @@ func joinPath(parent, child string) string {
 }
 
 // splitPath splits a path into segments, preserving original case.
+// Optimized to use strings.Split directly instead of bytes conversion.
 func splitPath(path string) []string {
 	if path == "" {
 		return nil
 	}
-	parts := bytes.Split([]byte(path), []byte("\\"))
-	result := make([]string, 0, len(parts))
+	// Use strings.Split directly (no string->bytes->string conversion)
+	parts := strings.Split(path, `\`)
+	// Filter out empty segments in-place (reuse parts slice)
+	result := parts[:0]
 	for _, p := range parts {
-		if len(p) > 0 {
-			result = append(result, string(p))
+		if p != "" {
+			result = append(result, p)
 		}
 	}
 	return result
