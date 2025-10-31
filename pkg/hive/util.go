@@ -136,6 +136,7 @@ func ValidateHive(hivePath string, limits Limits) error {
 		GetDeletedKeys() map[string]bool
 		GetSetValues() map[ast.ValueKey]ast.ValueData
 		GetDeletedValues() map[ast.ValueKey]bool
+		HasPathChanges(path string) bool
 	}), baseHive)
 	if err != nil {
 		tx.Rollback()

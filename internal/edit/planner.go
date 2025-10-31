@@ -80,6 +80,7 @@ type transaction struct {
 	limits      *ast.Limits        // registry limits to enforce
 	committed   bool
 	rolledBack  bool
+	changeIdx   *changeIndex // lazy-built index for efficient change queries
 }
 
 // keyNode represents metadata for a key (new or existing).
@@ -414,6 +415,13 @@ func (tx *transaction) GetDeletedValues() map[ast.ValueKey]bool {
 	return result
 }
 
+// HasPathChanges returns true if the path or any of its descendants have changes.
+// Uses the change index for efficient O(log n) detection.
+func (tx *transaction) HasPathChanges(path string) bool {
+	idx := tx.getChangeIndex()
+	return idx.HasSubtree(path)
+}
+
 // normalizePath normalizes a registry path (e.g., converts root aliases).
 func normalizePath(p string) string {
 	p = strings.TrimSpace(p)
@@ -438,4 +446,13 @@ func lastSegment(p string) string {
 		return p
 	}
 	return p[idx+1:]
+}
+
+// getChangeIndex returns the change index, building it lazily on first access.
+// This index is used for efficient change detection during tree building.
+func (tx *transaction) getChangeIndex() *changeIndex {
+	if tx.changeIdx == nil {
+		tx.changeIdx = buildChangeIndex(tx)
+	}
+	return tx.changeIdx
 }

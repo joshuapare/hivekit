@@ -192,6 +192,9 @@ type treeValue struct {
 
 // buildTree constructs the logical tree by merging base + changes.
 func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNode, error) {
+	// Build change index for efficient subtree skipping
+	changeIdx := tx.getChangeIndex()
+
 	var root *treeNode
 
 	// If no base hive (creating from scratch), start with empty root
@@ -214,7 +217,7 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 			return nil, err
 		}
 
-		root, err = buildNodeFromBase(tx, alloc, rootID, "", nil)
+		root, err = buildNodeFromBase(tx, alloc, changeIdx, rootID, "", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -266,12 +269,13 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 func buildNodeFromBase(
 	tx *transaction,
 	alloc *allocator,
+	changeIdx *changeIndex,
 	id types.NodeID,
 	path string,
 	parent *treeNode,
 ) (*treeNode, error) {
-	// Check if this key is deleted
-	if tx.deletedKeys[path] {
+	// Check if this key is deleted (use ChangeIndex for O(1) lookup)
+	if changeIdx.HasDeleted(path) {
 		return nil, ErrKeyDeleted
 	}
 
@@ -292,40 +296,71 @@ func buildNodeFromBase(
 		valueMap:       nil, // Lazy-init: only allocate when first value is added
 	}
 
-	// Load values
+	// Load values - optimize based on whether this path has value changes
+	// ONLY if there are changes (if no changes, we need to load all values for round-trip)
 	valueIDs, err := tx.editor.r.Values(id)
 	if err == nil {
-		for _, vid := range valueIDs {
-			vmeta, err := tx.editor.r.StatValue(vid)
-			if err != nil {
-				continue
-			}
-			vk := valueKey{path: path, name: vmeta.Name}
-			if tx.deletedVals[vk] {
-				continue // value is deleted
-			}
-			nameLower := strings.ToLower(vmeta.Name) // Cache lowercase once
-			// Check if value is overridden
-			if vd, ok := tx.setValues[vk]; ok {
-				node.values = append(node.values, treeValue{
-					name:           vmeta.Name,
-					nameLower:      nameLower,
-					nameBytes:      nil, // Modified value, no zero-copy
-					nameCompressed: vmeta.NameCompressed,
-					typ:            vd.typ,
-					data:           vd.data,
-				})
-				// Lazy-init valueMap on first value
-				if node.valueMap == nil {
-					node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
+		hasAnyChanges := changeIdx.ChangeCount() > 0
+		if hasAnyChanges && changeIdx.HasValueChanges(path) {
+			// Path has value changes - need to check for modifications/deletions
+			for _, vid := range valueIDs {
+				vmeta, err := tx.editor.r.StatValue(vid)
+				if err != nil {
+					continue
 				}
-				node.valueMap[nameLower] = &node.values[len(node.values)-1]
-			} else {
-				// Use original value
+				vk := valueKey{path: path, name: vmeta.Name}
+				if tx.deletedVals[vk] {
+					continue // value is deleted
+				}
+				nameLower := strings.ToLower(vmeta.Name) // Cache lowercase once
+				// Check if value is overridden
+				if vd, ok := tx.setValues[vk]; ok {
+					node.values = append(node.values, treeValue{
+						name:           vmeta.Name,
+						nameLower:      nameLower,
+						nameBytes:      nil, // Modified value, no zero-copy
+						nameCompressed: vmeta.NameCompressed,
+						typ:            vd.typ,
+						data:           vd.data,
+					})
+					// Lazy-init valueMap on first value
+					if node.valueMap == nil {
+						node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
+					}
+					node.valueMap[nameLower] = &node.values[len(node.values)-1]
+				} else {
+					// Use original value
+					data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{CopyData: true})
+					if err != nil {
+						continue
+					}
+					node.values = append(node.values, treeValue{
+						name:           vmeta.Name,
+						nameLower:      nameLower,
+						nameBytes:      vmeta.NameRaw, // Store original bytes for zero-copy
+						nameCompressed: vmeta.NameCompressed,
+						typ:            vmeta.Type,
+						data:           data,
+					})
+					// Lazy-init valueMap on first value
+					if node.valueMap == nil {
+						node.valueMap = make(map[string]*treeValue, 4) // Pre-allocate small capacity
+					}
+					node.valueMap[nameLower] = &node.values[len(node.values)-1]
+				}
+			}
+		} else {
+			// Fast path: no value changes - load all values directly without checking maps
+			for _, vid := range valueIDs {
+				vmeta, err := tx.editor.r.StatValue(vid)
+				if err != nil {
+					continue
+				}
 				data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{CopyData: true})
 				if err != nil {
 					continue
 				}
+				nameLower := strings.ToLower(vmeta.Name) // Cache lowercase once
 				node.values = append(node.values, treeValue{
 					name:           vmeta.Name,
 					nameLower:      nameLower,
@@ -343,7 +378,8 @@ func buildNodeFromBase(
 		}
 	}
 
-	// Load subkeys
+	// Load subkeys - optimization: skip recursing into unchanged subtrees
+	// ONLY if there are changes (if no changes, we need to build full tree)
 	subkeys, err := tx.editor.r.Subkeys(id)
 	if err == nil {
 		for _, sid := range subkeys {
@@ -354,7 +390,7 @@ func buildNodeFromBase(
 			// Build child path efficiently (avoid per-iteration allocation)
 			childPath := joinPath(path, smeta.Name)
 
-			child, err := buildNodeFromBase(tx, alloc, sid, childPath, node)
+			child, err := buildNodeFromBase(tx, alloc, changeIdx, sid, childPath, node)
 			if err != nil {
 				// Skip deleted keys (they return ErrKeyDeleted)
 				if errors.Is(err, ErrKeyDeleted) {

@@ -26,6 +26,10 @@ type TransactionChanges interface {
 
 	// GetDeletedValues returns all values that were deleted
 	GetDeletedValues() map[ValueKey]bool
+
+	// HasPathChanges returns true if the path or any of its descendants have changes.
+	// This method enables efficient O(log n) change detection using the change index.
+	HasPathChanges(path string) bool
 }
 
 // cachedTransactionChanges wraps TransactionChanges with caching to avoid
@@ -62,6 +66,10 @@ func (c *cachedTransactionChanges) GetDeletedKeys() map[string]bool {
 
 func (c *cachedTransactionChanges) GetDeletedValues() map[ValueKey]bool {
 	return c.deletedValues // Return cached map
+}
+
+func (c *cachedTransactionChanges) HasPathChanges(path string) bool {
+	return c.inner.HasPathChanges(path) // Delegate to inner implementation
 }
 
 // ValueKey identifies a value by path and name.
@@ -253,47 +261,9 @@ func buildNodeFromBase(
 }
 
 // pathHasChanges checks if a path or any of its descendants have changes.
+// Uses the efficient O(log n) HasPathChanges method from the change index.
 func pathHasChanges(path string, changes TransactionChanges) bool {
-	// Check if path itself is created or deleted
-	if changes.GetCreatedKeys()[path] {
-		return true
-	}
-	if changes.GetDeletedKeys()[path] {
-		return true
-	}
-
-	// Check if any descendant path has changes
-	pathPrefix := path
-	if pathPrefix != "" {
-		pathPrefix += RegistryPathSeparator
-	}
-
-	for createdPath := range changes.GetCreatedKeys() {
-		if strings.HasPrefix(createdPath, pathPrefix) {
-			return true
-		}
-	}
-
-	for deletedPath := range changes.GetDeletedKeys() {
-		if strings.HasPrefix(deletedPath, pathPrefix) {
-			return true
-		}
-	}
-
-	// Check if any values in this path or descendants have changes
-	for vk := range changes.GetSetValues() {
-		if vk.Path == path || strings.HasPrefix(vk.Path, pathPrefix) {
-			return true
-		}
-	}
-
-	for vk := range changes.GetDeletedValues() {
-		if vk.Path == path || strings.HasPrefix(vk.Path, pathPrefix) {
-			return true
-		}
-	}
-
-	return false
+	return changes.HasPathChanges(path)
 }
 
 // ensurePathExists ensures all nodes along a path exist, creating them if needed.
