@@ -9,18 +9,19 @@ import (
 // TestChangeIndex_HasExact tests exact path change detection
 func TestChangeIndex_HasExact(t *testing.T) {
 	// Create a mock transaction with some changes
+	// Paths must be normalized (lowercase) as they would be in real transaction
 	tx := &transaction{
 		createdKeys: map[string]*keyNode{
-			`Software\Test`: {exists: false, name: "Test"},
+			normalizePath(`Software\Test`): {exists: false, name: "Test"},
 		},
 		deletedKeys: map[string]bool{
-			`Software\OldKey`: true,
+			normalizePath(`Software\OldKey`): true,
 		},
 		setValues: map[valueKey]valueData{
-			{path: `Software\Config`, name: "Setting"}: {typ: types.REG_SZ, data: []byte("value")},
+			{path: normalizePath(`Software\Config`), name: "Setting"}: {typ: types.REG_SZ, data: []byte("value")},
 		},
 		deletedVals: map[valueKey]bool{
-			{path: `Software\Legacy`, name: "OldSetting"}: true,
+			{path: normalizePath(`Software\Legacy`), name: "OldSetting"}: true,
 		},
 	}
 
@@ -49,7 +50,7 @@ func TestChangeIndex_HasExact(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := idx.HasExact(tc.path)
+		got := idx.HasExact(normalizePath(tc.path))
 		if got != tc.expected {
 			t.Errorf("HasExact(%q) = %v, want %v", tc.path, got, tc.expected)
 		}
@@ -60,15 +61,15 @@ func TestChangeIndex_HasExact(t *testing.T) {
 func TestChangeIndex_HasSubtree(t *testing.T) {
 	tx := &transaction{
 		createdKeys: map[string]*keyNode{
-			`A\B\C`:       {exists: false, name: "C"},
-			`A\B\D`:       {exists: false, name: "D"},
-			`X\Y\Z\Deep`: {exists: false, name: "Deep"},
+			normalizePath(`A\B\C`):       {exists: false, name: "C"},
+			normalizePath(`A\B\D`):       {exists: false, name: "D"},
+			normalizePath(`X\Y\Z\Deep`): {exists: false, name: "Deep"},
 		},
 		deletedKeys: map[string]bool{
-			`M\N\O`: true,
+			normalizePath(`M\N\O`): true,
 		},
 		setValues: map[valueKey]valueData{
-			{path: `P\Q\R`, name: "Val"}: {typ: types.REG_DWORD, data: []byte{1, 2, 3, 4}},
+			{path: normalizePath(`P\Q\R`), name: "Val"}: {typ: types.REG_DWORD, data: []byte{1, 2, 3, 4}},
 		},
 		deletedVals: make(map[valueKey]bool),
 	}
@@ -107,7 +108,7 @@ func TestChangeIndex_HasSubtree(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := idx.HasSubtree(tc.path)
+		got := idx.HasSubtree(normalizePath(tc.path))
 		if got != tc.expected {
 			t.Errorf("HasSubtree(%q) = %v, want %v (%s)", tc.path, got, tc.expected, tc.reason)
 		}
@@ -118,42 +119,42 @@ func TestChangeIndex_HasSubtree(t *testing.T) {
 func TestChangeIndex_TypeSpecific(t *testing.T) {
 	tx := &transaction{
 		createdKeys: map[string]*keyNode{
-			`New\Key`: {exists: false, name: "Key"},
+			normalizePath(`New\Key`): {exists: false, name: "Key"},
 		},
 		deletedKeys: map[string]bool{
-			`Deleted\Key`: true,
+			normalizePath(`Deleted\Key`): true,
 		},
 		setValues: map[valueKey]valueData{
-			{path: `Value\Path`, name: "Val"}: {typ: types.REG_SZ, data: []byte("test")},
+			{path: normalizePath(`Value\Path`), name: "Val"}: {typ: types.REG_SZ, data: []byte("test")},
 		},
 		deletedVals: map[valueKey]bool{
-			{path: `Value\Path`, name: "OldVal"}: true,
+			{path: normalizePath(`Value\Path`), name: "OldVal"}: true,
 		},
 	}
 
 	idx := buildChangeIndex(tx)
 
 	// Test HasCreated
-	if !idx.HasCreated(`New\Key`) {
+	if !idx.HasCreated(normalizePath(`New\Key`)) {
 		t.Error("HasCreated should return true for created key")
 	}
-	if idx.HasCreated(`Deleted\Key`) {
+	if idx.HasCreated(normalizePath(`Deleted\Key`)) {
 		t.Error("HasCreated should return false for deleted key")
 	}
 
 	// Test HasDeleted
-	if !idx.HasDeleted(`Deleted\Key`) {
+	if !idx.HasDeleted(normalizePath(`Deleted\Key`)) {
 		t.Error("HasDeleted should return true for deleted key")
 	}
-	if idx.HasDeleted(`New\Key`) {
+	if idx.HasDeleted(normalizePath(`New\Key`)) {
 		t.Error("HasDeleted should return false for created key")
 	}
 
 	// Test HasValueChanges
-	if !idx.HasValueChanges(`Value\Path`) {
+	if !idx.HasValueChanges(normalizePath(`Value\Path`)) {
 		t.Error("HasValueChanges should return true for path with value changes")
 	}
-	if idx.HasValueChanges(`New\Key`) {
+	if idx.HasValueChanges(normalizePath(`New\Key`)) {
 		t.Error("HasValueChanges should return false for key without value changes")
 	}
 }
@@ -162,18 +163,18 @@ func TestChangeIndex_TypeSpecific(t *testing.T) {
 func TestChangeIndex_ChangeCount(t *testing.T) {
 	tx := &transaction{
 		createdKeys: map[string]*keyNode{
-			`A`: {exists: false, name: "A"},
-			`B`: {exists: false, name: "B"},
+			normalizePath(`A`): {exists: false, name: "A"},
+			normalizePath(`B`): {exists: false, name: "B"},
 		},
 		deletedKeys: map[string]bool{
-			`C`: true,
+			normalizePath(`C`): true,
 		},
 		setValues: map[valueKey]valueData{
-			{path: `D`, name: "Val1"}: {typ: types.REG_SZ, data: []byte("v1")},
-			{path: `D`, name: "Val2"}: {typ: types.REG_SZ, data: []byte("v2")},
+			{path: normalizePath(`D`), name: "Val1"}: {typ: types.REG_SZ, data: []byte("v1")},
+			{path: normalizePath(`D`), name: "Val2"}: {typ: types.REG_SZ, data: []byte("v2")},
 		},
 		deletedVals: map[valueKey]bool{
-			{path: `E`, name: "OldVal"}: true,
+			{path: normalizePath(`E`), name: "OldVal"}: true,
 		},
 	}
 
@@ -198,11 +199,11 @@ func TestChangeIndex_EmptyTransaction(t *testing.T) {
 
 	idx := buildChangeIndex(tx)
 
-	if idx.HasExact("any path") {
+	if idx.HasExact(normalizePath("any path")) {
 		t.Error("HasExact should return false for empty transaction")
 	}
 
-	if idx.HasSubtree("") {
+	if idx.HasSubtree(normalizePath("")) {
 		t.Error("HasSubtree should return false for root in empty transaction")
 	}
 
@@ -215,13 +216,13 @@ func TestChangeIndex_EmptyTransaction(t *testing.T) {
 func TestChangeIndex_Normalization(t *testing.T) {
 	tx := &transaction{
 		createdKeys: map[string]*keyNode{
-			` Software\Test `: {exists: false, name: "Test"}, // with spaces
+			normalizePath(` Software\Test `): {exists: false, name: "Test"}, // with spaces
 		},
 		deletedKeys: map[string]bool{
-			`Software\Old\`: true, // trailing backslash
+			normalizePath(`Software\Old\`): true, // trailing backslash
 		},
 		setValues: map[valueKey]valueData{
-			{path: `\Software\Config`, name: "Val"}: {typ: types.REG_SZ, data: []byte("v")}, // leading backslash
+			{path: normalizePath(`\Software\Config`), name: "Val"}: {typ: types.REG_SZ, data: []byte("v")}, // leading backslash
 		},
 		deletedVals: make(map[valueKey]bool),
 	}
@@ -245,7 +246,7 @@ func TestChangeIndex_Normalization(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := idx.HasExact(tc.path)
+		got := idx.HasExact(normalizePath(tc.path))
 		if got != tc.expected {
 			t.Errorf("HasExact(%q) = %v, want %v (normalization test)", tc.path, got, tc.expected)
 		}
@@ -256,7 +257,7 @@ func TestChangeIndex_Normalization(t *testing.T) {
 func TestChangeIndex_DeepSubtree(t *testing.T) {
 	tx := &transaction{
 		createdKeys: map[string]*keyNode{
-			`Level1\Level2\Level3\Level4\Level5`: {exists: false, name: "Level5"},
+			normalizePath(`Level1\Level2\Level3\Level4\Level5`): {exists: false, name: "Level5"},
 		},
 		deletedKeys: make(map[string]bool),
 		setValues:   make(map[valueKey]valueData),
@@ -275,7 +276,7 @@ func TestChangeIndex_DeepSubtree(t *testing.T) {
 	}
 
 	for _, path := range ancestors {
-		if !idx.HasSubtree(path) {
+		if !idx.HasSubtree(normalizePath(path)) {
 			t.Errorf("HasSubtree(%q) should return true", path)
 		}
 	}
@@ -288,7 +289,7 @@ func TestChangeIndex_DeepSubtree(t *testing.T) {
 	}
 
 	for _, path := range unrelated {
-		if idx.HasSubtree(path) {
+		if idx.HasSubtree(normalizePath(path)) {
 			t.Errorf("HasSubtree(%q) should return false", path)
 		}
 	}

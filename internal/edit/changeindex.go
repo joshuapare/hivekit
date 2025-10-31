@@ -23,13 +23,9 @@ type changeIndex struct {
 	allPaths []string
 }
 
-// normalizePathLower normalizes and lowercases a path for case-insensitive comparison.
-func normalizePathLower(p string) string {
-	return strings.ToLower(normalizePath(p))
-}
-
 // buildChangeIndex constructs an index from transaction changes.
 // This should be called once during transaction commit and cached.
+// Paths are already normalized and lowercase by the transaction.
 func buildChangeIndex(tx *transaction) *changeIndex {
 	idx := &changeIndex{
 		createdSet: make(map[string]bool),
@@ -37,35 +33,31 @@ func buildChangeIndex(tx *transaction) *changeIndex {
 		valueSet:   make(map[string]bool),
 	}
 
-	// Collect created keys (use lowercase for case-insensitive lookups)
+	// Collect created keys (paths are already normalized and lowercase)
 	for path, node := range tx.createdKeys {
 		if !node.exists {
-			pathLower := normalizePathLower(path)
-			idx.createdSet[pathLower] = true
-			idx.createdPaths = append(idx.createdPaths, pathLower)
+			idx.createdSet[path] = true
+			idx.createdPaths = append(idx.createdPaths, path)
 		}
 	}
 
-	// Collect deleted keys (use lowercase for case-insensitive lookups)
+	// Collect deleted keys (paths are already normalized and lowercase)
 	for path := range tx.deletedKeys {
-		pathLower := normalizePathLower(path)
-		idx.deletedSet[pathLower] = true
-		idx.deletedPaths = append(idx.deletedPaths, pathLower)
+		idx.deletedSet[path] = true
+		idx.deletedPaths = append(idx.deletedPaths, path)
 	}
 
-	// Collect paths with value changes (set or deleted) (use lowercase)
+	// Collect paths with value changes (paths are already normalized and lowercase)
 	for vk := range tx.setValues {
-		pathLower := normalizePathLower(vk.path)
-		if !idx.valueSet[pathLower] {
-			idx.valueSet[pathLower] = true
-			idx.valuePaths = append(idx.valuePaths, pathLower)
+		if !idx.valueSet[vk.path] {
+			idx.valueSet[vk.path] = true
+			idx.valuePaths = append(idx.valuePaths, vk.path)
 		}
 	}
 	for vk := range tx.deletedVals {
-		pathLower := normalizePathLower(vk.path)
-		if !idx.valueSet[pathLower] {
-			idx.valueSet[pathLower] = true
-			idx.valuePaths = append(idx.valuePaths, pathLower)
+		if !idx.valueSet[vk.path] {
+			idx.valueSet[vk.path] = true
+			idx.valuePaths = append(idx.valuePaths, vk.path)
 		}
 	}
 
@@ -97,30 +89,29 @@ func buildChangeIndex(tx *transaction) *changeIndex {
 
 // HasExact returns true if the exact path has any changes.
 // This is an O(1) operation using map lookups.
+// Assumes path is already normalized and lowercase.
 func (idx *changeIndex) HasExact(path string) bool {
-	pathLower := normalizePathLower(path)
-	return idx.createdSet[pathLower] || idx.deletedSet[pathLower] || idx.valueSet[pathLower]
+	return idx.createdSet[path] || idx.deletedSet[path] || idx.valueSet[path]
 }
 
 // HasSubtree returns true if the path or any of its descendants have changes.
 // This is an O(log n + k) operation where k is the number of matching paths.
 // Uses binary search on sorted path list and prefix matching.
+// Assumes path is already normalized and lowercase.
 func (idx *changeIndex) HasSubtree(path string) bool {
-	pathLower := normalizePathLower(path)
-
 	// Check if the path itself has changes
 	if idx.HasExact(path) {
 		return true
 	}
 
 	// Build the prefix to search for descendants
-	// For path "A\B", descendants will be "A\B\*"
+	// For path "a\b", descendants will be "a\b\*"
 	var prefix string
-	if pathLower == "" {
+	if path == "" {
 		// Root path - all paths are descendants
 		return len(idx.allPaths) > 0
 	} else {
-		prefix = pathLower + "\\"
+		prefix = path + "\\"
 	}
 
 	// Binary search for the first path that could be a descendant
@@ -138,21 +129,21 @@ func (idx *changeIndex) HasSubtree(path string) bool {
 }
 
 // HasCreated returns true if the exact path was created.
+// Assumes path is already normalized and lowercase.
 func (idx *changeIndex) HasCreated(path string) bool {
-	pathLower := normalizePathLower(path)
-	return idx.createdSet[pathLower]
+	return idx.createdSet[path]
 }
 
 // HasDeleted returns true if the exact path was deleted.
+// Assumes path is already normalized and lowercase.
 func (idx *changeIndex) HasDeleted(path string) bool {
-	pathLower := normalizePathLower(path)
-	return idx.deletedSet[pathLower]
+	return idx.deletedSet[path]
 }
 
 // HasValueChanges returns true if the exact path has value changes.
+// Assumes path is already normalized and lowercase.
 func (idx *changeIndex) HasValueChanges(path string) bool {
-	pathLower := normalizePathLower(path)
-	return idx.valueSet[pathLower]
+	return idx.valueSet[path]
 }
 
 // ChangeCount returns the total number of changed paths.

@@ -465,9 +465,15 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 			child, found = current.childMap[segLower]
 		}
 		if !found {
-			// Create new node preserving original case from .reg file
+			// For the last segment, use the original case-preserving name from keyNode
+			// For intermediate segments, use the segment from the path
+			nodeName := seg
+			if i == len(segments)-1 {
+				nodeName = node.name
+			}
+			// Create new node preserving original case
 			newNode := &treeNode{
-				name:           seg,
+				name:           nodeName,
 				nameLower:      segLower, // Cache lowercase for lookups
 				nameCompressed: true,
 				parent:         current,

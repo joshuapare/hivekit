@@ -118,6 +118,8 @@ func (tx *transaction) CreateKey(path string, opts types.CreateKeyOptions) error
 	if err := tx.checkState(); err != nil {
 		return err
 	}
+	// Extract the original name before normalization to preserve case
+	origName := lastSegment(path)
 	path = normalizePath(path)
 	if tx.deletedKeys[path] {
 		return &types.Error{Kind: types.ErrKindState, Msg: fmt.Sprintf("key %q already marked for deletion", path)}
@@ -133,7 +135,7 @@ func (tx *transaction) CreateKey(path string, opts types.CreateKeyOptions) error
 		tx.createdKeys[path] = &keyNode{
 			exists: true,
 			parent: parentPath(path),
-			name:   lastSegment(path),
+			name:   origName,
 			values: make(map[string]bool),
 		}
 		return nil
@@ -163,7 +165,7 @@ func (tx *transaction) CreateKey(path string, opts types.CreateKeyOptions) error
 	tx.createdKeys[path] = &keyNode{
 		exists: false,
 		parent: parent,
-		name:   lastSegment(path),
+		name:   origName,
 		values: make(map[string]bool),
 	}
 	return nil
@@ -422,12 +424,14 @@ func (tx *transaction) HasPathChanges(path string) bool {
 	return idx.HasSubtree(path)
 }
 
-// normalizePath normalizes a registry path (e.g., converts root aliases).
+// normalizePath normalizes a registry path and converts to lowercase.
+// Windows registry paths are case-insensitive, so we store everything lowercase
+// to avoid repeated ToLower() calls and string allocations.
 func normalizePath(p string) string {
 	p = strings.TrimSpace(p)
 	p = strings.TrimPrefix(p, "\\")
 	p = strings.TrimSuffix(p, "\\")
-	return p
+	return strings.ToLower(p)
 }
 
 // parentPath returns the parent path of p, or "" if p is root.
