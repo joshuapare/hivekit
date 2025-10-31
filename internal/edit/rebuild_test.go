@@ -23,7 +23,8 @@ func TestChecksumCalculation(t *testing.T) {
 	hbins := [][]byte{hbin}
 	rootOffset := int32(0x20)
 
-	result, err := buildFinalHive(hbins, rootOffset)
+	alloc := newAllocator()
+	result, err := buildFinalHive(hbins, rootOffset, alloc)
 	if err != nil {
 		t.Fatalf("buildFinalHive failed: %v", err)
 	}
@@ -63,7 +64,8 @@ func TestREGFHeaderFields(t *testing.T) {
 	hbins := [][]byte{hbin}
 	rootOffset := int32(0x20)
 
-	result, err := buildFinalHive(hbins, rootOffset)
+	alloc := newAllocator()
+	result, err := buildFinalHive(hbins, rootOffset, alloc)
 	if err != nil {
 		t.Fatalf("buildFinalHive failed: %v", err)
 	}
@@ -112,7 +114,8 @@ func TestREGFHeaderSize(t *testing.T) {
 	binary.LittleEndian.PutUint32(hbin[8:], 0x1000)
 
 	hbins := [][]byte{hbin}
-	result, err := buildFinalHive(hbins, int32(0x20))
+	alloc := newAllocator()
+	result, err := buildFinalHive(hbins, int32(0x20), alloc)
 	if err != nil {
 		t.Fatalf("buildFinalHive failed: %v", err)
 	}
@@ -137,7 +140,8 @@ func TestFreeCellPadding(t *testing.T) {
 	binary.LittleEndian.PutUint32(cellBuf[0:], uint32(cellSize))
 	copy(cellBuf[4:8], []byte("test")) // Some cell signature
 
-	hbins := packCellBuffer(cellBuf, false)
+	alloc := newAllocator()
+	hbins := packCellBuffer(cellBuf, alloc, false)
 
 	if len(hbins) != 1 {
 		t.Fatalf("Expected 1 HBIN, got %d", len(hbins))
@@ -185,7 +189,8 @@ func TestNoFreeCellWhenFull(t *testing.T) {
 	fullCellSize := -int32(hbinDataSize)
 	binary.LittleEndian.PutUint32(cellBuf[0:], uint32(fullCellSize))
 
-	hbins := packCellBuffer(cellBuf, false)
+	alloc := newAllocator()
+	hbins := packCellBuffer(cellBuf, alloc, false)
 
 	if len(hbins) != 1 {
 		t.Fatalf("Expected 1 HBIN, got %d", len(hbins))

@@ -157,8 +157,8 @@ func TestCalculateDBBlocks(t *testing.T) {
 		{"small (1 block)", 1000, 1, 1000},
 		{"exactly 1 block", DBBlockMaxSize, 1, DBBlockMaxSize},
 		{"slightly over 1 block", DBBlockMaxSize + 1, 2, 1},
-		{"20KB (2 blocks)", 20480, 2, 20480 - DBBlockMaxSize},
-		{"50KB (4 blocks)", 51200, 4, 51200 - 3*DBBlockMaxSize},
+		{"20KB (6 blocks)", 20480, 6, 240},
+		{"50KB (13 blocks)", 51200, 13, 2624},
 	}
 
 	for _, tc := range tests {

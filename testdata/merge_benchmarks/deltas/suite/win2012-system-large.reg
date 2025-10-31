@@ -382,6 +382,9 @@ Windows Registry Editor Version 5.00
 [\ControlSet001\Control\BackupRestore\FilesNotToBackup]
 "Test"="*test*"
 
+; Create parent key before child (fixes hivexregedit bug)
+[\ControlSet001\Control\Biosinfo]
+
 [\ControlSet001\Control\Biosinfo\SystemBiosVersion]
 "Version"="BENCH.01"
 
@@ -752,6 +755,9 @@ Windows Registry Editor Version 5.00
 
 [\ControlSet002\Control\BackupRestore\FilesNotToBackup]
 "Test2"="*test2*"
+
+; Create parent key before child (fixes hivexregedit bug)
+[\ControlSet002\Control\Biosinfo]
 
 [\ControlSet002\Control\Biosinfo\SystemBiosVersion]
 "Version"="BENCH.02"

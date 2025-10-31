@@ -148,11 +148,13 @@ func (r *reader) StatKey(id types.NodeID) (types.KeyMeta, error) {
 	}
 	return types.KeyMeta{
 		Name:           name,
+		NameLower:      strings.ToLower(name), // Cache lowercase once for case-insensitive comparisons
 		LastWrite:      format.FiletimeToTime(nk.LastWriteRaw),
 		SubkeyN:        int(nk.SubkeyCount),
 		ValueN:         int(nk.ValueCount),
 		HasSecDesc:     nk.SecurityOffset != math.MaxUint32,
 		NameCompressed: nk.NameIsCompressed(),
+		NameRaw:        nk.NameRaw,
 	}, nil
 }
 
@@ -180,6 +182,7 @@ func (r *reader) DetailKey(id types.NodeID) (types.KeyDetail, error) {
 	return types.KeyDetail{
 		KeyMeta: types.KeyMeta{
 			Name:           name,
+			NameLower:      strings.ToLower(name), // Cache lowercase once for case-insensitive comparisons
 			LastWrite:      format.FiletimeToTime(nk.LastWriteRaw),
 			SubkeyN:        int(nk.SubkeyCount),
 			ValueN:         int(nk.ValueCount),
@@ -390,6 +393,7 @@ func (r *reader) StatValue(id types.ValueID) (types.ValueMeta, error) {
 		Size:           size,
 		Inline:         inline,
 		NameCompressed: (flags & format.VKFlagASCIIName) != 0,
+		NameRaw:        nameBytes,
 	}, nil
 }
 

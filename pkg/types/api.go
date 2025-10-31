@@ -129,16 +129,19 @@ type ValueMeta struct {
 	Size           int     // logical payload size (from VK)
 	Inline         bool    // true if VK embeds data inline per spec heuristics
 	NameCompressed bool    // true if name is stored in compressed (Windows-1252) format
+	NameRaw        []byte  // original encoded name bytes (for zero-copy serialization)
 }
 
 // KeyMeta exposes cheap NK-level information useful for listings and planning.
 type KeyMeta struct {
 	Name           string    // key name as UTF-8 (decoded lazily)
+	NameLower      string    // cached lowercase name for case-insensitive comparisons (avoids repeated ToLower calls)
 	LastWrite      time.Time // NK timestamp if present
 	SubkeyN        int       // number of subkeys (from list)
 	ValueN         int       // number of values
 	HasSecDesc     bool      // whether an SK record is associated
 	NameCompressed bool      // true if name is stored in compressed (Windows-1252) format
+	NameRaw        []byte    // original encoded name bytes (for zero-copy serialization)
 }
 
 // KeyDetail exposes detailed NK record metadata for inspection/forensics.

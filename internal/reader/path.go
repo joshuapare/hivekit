@@ -60,7 +60,8 @@ func (r *reader) Find(path string) (types.NodeID, error) {
 			if err != nil {
 				return 0, err
 			}
-			if strings.ToLower(meta.Name) == needle {
+			// Use cached lowercase name instead of calling ToLower in the loop
+			if meta.NameLower == needle {
 				current = child
 				matched = true
 				break

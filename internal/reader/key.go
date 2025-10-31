@@ -40,8 +40,14 @@ func EncodeKeyName(name string) ([]byte, error) {
 	if name == "" {
 		return nil, nil
 	}
-	// Encode UTF-8 string to Windows-1252 bytes
-	encoded, err := charmap.Windows1252.NewEncoder().Bytes([]byte(name))
+	// Fast path: ASCII doesn't need encoding (same in Windows-1252 and UTF-8)
+	// This is the common case for registry keys like "Microsoft", "Windows", etc.
+	nameBytes := []byte(name)
+	if isASCII(nameBytes) {
+		return nameBytes, nil
+	}
+	// Slow path: Use encoder for extended characters (0x80-0xFF)
+	encoded, err := charmap.Windows1252.NewEncoder().Bytes(nameBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode name to Windows-1252: %w", err)
 	}

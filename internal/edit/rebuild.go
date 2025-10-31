@@ -31,9 +31,10 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 
 	// Pre-calculate buffer size needed
 	neededSize := calculateBufferSize(root)
-	// Add 100% padding for alignment overhead, safety margin, and metadata
-	// This is conservative but ensures we never run out of space
-	bufferSize := max(neededSize*2, 64*1024)
+	// Add 10% padding for safety margin and any minor alignment discrepancies
+	// Our calculation now accounts for NK min size, DB records, and RI/LF overhead
+	// so we don't need the previous 100% padding
+	bufferSize := max(neededSize*110/100, 64*1024)
 
 	// Ensure the pooled buffer is large enough
 	ensureCapacity(cellBuf, bufferSize)
@@ -72,8 +73,13 @@ func calculateBufferSize(node *treeNode) int {
 
 	total := 0
 
-	// NK cell size: 4 (header) + format.NKFixedHeaderSize + name length, aligned to 8 bytes
-	nkSize := format.CellHeaderSize + format.NKFixedHeaderSize + len(node.name)
+	// NK cell size: 4 (header) + format.NKFixedHeaderSize + name length
+	// BUT: NK has minimum size requirement (80 bytes for short/empty names)
+	nkContentSize := format.NKFixedHeaderSize + len(node.name)
+	if nkContentSize < format.NKMinSize {
+		nkContentSize = format.NKMinSize
+	}
+	nkSize := format.CellHeaderSize + nkContentSize
 	total += alignTo8(nkSize)
 
 	// Value list cell if there are values: 4 (header) + 4*count, aligned to 8 bytes
@@ -86,18 +92,61 @@ func calculateBufferSize(node *treeNode) int {
 			vkSize := format.CellHeaderSize + format.VKFixedHeaderSize + len(val.name)
 			total += alignTo8(vkSize)
 
-			// Data cell if data > 4 bytes: 4 (header) + data length, aligned to 8 bytes
-			if len(val.data) > 4 {
-				dataSize := 4 + len(val.data)
-				total += alignTo8(dataSize)
+			// Data cell calculation depends on size
+			dataLen := len(val.data)
+			if dataLen > 4 {
+				const dbThreshold = 4096
+				if dataLen > dbThreshold {
+					// Large value uses DB (Big Data) records with multiple cells:
+					// 1. Data blocks (multiple cells with headers)
+					numBlocks, blockSizes := format.CalculateDBBlocks(dataLen)
+					for _, blockSize := range blockSizes {
+						blockCellSize := 4 + blockSize // header + data
+						total += alignTo8(blockCellSize)
+					}
+					// 2. Blocklist cell: 4 (header) + 4*numBlocks
+					blocklistSize := 4 + numBlocks*4
+					total += alignTo8(blocklistSize)
+					// 3. DB record cell: 4 (header) + 12 (DB record)
+					dbRecordSize := 4 + format.DBMinSize
+					total += alignTo8(dbRecordSize)
+				} else {
+					// Normal data cell: 4 (header) + data length
+					dataSize := 4 + dataLen
+					total += alignTo8(dataSize)
+				}
 			}
 		}
 	}
 
-	// Subkey list cell if there are children: 4 (header) + 4 + count*8, aligned to 8 bytes
+	// Subkey list calculation depends on count
 	if len(node.children) > 0 {
-		subkeyListSize := 4 + 4 + len(node.children)*8
-		total += alignTo8(subkeyListSize)
+		const maxLFEntries = 500
+		count := len(node.children)
+
+		if count <= maxLFEntries {
+			// Single LF record: 4 (header) + 2 (sig) + 2 (count) + count*8 (entries)
+			lfSize := 4 + 4 + count*8
+			total += alignTo8(lfSize)
+		} else {
+			// Multiple LF records + RI record
+			numLFs := (count + maxLFEntries - 1) / maxLFEntries
+
+			// Each LF record
+			for i := 0; i < numLFs; i++ {
+				entriesInThisLF := maxLFEntries
+				if i == numLFs-1 {
+					// Last LF might have fewer entries
+					entriesInThisLF = count - (i * maxLFEntries)
+				}
+				lfSize := 4 + 4 + entriesInThisLF*8
+				total += alignTo8(lfSize)
+			}
+
+			// RI record: 4 (header) + 2 (sig) + 2 (count) + numLFs*4 (offsets)
+			riSize := 4 + 4 + numLFs*4
+			total += alignTo8(riSize)
+		}
 	}
 
 	// Recursively calculate for all children
@@ -119,6 +168,8 @@ func alignTo8(size int) int {
 // treeNode represents a key in the logical tree.
 type treeNode struct {
 	name           string
+	nameLower      string // cached lowercase name for map lookups (eliminates repeated ToLower calls)
+	nameBytes      []byte // original encoded bytes from base hive (nil if new/modified)
 	nameCompressed bool   // true if name should be stored in compressed (Windows-1252) format
 	offset         int32  // cell offset (assigned during serialization)
 	parent         *treeNode
@@ -133,7 +184,9 @@ type treeNode struct {
 // treeValue represents a value in the tree.
 type treeValue struct {
 	name           string
-	nameCompressed bool // true if name should be stored in compressed (Windows-1252) format
+	nameLower      string // cached lowercase name for map lookups (eliminates repeated ToLower calls)
+	nameBytes      []byte // original encoded bytes from base hive (nil if new/modified)
+	nameCompressed bool   // true if name should be stored in compressed (Windows-1252) format
 	typ            types.RegType
 	data           []byte
 }
@@ -146,6 +199,7 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 	if tx.editor.r == nil {
 		root = &treeNode{
 			name:           "",
+			nameLower:      "", // Empty root has empty lowercase name
 			nameCompressed: true,
 			parent:         nil,
 			children:       make([]*treeNode, 0),
@@ -229,6 +283,8 @@ func buildNodeFromBase(
 
 	node := &treeNode{
 		name:           meta.Name,
+		nameLower:      strings.ToLower(meta.Name), // Cache once for all map operations
+		nameBytes:      meta.NameRaw,               // Store original bytes for zero-copy serialization
 		nameCompressed: meta.NameCompressed,
 		parent:         parent,
 		children:       make([]*treeNode, 0),
@@ -249,16 +305,19 @@ func buildNodeFromBase(
 			if tx.deletedVals[vk] {
 				continue // value is deleted
 			}
+			nameLower := strings.ToLower(vmeta.Name) // Cache lowercase once
 			// Check if value is overridden
 			if vd, ok := tx.setValues[vk]; ok {
 				node.values = append(node.values, treeValue{
 					name:           vmeta.Name,
+					nameLower:      nameLower,
+					nameBytes:      nil, // Modified value, no zero-copy
 					nameCompressed: vmeta.NameCompressed,
 					typ:            vd.typ,
 					data:           vd.data,
 				})
-				// Add to valueMap for O(1) case-insensitive lookup
-				node.valueMap[strings.ToLower(vmeta.Name)] = &node.values[len(node.values)-1]
+				// Add to valueMap using cached lowercase
+				node.valueMap[nameLower] = &node.values[len(node.values)-1]
 			} else {
 				// Use original value
 				data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{CopyData: true})
@@ -267,12 +326,14 @@ func buildNodeFromBase(
 				}
 				node.values = append(node.values, treeValue{
 					name:           vmeta.Name,
+					nameLower:      nameLower,
+					nameBytes:      vmeta.NameRaw, // Store original bytes for zero-copy
 					nameCompressed: vmeta.NameCompressed,
 					typ:            vmeta.Type,
 					data:           data,
 				})
-				// Add to valueMap for O(1) case-insensitive lookup
-				node.valueMap[strings.ToLower(vmeta.Name)] = &node.values[len(node.values)-1]
+				// Add to valueMap using cached lowercase
+				node.valueMap[nameLower] = &node.values[len(node.values)-1]
 			}
 		}
 	}
@@ -285,11 +346,8 @@ func buildNodeFromBase(
 			if err != nil {
 				continue
 			}
-			childPath := path
-			if childPath != "" {
-				childPath += "\\"
-			}
-			childPath += smeta.Name
+			// Build child path efficiently (avoid per-iteration allocation)
+			childPath := joinPath(path, smeta.Name)
 
 			child, err := buildNodeFromBase(tx, alloc, sid, childPath, node)
 			if err != nil {
@@ -300,7 +358,7 @@ func buildNodeFromBase(
 				return nil, err
 			}
 			node.children = append(node.children, child)
-			node.childMap[strings.ToLower(child.name)] = child
+			node.childMap[child.nameLower] = child
 		}
 		// Children from base hive are already sorted (registry format guarantees this)
 		if len(node.children) > 0 {
@@ -317,7 +375,7 @@ func insertChildSorted(parent, child *treeNode) {
 	if !parent.childrenSorted || len(parent.children) == 0 {
 		// Not sorted or empty, just append
 		parent.children = append(parent.children, child)
-		parent.childMap[strings.ToLower(child.name)] = child
+		parent.childMap[child.nameLower] = child
 		if len(parent.children) == 1 {
 			parent.childrenSorted = true // Single child is trivially sorted
 		}
@@ -333,7 +391,7 @@ func insertChildSorted(parent, child *treeNode) {
 	parent.children = append(parent.children, nil)
 	copy(parent.children[insertPos+1:], parent.children[insertPos:])
 	parent.children[insertPos] = child
-	parent.childMap[strings.ToLower(child.name)] = child
+	parent.childMap[child.nameLower] = child
 	// Remains sorted
 }
 
@@ -347,11 +405,13 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 	current := root
 	for i, seg := range segments {
 		// Use childMap for O(1) case-insensitive lookup
-		child, found := current.childMap[strings.ToLower(seg)]
+		segLower := strings.ToLower(seg)
+		child, found := current.childMap[segLower]
 		if !found {
 			// Create new node preserving original case from .reg file
 			newNode := &treeNode{
 				name:           seg,
+				nameLower:      segLower, // Cache lowercase for lookups
 				nameCompressed: true,
 				parent:         current,
 				children:       make([]*treeNode, 0),
@@ -381,8 +441,9 @@ func setValueInTree(root *treeNode, path, name string, typ types.RegType, data [
 		return fmt.Errorf("key not found: %s", path)
 	}
 
+	nameLower := strings.ToLower(name) // Cache lowercase once
 	// Use valueMap for O(1) case-insensitive lookup
-	if val, found := node.valueMap[strings.ToLower(name)]; found {
+	if val, found := node.valueMap[nameLower]; found {
 		// Update existing value
 		val.typ = typ
 		val.data = data
@@ -393,12 +454,13 @@ func setValueInTree(root *treeNode, path, name string, typ types.RegType, data [
 	// New value - default to compressed (deterministic: prefer compression)
 	node.values = append(node.values, treeValue{
 		name:           name,
+		nameLower:      nameLower,
 		nameCompressed: true,
 		typ:            typ,
 		data:           data,
 	})
-	// Add to valueMap for future O(1) case-insensitive lookups
-	node.valueMap[strings.ToLower(name)] = &node.values[len(node.values)-1]
+	// Add to valueMap using cached lowercase
+	node.valueMap[nameLower] = &node.values[len(node.values)-1]
 	return nil
 }
 
@@ -430,14 +492,13 @@ func deleteValueInTree(root *treeNode, path, name string) error {
 	// This is necessary because we store pointers to slice elements
 	node.valueMap = make(map[string]*treeValue, len(node.values))
 	for i := range node.values {
-		node.valueMap[strings.ToLower(node.values[i].name)] = &node.values[i]
+		node.valueMap[node.values[i].nameLower] = &node.values[i]
 	}
 
 	return nil
 }
 
 // findNode finds a node by path in the tree (case-insensitive).
-// Allocates one lowercase string per path segment for map lookup.
 func findNode(root *treeNode, path string) *treeNode {
 	if path == "" {
 		return root
@@ -446,13 +507,28 @@ func findNode(root *treeNode, path string) *treeNode {
 	current := root
 	for _, seg := range segments {
 		// Use childMap for O(1) case-insensitive lookup
-		child, found := current.childMap[strings.ToLower(seg)]
+		segLower := strings.ToLower(seg)
+		child, found := current.childMap[segLower]
 		if !found {
 			return nil
 		}
 		current = child
 	}
 	return current
+}
+
+// joinPath efficiently joins parent path and child name with backslash separator.
+// Optimized to minimize allocations during tree building.
+func joinPath(parent, child string) string {
+	if parent == "" {
+		return child
+	}
+	// Pre-allocate exact size: parent + "\" + child
+	result := make([]byte, 0, len(parent)+1+len(child))
+	result = append(result, parent...)
+	result = append(result, '\\')
+	result = append(result, child...)
+	return string(result)
 }
 
 // splitPath splits a path into segments, preserving original case.
@@ -559,7 +635,16 @@ func serializeNKToBuf(
 	// Use the encoding format from the original record (deterministic)
 	var nameBytes []byte
 	var flags uint16
-	if node.nameCompressed {
+
+	// Zero-copy optimization: Use original bytes if unchanged
+	if node.nameBytes != nil {
+		nameBytes = node.nameBytes
+		if node.nameCompressed {
+			flags = format.NKFlagCompressedName
+		} else {
+			flags = 0x00
+		}
+	} else if node.nameCompressed {
 		// Compressed name - encode to Windows-1252
 		var err error
 		nameBytes, err = reader.EncodeKeyName(node.name)
@@ -852,7 +937,16 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 	// Use the encoding format from the original record (deterministic)
 	var nameBytes []byte
 	var flags uint16
-	if val.nameCompressed {
+
+	// Zero-copy optimization: Use original bytes if unchanged
+	if val.nameBytes != nil {
+		nameBytes = val.nameBytes
+		if val.nameCompressed {
+			flags = format.VKFlagASCIIName
+		} else {
+			flags = 0x00
+		}
+	} else if val.nameCompressed {
 		// Compressed name - encode to Windows-1252
 		var err error
 		nameBytes, err = reader.EncodeKeyName(val.name)
@@ -1156,23 +1250,15 @@ func packCellBuffer(cellBuf []byte, alloc *allocator, _ bool) [][]byte {
 		}
 
 		// Fill remaining space with a free cell marker
+		// Windows Registry requires ALL unused space to be marked as free
 		remaining := dataSize - toCopy
-		if remaining >= 8 {
-			// Align to 8-byte boundary
-			freeSize := (remaining / 8) * 8
-			if freeSize >= 8 {
-				freePos := hbinHeaderSize + toCopy
-				binary.LittleEndian.PutUint32(hbins[i][freePos:], uint32(freeSize))
-			}
-		} else if remaining >= 4 {
-			// Small remaining space (4-7 bytes) - write minimal free cell
-			freeSize := (remaining / 4) * 4
-			if freeSize >= 4 {
-				freePos := hbinHeaderSize + toCopy
-				binary.LittleEndian.PutUint32(hbins[i][freePos:], uint32(freeSize))
-			}
+		if remaining >= 4 {
+			// Mark ALL remaining space as free (no alignment rounding)
+			// The free cell size includes the 4-byte size header itself
+			freePos := hbinHeaderSize + toCopy
+			binary.LittleEndian.PutUint32(hbins[i][freePos:], uint32(remaining))
 		}
-		// If remaining < 4 bytes, leave as padding
+		// If remaining < 4 bytes, leave as padding (cannot write a size marker)
 
 		fileOffset += hbinSize
 	}
