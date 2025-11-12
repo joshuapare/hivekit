@@ -187,3 +187,59 @@ func TestBuilder_SetAllValueTypes(t *testing.T) {
 	err = b.Commit()
 	require.NoError(t, err)
 }
+
+func TestBuilder_SplitPath_WithStripOption(t *testing.T) {
+	tmpFile := t.TempDir() + "/test.hive"
+
+	// Test with stripping enabled (default)
+	t.Run("with stripping enabled", func(t *testing.T) {
+		opts := DefaultOptions()
+		opts.StripHiveRootPrefixes = true
+
+		b, err := New(tmpFile, opts)
+		require.NoError(t, err)
+		defer b.Close()
+
+		// Test various inputs
+		tests := []struct {
+			input    string
+			expected []string
+		}{
+			{"HKLM\\Software\\MyApp", []string{"Software", "MyApp"}},
+			{"HKEY_LOCAL_MACHINE\\Software\\Test", []string{"Software", "Test"}},
+			{"HKCU\\Software\\MyApp", []string{"Software", "MyApp"}},
+			{"Software\\MyApp", []string{"Software", "MyApp"}},
+		}
+
+		for _, tt := range tests {
+			result := b.splitPath(tt.input)
+			require.Equal(t, tt.expected, result, "input: %s", tt.input)
+		}
+	})
+
+	// Test with stripping disabled
+	t.Run("with stripping disabled", func(t *testing.T) {
+		opts := DefaultOptions()
+		opts.StripHiveRootPrefixes = false
+
+		b, err := New(tmpFile+"2", opts)
+		require.NoError(t, err)
+		defer b.Close()
+
+		// Test various inputs - prefixes should be preserved
+		tests := []struct {
+			input    string
+			expected []string
+		}{
+			{"HKLM\\Software\\MyApp", []string{"HKLM", "Software", "MyApp"}},
+			{"HKEY_LOCAL_MACHINE\\Software\\Test", []string{"HKEY_LOCAL_MACHINE", "Software", "Test"}},
+			{"HKCU\\Software\\MyApp", []string{"HKCU", "Software", "MyApp"}},
+			{"Software\\MyApp", []string{"Software", "MyApp"}},
+		}
+
+		for _, tt := range tests {
+			result := b.splitPath(tt.input)
+			require.Equal(t, tt.expected, result, "input: %s", tt.input)
+		}
+	})
+}

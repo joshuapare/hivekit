@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/merge"
@@ -446,4 +447,34 @@ func (b *Builder) flush() error {
 	b.opCount = 0
 
 	return nil
+}
+
+// splitPath converts a registry path string to a path array, respecting the
+// StripHiveRootPrefixes option.
+//
+// When opts.StripHiveRootPrefixes is true (default), paths like
+// "HKLM\Software\MyApp" become ["Software", "MyApp"].
+//
+// When false, the full path is preserved as-is: ["HKLM", "Software", "MyApp"].
+func (b *Builder) splitPath(path string) []string {
+	// Strip hive root prefixes based on option
+	path = stripHiveRoot(path, b.opts.StripHiveRootPrefixes)
+
+	// Handle empty path
+	if path == "" {
+		return []string{}
+	}
+
+	// Split on backslashes
+	segments := strings.Split(path, "\\")
+
+	// Filter out empty segments
+	result := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		if seg != "" {
+			result = append(result, seg)
+		}
+	}
+
+	return result
 }

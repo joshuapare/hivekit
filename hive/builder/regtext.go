@@ -137,8 +137,8 @@ func BuildFromOps(hivePath string, ops []types.EditOp, opts *Options) error {
 func applyOp(b *Builder, op types.EditOp) error {
 	switch op := op.(type) {
 	case types.OpCreateKey:
-		// Strip hive root prefix and convert to path segments
-		path := stripHiveRootAndSplit(op.Path)
+		// Strip hive root prefix (if configured) and convert to path segments
+		path := b.splitPath(op.Path)
 		// Skip root key creation (it already exists)
 		if len(path) == 0 {
 			return nil
@@ -148,8 +148,8 @@ func applyOp(b *Builder, op types.EditOp) error {
 		return b.EnsureKey(path)
 
 	case types.OpSetValue:
-		// Strip hive root prefix and convert to path segments
-		path := stripHiveRootAndSplit(op.Path)
+		// Strip hive root prefix (if configured) and convert to path segments
+		path := b.splitPath(op.Path)
 
 		// Apply the operation based on type
 		switch op.Type {
@@ -199,13 +199,13 @@ func applyOp(b *Builder, op types.EditOp) error {
 		}
 
 	case types.OpDeleteValue:
-		// Strip hive root prefix and convert to path segments
-		path := stripHiveRootAndSplit(op.Path)
+		// Strip hive root prefix (if configured) and convert to path segments
+		path := b.splitPath(op.Path)
 		return b.DeleteValue(path, op.Name)
 
 	case types.OpDeleteKey:
-		// Strip hive root prefix and convert to path segments
-		path := stripHiveRootAndSplit(op.Path)
+		// Strip hive root prefix (if configured) and convert to path segments
+		path := b.splitPath(op.Path)
 		// Note: Builder's DeleteKey always deletes recursively
 		// The op.Recursive flag is ignored since that's the builder's behavior
 		return b.DeleteKey(path)

@@ -97,18 +97,26 @@ type Options struct {
 	// Only used when Strategy is StrategyHybrid.
 	// Default: 12 (12%)
 	SlackPct int
+
+	// StripHiveRootPrefixes controls whether to automatically strip common hive
+	// root prefixes (HKEY_LOCAL_MACHINE\, HKLM\, etc.) from registry paths.
+	// When true, paths like "HKLM\Software\MyApp" become ["Software", "MyApp"].
+	// When false, the full path is preserved.
+	// Default: true (maintains backward compatibility)
+	StripHiveRootPrefixes bool
 }
 
 // DefaultOptions returns the recommended options for general-purpose hive building.
 func DefaultOptions() *Options {
 	return &Options{
-		Strategy:           StrategyHybrid,
-		PreallocPages:      0,
-		AutoFlushThreshold: 1000,
-		CreateIfNotExists:  true,
-		HiveVersion:        Version1_3,
-		FlushMode:          dirty.FlushAuto,
-		SlackPct:           12, // Default slack percentage for Hybrid strategy
+		Strategy:              StrategyHybrid,
+		PreallocPages:         0,
+		AutoFlushThreshold:    1000,
+		CreateIfNotExists:     true,
+		HiveVersion:           Version1_3,
+		FlushMode:             dirty.FlushAuto,
+		SlackPct:              12,   // Default slack percentage for Hybrid strategy
+		StripHiveRootPrefixes: true, // Maintain backward compatibility
 	}
 }
 

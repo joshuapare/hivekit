@@ -51,8 +51,8 @@ func EncodeDWORDBigEndianHelper(v uint32) []byte {
 //	"HKEY_LOCAL_MACHINE\\Software\\MyApp" -> []string{"Software", "MyApp"}
 //	"HKLM\\System\\CurrentControlSet" -> []string{"System", "CurrentControlSet"}
 func SplitPath(path string) []string {
-	// Strip hive root prefixes
-	path = stripHiveRoot(path)
+	// Strip hive root prefixes (always strips for backward compatibility)
+	path = stripHiveRoot(path, true)
 
 	// Handle empty path
 	if path == "" {
@@ -74,7 +74,12 @@ func SplitPath(path string) []string {
 }
 
 // stripHiveRoot removes common hive root prefixes from a registry path.
-func stripHiveRoot(path string) string {
+// If shouldStrip is false, the path is returned unchanged.
+func stripHiveRoot(path string, shouldStrip bool) string {
+	if !shouldStrip {
+		return path
+	}
+
 	// List of common hive root prefixes to strip
 	prefixes := []string{
 		"HKEY_LOCAL_MACHINE\\",

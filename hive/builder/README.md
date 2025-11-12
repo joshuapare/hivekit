@@ -202,6 +202,11 @@ type Options struct {
 
     // Flush mode for commits (default: FlushAuto)
     FlushMode dirty.FlushMode  // FlushAuto, FlushDataOnly, FlushFull
+
+    // Strip common hive root prefixes from paths (default: true)
+    // When true: "HKLM\Software\MyApp" -> ["Software", "MyApp"]
+    // When false: "HKLM\Software\MyApp" -> ["HKLM", "Software", "MyApp"]
+    StripHiveRootPrefixes bool
 }
 ```
 
