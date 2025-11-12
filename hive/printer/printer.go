@@ -61,6 +61,12 @@ type Options struct {
 	// Longer values are truncated. Set to 0 for no limit.
 	// Default: 32
 	MaxValueBytes int
+
+	// PrintMetadata includes metadata (subkey/value counts, timestamps, etc).
+	// When false, shows keys/values without metadata counts (clean tree output).
+	// When true, shows full metadata including counts (dump/ls output).
+	// Default: false
+	PrintMetadata bool
 }
 
 // DefaultOptions returns sensible defaults for printing.
@@ -74,6 +80,7 @@ func DefaultOptions() Options {
 		ShowValueTypes: true,
 		Recursive:      false,
 		MaxValueBytes:  DefaultMaxValueBytes,
+		PrintMetadata:  false,
 	}
 }
 

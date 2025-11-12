@@ -36,6 +36,16 @@ func (p *Printer) printKeyJSON(node types.NodeID, _ string, _ int) error {
 		return err
 	}
 
+	// Without metadata, just output the name as a string
+	if !p.opts.PrintMetadata {
+		data, err := json.Marshal(meta.Name)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(p.writer, "%s\n", data)
+		return err
+	}
+
 	key := jsonKey{
 		Name:    meta.Name,
 		Subkeys: meta.SubkeyN,
@@ -138,6 +148,11 @@ func (p *Printer) printTreeJSON(node types.NodeID, path string, depth int) error
 	// Check depth limit
 	if p.opts.MaxDepth > 0 && depth >= p.opts.MaxDepth {
 		return nil
+	}
+
+	// Without metadata, collect and print names only
+	if !p.opts.PrintMetadata {
+		return p.printTreeJSONNamesOnly(node, depth)
 	}
 
 	meta, err := p.reader.StatKey(node)
@@ -311,6 +326,38 @@ func (p *Printer) buildJSONTree(node types.NodeID, path string, depth int) (json
 	}
 
 	return key, nil
+}
+
+// printTreeJSONNamesOnly prints only child key names as a JSON array (no metadata).
+func (p *Printer) printTreeJSONNamesOnly(node types.NodeID, depth int) error {
+	// Check depth limit
+	if p.opts.MaxDepth > 0 && depth >= p.opts.MaxDepth {
+		return nil
+	}
+
+	// Get children
+	children, err := p.reader.Subkeys(node)
+	if err != nil {
+		return err
+	}
+
+	// Collect names
+	names := make([]string, 0, len(children))
+	for _, child := range children {
+		meta, err := p.reader.StatKey(child)
+		if err != nil {
+			continue
+		}
+		names = append(names, meta.Name)
+	}
+
+	// Output as JSON array
+	data, err := json.Marshal(names)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(p.writer, "%s\n", data)
+	return err
 }
 
 // decodeValueJSON decodes a value for JSON output.

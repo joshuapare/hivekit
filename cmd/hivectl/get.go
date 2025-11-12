@@ -1,10 +1,11 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
+	"os"
 
-	"github.com/joshuapare/hivekit/pkg/hive"
+	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/printer"
 	"github.com/spf13/cobra"
 )
 
@@ -45,65 +46,37 @@ func runGet(args []string) error {
 
 	printVerbose("Opening hive: %s\n", hivePath)
 
-	// Get value using public API
-	value, err := hive.GetValue(hivePath, keyPath, valueName)
+	// Open hive with new backend
+	h, err := hive.Open(hivePath)
 	if err != nil {
-		return fmt.Errorf("failed to get value: %w", err)
+		return fmt.Errorf("failed to open hive: %w", err)
 	}
+	defer h.Close()
 
-	// Output as JSON if requested
+	// Configure printer options
+	opts := printer.DefaultOptions()
+	opts.ShowValueTypes = getShowType
+
+	// Handle JSON output
 	if jsonOut {
-		result := map[string]interface{}{
-			"name": value.Name,
-			"type": value.Type,
-			"size": value.Size,
+		opts.Format = printer.FormatJSON
+		opts.ShowValueTypes = true
+		if err := h.PrintValue(os.Stdout, keyPath, valueName, opts); err != nil {
+			return fmt.Errorf("failed to get value: %w", err)
 		}
-
-		// Add decoded value
-		if value.StringVal != "" {
-			result["value"] = value.StringVal
-		} else if len(value.StringVals) > 0 {
-			result["value"] = value.StringVals
-		} else if value.Type == "REG_DWORD" || value.Type == "REG_DWORD_LE" || value.Type == "REG_DWORD_BE" {
-			result["value"] = value.DWordVal
-		} else if value.Type == "REG_QWORD" {
-			result["value"] = value.QWordVal
-		} else if len(value.Data) > 0 {
-			result["value_hex"] = hex.EncodeToString(value.Data)
-		}
-
-		return printJSON(result)
+		return nil
 	}
 
 	// Text output
-	if getShowType {
-		printInfo("Name: %s\n", value.Name)
-		printInfo("Type: %s\n", value.Type)
-		printInfo("Size: %d bytes\n", value.Size)
-		printInfo("Value: ")
+	opts.Format = printer.FormatText
+
+	// Note: --hex flag is not yet supported with new printer
+	if getHex {
+		printVerbose("Warning: --hex flag not yet supported with new backend\n")
 	}
 
-	// Print value
-	if value.StringVal != "" {
-		printInfo("%s\n", value.StringVal)
-	} else if len(value.StringVals) > 0 {
-		for _, s := range value.StringVals {
-			printInfo("%s\n", s)
-		}
-	} else if value.Type == "REG_DWORD" || value.Type == "REG_DWORD_LE" || value.Type == "REG_DWORD_BE" {
-		if getHex {
-			printInfo("0x%08x\n", value.DWordVal)
-		} else {
-			printInfo("%d\n", value.DWordVal)
-		}
-	} else if value.Type == "REG_QWORD" {
-		if getHex {
-			printInfo("0x%016x\n", value.QWordVal)
-		} else {
-			printInfo("%d\n", value.QWordVal)
-		}
-	} else if len(value.Data) > 0 {
-		printInfo("%s\n", hex.EncodeToString(value.Data))
+	if err := h.PrintValue(os.Stdout, keyPath, valueName, opts); err != nil {
+		return fmt.Errorf("failed to get value: %w", err)
 	}
 
 	return nil

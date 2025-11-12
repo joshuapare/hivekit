@@ -24,8 +24,10 @@ func (p *Printer) printKeyText(node types.NodeID, depth int) error {
 		fmt.Fprintf(p.writer, "%s  Last Write: %s\n", indent, meta.LastWrite.Format("2006-01-02 15:04:05"))
 	}
 
-	// Print metadata
-	fmt.Fprintf(p.writer, "%s  Subkeys: %d, Values: %d\n", indent, meta.SubkeyN, meta.ValueN)
+	// Print metadata counts only if PrintMetadata is true
+	if p.opts.PrintMetadata {
+		fmt.Fprintf(p.writer, "%s  Subkeys: %d, Values: %d\n", indent, meta.SubkeyN, meta.ValueN)
+	}
 
 	// Print values if requested
 	if p.opts.ShowValues {
@@ -137,14 +139,29 @@ func (p *Printer) printValueText(valID types.ValueID, depth int) error {
 
 // printTreeText recursively prints a subtree in text format.
 func (p *Printer) printTreeText(node types.NodeID, path string, depth int) error {
-	// Check depth limit
-	if p.opts.MaxDepth > 0 && depth >= p.opts.MaxDepth {
-		return nil
+	// Check if we're in "names only" mode (for keys command)
+	namesOnly := !p.opts.PrintMetadata && !p.opts.ShowValues
+
+	// Always skip the root node at depth 0 to avoid printing empty/system root keys
+	if depth > 0 {
+		if namesOnly {
+			// Names only mode: just print the name
+			meta, err := p.reader.StatKey(node)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(p.writer, meta.Name)
+		} else {
+			// Full tree mode: print key with structure
+			if err := p.printKeyText(node, depth); err != nil {
+				return err
+			}
+		}
 	}
 
-	// Print current key
-	if err := p.printKeyText(node, depth); err != nil {
-		return err
+	// Check depth limit for recursion (but still print current node above)
+	if p.opts.MaxDepth > 0 && depth >= p.opts.MaxDepth {
+		return nil
 	}
 
 	// Print children recursively
@@ -153,7 +170,7 @@ func (p *Printer) printTreeText(node types.NodeID, path string, depth int) error
 		return err
 	}
 
-	for _, child := range children {
+	for i, child := range children {
 		meta, err := p.reader.StatKey(child)
 		if err != nil {
 			continue // Skip corrupted keys
@@ -165,8 +182,10 @@ func (p *Printer) printTreeText(node types.NodeID, path string, depth int) error
 		}
 		childPath += meta.Name
 
-		// Add blank line between keys for readability
-		fmt.Fprintln(p.writer)
+		// Add blank line between siblings (not before first child, only in non-names-only mode)
+		if i > 0 && !namesOnly {
+			fmt.Fprintln(p.writer)
+		}
 
 		if err := p.printTreeText(child, childPath, depth+1); err != nil {
 			return err

@@ -84,6 +84,12 @@ func exportKey(buf *bytes.Buffer, r types.Reader, id types.NodeID, path []string
 	return nil
 }
 
+// EmitValue formats a single value in .reg format and writes it to the buffer.
+// This is exported for use by CLI commands that need to output values in .reg format.
+func EmitValue(buf *bytes.Buffer, r types.Reader, id types.ValueID, meta types.ValueMeta) error {
+	return emitValue(buf, r, id, meta)
+}
+
 func emitValue(buf *bytes.Buffer, r types.Reader, id types.ValueID, meta types.ValueMeta) error {
 	if meta.Name == "" {
 		buf.WriteString(DefaultValuePrefix)

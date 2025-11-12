@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/joshuapare/hivekit/pkg/hive"
+	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/printer"
 	"github.com/spf13/cobra"
 )
 
@@ -66,57 +67,59 @@ func runExport(args []string) error {
 		printVerbose("Subtree: %s\n", exportKey)
 	}
 
-	// Prepare options
-	opts := &hive.ExportOptions{
-		SubtreePath: exportKey,
-		Encoding:    exportEncoding,
-		WithBOM:     exportBOM,
+	// Check for UTF-16LE encoding (not yet supported)
+	if exportEncoding != "" && exportEncoding != "utf8" && exportEncoding != "UTF-8" {
+		return fmt.Errorf("encoding %q not yet supported (only UTF-8 is currently supported)", exportEncoding)
 	}
 
-	// Export to string or file
+	// Open hive with new backend
+	h, err := hive.Open(hivePath)
+	if err != nil {
+		return fmt.Errorf("failed to open hive: %w", err)
+	}
+	defer h.Close()
+
+	// Configure printer options
+	opts := printer.DefaultOptions()
+	opts.Format = printer.FormatReg
+	opts.ShowValues = true
+	opts.MaxDepth = 0 // unlimited depth
+
+	// Determine output writer
+	var writer *os.File
 	if exportStdout {
-		// Export to stdout
-		content, err := hive.ExportRegString(hivePath, opts)
+		writer = os.Stdout
+	} else {
+		f, err := os.Create(outputPath)
 		if err != nil {
-			return fmt.Errorf("export failed: %w", err)
+			return fmt.Errorf("failed to create output file: %w", err)
 		}
-		fmt.Print(content)
-		return nil
+		defer f.Close()
+		writer = f
 	}
 
-	// Export to file
-	printInfo("\nExporting %s to %s...\n", hivePath, outputPath)
+	// Export using printer
+	path := exportKey
+	if path == "" {
+		// Export entire hive starting from root
+		path = ""
+	}
 
-	if err := hive.ExportReg(hivePath, outputPath, opts); err != nil {
+	if err := h.PrintTree(writer, path, opts); err != nil {
 		return fmt.Errorf("export failed: %w", err)
 	}
 
-	// Get output file size
-	if stat, err := os.Stat(outputPath); err == nil {
-		size := stat.Size()
-		printInfo("  Output size: ")
-		if size < 1024 {
-			printInfo("%d bytes\n", size)
-		} else if size < 1024*1024 {
-			printInfo("%.1f KB\n", float64(size)/1024)
-		} else {
-			printInfo("%.1f MB\n", float64(size)/(1024*1024))
-		}
-	}
-
-	// Output as JSON if requested
-	if jsonOut {
+	// Output as JSON if requested and not writing to stdout
+	if !exportStdout && jsonOut {
 		result := map[string]interface{}{
 			"hive":     hivePath,
 			"output":   outputPath,
 			"subtree":  exportKey,
-			"encoding": exportEncoding,
+			"encoding": "utf8",
 			"success":  true,
 		}
 		return printJSON(result)
 	}
-
-	printInfo("\n✓ Export complete\n")
 
 	return nil
 }
