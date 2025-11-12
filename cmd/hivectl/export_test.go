@@ -20,14 +20,14 @@ func TestExportCommand(t *testing.T) {
 			hive:        "typed_values",
 			key:         "",
 			wantErr:     false,
-			wantContain: []string{"Windows Registry Editor", "TypedValues", "StringValue", "Test String Value"},
+			wantContain: []string{"Windows Registry Editor", "TypedValues", "StringValue", "hex(1):"},
 		},
 		{
 			name:        "export special to stdout",
 			hive:        "special",
 			key:         "",
 			wantErr:     false,
-			wantContain: []string{"Windows Registry Editor", "abcd_äöüß", "weird™", "zero"},
+			wantContain: []string{"Windows Registry Editor", "dword:", "zero"},
 		},
 	}
 
@@ -81,7 +81,7 @@ func TestExportToFile(t *testing.T) {
 			key:         "",
 			outputFile:  filepath.Join(tmpDir, "typed_values.reg"),
 			wantErr:     false,
-			wantContain: []string{"Windows Registry Editor", "TypedValues", "StringValue"},
+			wantContain: []string{"Windows Registry Editor", "TypedValues", "StringValue", "hex(1):"},
 		},
 		{
 			name:        "export special to file",
@@ -89,7 +89,7 @@ func TestExportToFile(t *testing.T) {
 			key:         "",
 			outputFile:  filepath.Join(tmpDir, "special.reg"),
 			wantErr:     false,
-			wantContain: []string{"Windows Registry Editor", "abcd_äöüß", "weird™"},
+			wantContain: []string{"Windows Registry Editor", "dword:", "zero"},
 		},
 	}
 

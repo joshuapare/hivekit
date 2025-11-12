@@ -67,6 +67,13 @@ type Options struct {
 	// When true, shows full metadata including counts (dump/ls output).
 	// Default: false
 	PrintMetadata bool
+
+	// WrapLines enables line wrapping at 80 characters for .reg format exports.
+	// When true, long hex values are wrapped with backslash continuation.
+	// When false, hex values are output on a single line regardless of length.
+	// Only applies to .reg format output.
+	// Default: false
+	WrapLines bool
 }
 
 // DefaultOptions returns sensible defaults for printing.
@@ -81,6 +88,7 @@ func DefaultOptions() Options {
 		Recursive:      false,
 		MaxValueBytes:  DefaultMaxValueBytes,
 		PrintMetadata:  false,
+		WrapLines:      false,
 	}
 }
 

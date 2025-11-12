@@ -53,6 +53,7 @@ func main() {
     // Print a key with default options
     opts := printer.DefaultOptions()
     opts.ShowValues = true
+    opts.PrintMetadata = true  // Enable metadata display
 
     h.PrintKey(os.Stdout, "Microsoft\\Windows\\CurrentVersion", opts)
 }
@@ -111,6 +112,7 @@ opts := printer.DefaultOptions()
 opts.Format = printer.FormatText
 opts.ShowValues = true
 opts.ShowTimestamps = true
+opts.PrintMetadata = true  // Enable metadata display
 opts.IndentSize = 2
 
 h.PrintKey(os.Stdout, "Software\\MyApp", opts)
@@ -182,11 +184,13 @@ h.PrintKey(os.Stdout, "Software\\MyApp", opts)
 ```
 Windows Registry Editor Version 5.00
 
-[HKEY_LOCAL_MACHINE\Software\MyApp]
-"Version"="1.0.0"
+[\]
+
+[\Software\MyApp]
+"Version"=hex(1):31,00,2e,00,30,00,2e,00,30,00,00,00
 "Timeout"=dword:0000001e
 "MaxSize"=hex(b):00,00,00,00,01,00,00,00
-"Config"=hex:01,02,03,04,05,06,07,08
+"Config"=hex:01,01,02,03,04,05,06,07,08
 ```
 
 ## Common Use Cases
@@ -259,6 +263,7 @@ defer h.Close()
 opts := printer.DefaultOptions()
 opts.ShowValues = true
 opts.ShowValueTypes = false // Just show data
+opts.PrintMetadata = true   // Show metadata counts
 
 h.PrintKey(os.Stdout, "Microsoft\\Windows\\CurrentVersion", opts)
 ```
@@ -281,7 +286,8 @@ defer h.Close()
 
 opts := printer.DefaultOptions()
 opts.ShowValues = true
-opts.MaxDepth = 2 // Only go 2 levels deep
+opts.PrintMetadata = true  // Show metadata counts
+opts.MaxDepth = 2          // Only go 2 levels deep
 
 h.PrintTree(os.Stdout, "Microsoft", opts)
 ```
@@ -309,6 +315,7 @@ opts := printer.DefaultOptions()
 opts.Format = printer.FormatText
 opts.ShowValues = true
 opts.ShowTimestamps = true
+opts.PrintMetadata = true  // Show metadata counts
 opts.MaxDepth = 3
 
 f, _ := os.Create("forensic_dump.txt")
@@ -369,6 +376,12 @@ type Options struct {
     // Default: 32
     // Set to 0 for no limit
     MaxValueBytes int
+
+    // PrintMetadata includes metadata (subkey/value counts, timestamps, etc)
+    // When false, shows keys/values without metadata counts (clean tree output)
+    // When true, shows full metadata including counts (dump/ls output)
+    // Default: false
+    PrintMetadata bool
 }
 ```
 
@@ -386,6 +399,7 @@ opts := printer.DefaultOptions()
 //     ShowValueTypes: true,
 //     Recursive:      false,
 //     MaxValueBytes:  32,
+//     PrintMetadata:  false,
 // }
 ```
 
@@ -516,9 +530,7 @@ The printer automatically decodes all Windows Registry value types:
 
 **.reg Format:**
 ```
-"SearchPath"=hex(7):43,00,3a,00,5c,00,57,00,69,00,6e,00,64,00,6f,00,77,00,73,00,\
-  5c,00,73,00,79,00,73,00,74,00,65,00,6d,00,33,00,32,00,00,00,43,00,3a,00,5c,\
-  ...
+"SearchPath"=hex(7):43,00,3a,00,5c,00,57,00,69,00,6e,00,64,00,6f,00,77,00,73,00,5c,00,73,00,79,00,73,00,74,00,65,00,6d,00,33,00,32,00,00,00,43,00,3a,00,5c,00,57,00,69,00,6e,00,64,00,6f,00,77,00,73,00,00,00,43,00,3a,00,5c,00,57,00,69,00,6e,00,64,00,6f,00,77,00,73,00,5c,00,53,00,79,00,73,00,74,00,65,00,6d,00,33,00,32,00,5c,00,57,00,62,00,65,00,6d,00,00,00,00,00
 ```
 
 ## Performance Notes

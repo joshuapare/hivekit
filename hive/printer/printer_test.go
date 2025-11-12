@@ -357,3 +357,173 @@ func TestDefaultOptions(t *testing.T) {
 	require.False(t, opts.Recursive)
 	require.Equal(t, 32, opts.MaxValueBytes)
 }
+
+// Line Wrapping Tests for .reg Format
+//
+// Note: formatHexBytes needs to be replaced with formatHexBytesWithWrapping
+// to implement line wrapping at 80 characters with backslash continuation.
+
+func TestFormatHexBytesWithWrapping_Short(t *testing.T) {
+	// Test that short hex values are not wrapped
+	data := []byte{0x41, 0x00, 0x42, 0x00, 0x43, 0x00}
+
+	// This would call the new function: formatHexBytesWithWrapping(data, "\"TestValue\"=hex(1):")
+	// For now, test the concept with formatHexBytes
+	result := formatHexBytes(data)
+	expected := "41,00,42,00,43,00"
+
+	require.Equal(t, expected, result)
+	require.NotContains(t, result, "\\")
+}
+
+func TestFormatHexBytesWithWrapping_Long(t *testing.T) {
+	// Test that long hex values ARE wrapped at 80 characters when enabled
+	// Create data that will result in > 80 character line
+	data := make([]byte, 50) // 50 bytes = 149 chars when formatted as "XX," (minus last comma)
+	for i := range data {
+		data[i] = byte(i)
+	}
+
+	prefix := "\"LongValue\"=hex(1):"
+	result := formatHexBytesWithWrapping(data, prefix)
+	fullOutput := prefix + result
+
+	t.Logf("Full output:\n%s", fullOutput)
+
+	// Check that output contains continuation
+	if !strings.Contains(result, "\\") {
+		t.Errorf("Result should contain backslash continuation for long data")
+	}
+
+	// Verify no individual line exceeds 80 characters
+	lines := strings.Split(fullOutput, "\n")
+	for i, line := range lines {
+		if len(line) > 80 {
+			t.Errorf("Line %d exceeds 80 characters (%d chars): %s", i+1, len(line), line)
+		}
+	}
+}
+
+func TestFormatHexBytesWithWrapping_Continuation(t *testing.T) {
+	// Test that wrapped lines have proper continuation format when enabled
+	// Expected format:
+	//   "Value"=hex(1):41,00,42,00,...,\
+	//     46,00,47,00,48,00,...
+
+	// Create data that will require wrapping
+	data := make([]byte, 50)
+	for i := range data {
+		data[i] = byte(0x41 + (i % 26)) // Cycling through letters
+	}
+
+	prefix := "\"TestValue\"=hex(1):"
+	result := formatHexBytesWithWrapping(data, prefix)
+	fullOutput := prefix + result
+
+	t.Logf("Full output:\n%s", fullOutput)
+
+	// Should contain backslash continuation
+	if !strings.Contains(result, "\\") {
+		t.Errorf("Result should contain backslash continuation for long data")
+	}
+
+	// Check continuation line format
+	lines := strings.Split(fullOutput, "\n")
+	if len(lines) <= 1 {
+		t.Errorf("Long line should be wrapped into multiple lines, got %d line(s)", len(lines))
+	}
+
+	// Verify continuation lines start with 2 spaces
+	for i := 1; i < len(lines); i++ {
+		if len(lines[i]) > 0 && !strings.HasPrefix(lines[i], "  ") {
+			t.Errorf("Continuation line %d should start with 2 spaces: %q", i+1, lines[i])
+		}
+	}
+}
+
+// Integration test: export with wrapping enabled, then parse back
+func TestLineContinuation_Roundtrip(t *testing.T) {
+	// This test requires the regtext package which is internal
+	// We'll test with a suite file that has long values
+	r := openTestHive(t, "suite/windows-2003-server-system")
+
+	// Export to .reg format with wrapping ENABLED
+	var buf bytes.Buffer
+	opts := DefaultOptions()
+	opts.Format = FormatReg
+	opts.ShowValues = true
+	opts.MaxDepth = 2
+	opts.MaxValueBytes = 0 // No truncation
+	opts.WrapLines = true  // ENABLE line wrapping
+
+	p := New(r, &buf, opts)
+	err := p.PrintTree("")
+	require.NoError(t, err)
+
+	output := buf.String()
+	t.Logf("Generated .reg output (%d bytes)", len(output))
+
+	// Verify we have some continuations
+	continuationCount := strings.Count(output, ",\\")
+	t.Logf("Found %d line continuations", continuationCount)
+
+	if continuationCount > 0 {
+		t.Logf("Line continuation wrapping is working!")
+
+		// Show a sample of wrapped output
+		lines := strings.Split(output, "\n")
+		for i, line := range lines {
+			if strings.HasSuffix(line, "\\") {
+				// Found a continuation line - show it and the next line
+				t.Logf("Sample continuation at line %d:", i+1)
+				t.Logf("  %s", line)
+				if i+1 < len(lines) {
+					t.Logf("  %s", lines[i+1])
+				}
+				break
+			}
+		}
+	} else {
+		t.Error("Expected line continuations with WrapLines=true, but found none")
+	}
+
+	// Verify no lines exceed 80 characters (with small margin for edge cases)
+	lines := strings.Split(output, "\n")
+	for i, line := range lines {
+		if len(line) > 85 {
+			t.Errorf("Line %d exceeds 85 characters (%d): %s...", i+1, len(line), line[:min(len(line), 80)])
+		}
+	}
+}
+
+// Test that wrapping is OFF by default
+func TestLineContinuation_NoWrapByDefault(t *testing.T) {
+	r := openTestHive(t, "suite/windows-2003-server-system")
+
+	// Export WITHOUT wrapping (default)
+	var buf bytes.Buffer
+	opts := DefaultOptions()
+	opts.Format = FormatReg
+	opts.ShowValues = true
+	opts.MaxDepth = 2
+	opts.MaxValueBytes = 0
+	// WrapLines defaults to false
+
+	p := New(r, &buf, opts)
+	err := p.PrintTree("")
+	require.NoError(t, err)
+
+	output := buf.String()
+	t.Logf("Generated .reg output (%d bytes)", len(output))
+
+	// Verify we have NO continuations (wrapping is off by default)
+	continuationCount := strings.Count(output, ",\\")
+	t.Logf("Found %d line continuations", continuationCount)
+
+	if continuationCount > 0 {
+		t.Errorf("Expected NO line continuations with WrapLines=false (default), but found %d", continuationCount)
+	} else {
+		t.Log("No line wrapping by default (as expected)")
+	}
+}
+

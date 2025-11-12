@@ -56,9 +56,35 @@ func ParseRegFile(r io.Reader) (*RegStats, error) {
 	scanner.Buffer(buf, ScannerMaxLineSize)
 
 	var currentKey *RegKey
+	var pendingLine string // Accumulate line continuations
 
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		line := scanner.Text()
+
+		// Handle line continuation
+		if strings.HasSuffix(line, "\\") {
+			// Remove trailing backslash and any trailing whitespace before it
+			line = strings.TrimSuffix(line, "\\")
+			line = strings.TrimRight(line, " \t")
+
+			// If we're continuing a previous line, strip leading whitespace
+			if pendingLine != "" {
+				line = strings.TrimLeft(line, " \t")
+			}
+
+			pendingLine += line
+			continue
+		}
+
+		// If we have a pending line, complete it
+		if pendingLine != "" {
+			// Strip leading whitespace from continuation line
+			line = strings.TrimLeft(line, " \t")
+			line = pendingLine + line
+			pendingLine = ""
+		}
+
+		line = strings.TrimSpace(line)
 
 		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, CommentPrefix) {

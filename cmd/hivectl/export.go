@@ -10,10 +10,11 @@ import (
 )
 
 var (
-	exportKey      string
-	exportEncoding string
-	exportBOM      bool
-	exportStdout   bool
+	exportKey       string
+	exportEncoding  string
+	exportBOM       bool
+	exportStdout    bool
+	exportWrapLines bool
 )
 
 func init() {
@@ -22,6 +23,7 @@ func init() {
 	cmd.Flags().StringVar(&exportEncoding, "encoding", "utf8", "Output encoding (utf8, utf16le)")
 	cmd.Flags().BoolVar(&exportBOM, "with-bom", false, "Include byte-order mark")
 	cmd.Flags().BoolVar(&exportStdout, "stdout", false, "Write to stdout instead of file")
+	cmd.Flags().BoolVar(&exportWrapLines, "wrap-lines", false, "Wrap long hex values at 80 characters with backslash continuation")
 	rootCmd.AddCommand(cmd)
 }
 
@@ -83,7 +85,8 @@ func runExport(args []string) error {
 	opts := printer.DefaultOptions()
 	opts.Format = printer.FormatReg
 	opts.ShowValues = true
-	opts.MaxDepth = 0 // unlimited depth
+	opts.MaxDepth = 0       // unlimited depth
+	opts.WrapLines = exportWrapLines // Enable line wrapping if flag is set
 
 	// Determine output writer
 	var writer *os.File

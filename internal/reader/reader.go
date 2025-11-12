@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 	"unsafe"
@@ -980,12 +981,20 @@ func (r *reader) cell(offset uint32) (format.Cell, error) {
 // findHBINForOffset finds the HBIN that contains the given absolute offset.
 // Returns the HBIN's ending offset, or error if not found.
 func (r *reader) findHBINForOffset(absOffset int) (int, error) {
-	// Use the index for fast lookup
-	for _, entry := range r.hbinIndex {
+	// Use binary search since hbinIndex is sorted by offset
+	// Find the first HBIN whose offset is > absOffset
+	idx := sort.Search(len(r.hbinIndex), func(i int) bool {
+		return r.hbinIndex[i].offset > absOffset
+	})
+
+	// Check the previous entry (if it exists)
+	if idx > 0 {
+		entry := r.hbinIndex[idx-1]
 		if absOffset >= entry.offset && absOffset < entry.offset+entry.size {
 			return entry.offset + entry.size, nil
 		}
 	}
+
 	return 0, &types.Error{
 		Kind: types.ErrKindFormat,
 		Msg:  fmt.Sprintf("offset %d not in any HBIN", absOffset),

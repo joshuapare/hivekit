@@ -142,3 +142,103 @@ func TestParseRegFileReal(t *testing.T) {
 		t.Error("Expected non-zero value count")
 	}
 }
+
+// Line Continuation Tests
+
+func TestParseRegFile_LineContinuation_Single(t *testing.T) {
+	input := `Windows Registry Editor Version 5.00
+
+[\TestKey]
+"LongValue"=hex(1):41,00,42,00,43,00,44,00,45,00,\
+  46,00,47,00,48,00,49,00,4a,00,4b,00
+`
+	stats, err := ParseRegFile(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseRegFile failed: %v", err)
+	}
+
+	if stats.ValueCount != 1 {
+		t.Errorf("Expected 1 value, got %d", stats.ValueCount)
+	}
+
+	// Verify the value data is concatenated correctly
+	value := stats.Structure[0].Values[0]
+	expected := "hex(1):41,00,42,00,43,00,44,00,45,00,46,00,47,00,48,00,49,00,4a,00,4b,00"
+	if value.Data != expected {
+		t.Errorf("Expected data %q, got %q", expected, value.Data)
+	}
+}
+
+func TestParseRegFile_LineContinuation_Multiple(t *testing.T) {
+	input := `Windows Registry Editor Version 5.00
+
+[\TestKey]
+"VeryLongValue"=hex(7):41,00,42,00,43,00,44,00,\
+  45,00,46,00,47,00,48,00,49,00,4a,00,\
+  4b,00,4c,00,4d,00,4e,00,4f,00,00,00
+`
+	stats, err := ParseRegFile(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseRegFile failed: %v", err)
+	}
+
+	value := stats.Structure[0].Values[0]
+	expected := "hex(7):41,00,42,00,43,00,44,00,45,00,46,00,47,00,48,00,49,00,4a,00,4b,00,4c,00,4d,00,4e,00,4f,00,00,00"
+	if value.Data != expected {
+		t.Errorf("Expected data %q, got %q", expected, value.Data)
+	}
+}
+
+func TestParseRegFile_LineContinuation_None(t *testing.T) {
+	input := `Windows Registry Editor Version 5.00
+
+[\TestKey]
+"ShortValue"=hex(1):41,00,42,00
+`
+	stats, err := ParseRegFile(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseRegFile failed: %v", err)
+	}
+
+	value := stats.Structure[0].Values[0]
+	expected := "hex(1):41,00,42,00"
+	if value.Data != expected {
+		t.Errorf("Expected data %q, got %q", expected, value.Data)
+	}
+}
+
+func TestParseRegFile_LineContinuation_Mixed(t *testing.T) {
+	input := `Windows Registry Editor Version 5.00
+
+[\TestKey]
+"Short"=dword:00000001
+"Long"=hex(1):41,00,42,00,43,00,44,00,45,00,\
+  46,00,47,00,48,00,49,00,4a,00
+"AnotherShort"="test"
+`
+	stats, err := ParseRegFile(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseRegFile failed: %v", err)
+	}
+
+	if stats.ValueCount != 3 {
+		t.Errorf("Expected 3 values, got %d", stats.ValueCount)
+	}
+}
+
+func TestParseRegFile_LineContinuation_BackslashInName(t *testing.T) {
+	input := `Windows Registry Editor Version 5.00
+
+[\TestKey]
+"C:\\"=dword:00000001
+`
+	stats, err := ParseRegFile(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseRegFile failed: %v", err)
+	}
+
+	value := stats.Structure[0].Values[0]
+	if value.Name != `C:\` {
+		t.Errorf("Expected name 'C:\\', got %q", value.Name)
+	}
+}
