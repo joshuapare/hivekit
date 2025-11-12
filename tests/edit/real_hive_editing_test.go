@@ -11,7 +11,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestEditOperationsOnRealHive tests CreateKey, SetValue, DeleteValue on a real hive file
+// TestEditOperationsOnRealHive tests CreateKey, SetValue, DeleteValue on a real hive file.
 func TestEditOperationsOnRealHive(t *testing.T) {
 	// Use minimal real hive as base
 	data, err := os.ReadFile("../../testdata/minimal")
@@ -93,9 +93,9 @@ func TestEditOperationsOnRealHive(t *testing.T) {
 	var testKeyID hive.NodeID
 	found := false
 	for i, child := range children {
-		meta, err := r2.StatKey(child)
-		if err != nil {
-			t.Logf("Child [%d]: StatKey error: %v", i, err)
+		meta, statErr := r2.StatKey(child)
+		if statErr != nil {
+			t.Logf("Child [%d]: StatKey error: %v", i, statErr)
 			continue
 		}
 		t.Logf("Child [%d]: %q (NodeID %d)", i, meta.Name, child)
@@ -147,7 +147,7 @@ func TestEditOperationsOnRealHive(t *testing.T) {
 	}
 }
 
-// TestLargeRealHive tests reading and round-trip on the large test hive
+// TestLargeRealHive tests reading and round-trip on the large test hive.
 func TestLargeRealHive(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/large")
 	if err != nil {
@@ -199,7 +199,7 @@ func TestLargeRealHive(t *testing.T) {
 	}
 }
 
-// encodeUTF16LE converts a string to UTF-16LE with null terminator for testing
+// encodeUTF16LE converts a string to UTF-16LE with null terminator for testing.
 func encodeUTF16LE(s string) []byte {
 	out := make([]byte, (len(s)+1)*2)
 	for i, r := range s {

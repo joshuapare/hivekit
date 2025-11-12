@@ -9,17 +9,17 @@ import (
 	"github.com/joshuapare/hivekit/internal/reader"
 )
 
-// DiffStatus represents the diff state of an item
+// DiffStatus represents the diff state of an item.
 type DiffStatus int
 
 const (
 	DiffUnchanged DiffStatus = iota // Item exists in both/no diff mode
-	DiffAdded                        // Item added (only in new)
-	DiffRemoved                      // Item removed (only in old)
-	DiffModified                     // Item modified (exists in both but changed)
+	DiffAdded                       // Item added (only in new)
+	DiffRemoved                     // Item removed (only in old)
+	DiffModified                    // Item modified (exists in both but changed)
 )
 
-// KeyDiff represents differences for a single key
+// KeyDiff represents differences for a single key.
 type KeyDiff struct {
 	Path         string
 	Name         string
@@ -31,27 +31,27 @@ type KeyDiff struct {
 	ValueDiffs   []ValueDiff
 }
 
-// ValueDiff represents differences for a single value
+// ValueDiff represents differences for a single value.
 type ValueDiff struct {
 	Name      string
 	Status    DiffStatus
 	Type      string
 	OldType   string // For modified values
 	Size      int
-	OldSize   int    // For modified values
+	OldSize   int // For modified values
 	Data      []byte
 	OldData   []byte // For modified values
 	StringVal string
 }
 
-// HiveDiff contains the complete diff between two hives
+// HiveDiff contains the complete diff between two hives.
 type HiveDiff struct {
 	OldPath  string
 	NewPath  string
 	KeyDiffs map[string]KeyDiff // Map of path -> KeyDiff
 }
 
-// DiffHives compares two registry hives and returns their differences
+// DiffHives compares two registry hives and returns their differences.
 func DiffHives(oldPath, newPath string) (*HiveDiff, error) {
 	fmt.Fprintf(os.Stderr, "[DIFF] Starting diff: old=%s, new=%s\n", oldPath, newPath)
 
@@ -163,13 +163,21 @@ func DiffHives(oldPath, newPath string) (*HiveDiff, error) {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "[DIFF] Diff complete: %d total keys (%d added, %d removed, %d modified)\n",
-		len(diff.KeyDiffs), countByStatus(diff, DiffAdded), countByStatus(diff, DiffRemoved), countByStatus(diff, DiffModified))
+	fmt.Fprintf(
+		os.Stderr,
+		"[DIFF] Diff complete: %d total keys (%d added, %d removed, %d modified)\n",
+		len(
+			diff.KeyDiffs,
+		),
+		countByStatus(diff, DiffAdded),
+		countByStatus(diff, DiffRemoved),
+		countByStatus(diff, DiffModified),
+	)
 
 	return diff, nil
 }
 
-// countByStatus counts keys with a specific diff status
+// countByStatus counts keys with a specific diff status.
 func countByStatus(diff *HiveDiff, status DiffStatus) int {
 	count := 0
 	for _, kd := range diff.KeyDiffs {
@@ -180,7 +188,7 @@ func countByStatus(diff *HiveDiff, status DiffStatus) int {
 	return count
 }
 
-// loadAllKeys recursively loads all keys from a hive
+// loadAllKeys recursively loads all keys from a hive.
 func loadAllKeys(hivePath string) ([]KeyInfo, error) {
 	fmt.Fprintf(os.Stderr, "[DIFF] loadAllKeys: loading from %s\n", hivePath)
 	// List all keys recursively with no depth limit
@@ -189,7 +197,7 @@ func loadAllKeys(hivePath string) ([]KeyInfo, error) {
 	return keys, err
 }
 
-// compareKeyValues compares values for a specific key path in both hives
+// compareKeyValues compares values for a specific key path in both hives.
 func compareKeyValues(oldPath, newPath, keyPath string) ([]ValueDiff, bool) {
 	oldValues, err := ListValues(oldPath, keyPath)
 	if err != nil {
@@ -281,7 +289,7 @@ func compareKeyValues(oldPath, newPath, keyPath string) ([]ValueDiff, bool) {
 	return diffs, modified
 }
 
-// bytesEqual compares two byte slices
+// bytesEqual compares two byte slices.
 func bytesEqual(a, b []byte) bool {
 	if len(a) != len(b) {
 		return false
@@ -295,7 +303,7 @@ func bytesEqual(a, b []byte) bool {
 }
 
 // GetParentPaths returns all parent paths for a given path
-// e.g., "A\\B\\C" -> ["A", "A\\B"]
+// e.g., "A\\B\\C" -> ["A", "A\\B"].
 func GetParentPaths(path string) []string {
 	if path == "" {
 		return []string{}
@@ -312,7 +320,7 @@ func GetParentPaths(path string) []string {
 	return parents
 }
 
-// FilterDiffKeys filters keys based on diff view settings
+// FilterDiffKeys filters keys based on diff view settings.
 func FilterDiffKeys(diff *HiveDiff, showAdded, showRemoved, showModified, showUnchanged bool) []KeyDiff {
 	if diff == nil {
 		return []KeyDiff{}

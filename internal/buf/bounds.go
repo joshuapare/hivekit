@@ -3,7 +3,7 @@ package buf
 import "math"
 
 // AddOverflowSafe adds a and b, returning ok = false when the result would overflow int.
-func AddOverflowSafe(a, b int) (sum int, ok bool) {
+func AddOverflowSafe(a, b int) (int, bool) {
 	switch {
 	case b > 0 && a > math.MaxInt-b:
 		return 0, false

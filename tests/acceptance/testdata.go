@@ -2,7 +2,7 @@ package acceptance
 
 import "github.com/joshuapare/hivekit/internal/format"
 
-// TestHives provides paths to test hive files used across acceptance tests
+// TestHives provides paths to test hive files used across acceptance tests.
 var TestHives = struct {
 	Minimal   string
 	Special   string
@@ -16,7 +16,7 @@ var TestHives = struct {
 }
 
 // SpecialHiveKnownData contains known data in the "special" test hive
-// This hive contains keys and values with special characters to test encoding
+// This hive contains keys and values with special characters to test encoding.
 var SpecialHiveKnownData = struct {
 	RootName string
 	Keys     []string
@@ -35,7 +35,7 @@ var SpecialHiveKnownData = struct {
 	},
 }
 
-// MinimalHiveKnownData contains known data in the "minimal" test hive
+// MinimalHiveKnownData contains known data in the "minimal" test hive.
 var MinimalHiveKnownData = struct {
 	RootName      string
 	SubkeyCount   int
@@ -48,7 +48,7 @@ var MinimalHiveKnownData = struct {
 	ExpectedFlags: format.NKFlagCompressedName, // Compressed name flag
 }
 
-// LargeHiveKnownData contains known data in the "large" test hive
+// LargeHiveKnownData contains known data in the "large" test hive.
 var LargeHiveKnownData = struct {
 	RootName    string
 	SubkeyCount int // Approximate - for sanity checks
@@ -57,7 +57,7 @@ var LargeHiveKnownData = struct {
 	SubkeyCount: 3, // Known to have "A", "Another", "The"
 }
 
-// RLenValueHiveKnownData contains known data in the "rlenvalue_test_hive"
+// RLenValueHiveKnownData contains known data in the "rlenvalue_test_hive".
 var RLenValueHiveKnownData = struct {
 	RootName        string
 	TestKeyName     string

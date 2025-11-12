@@ -180,12 +180,12 @@ func TestNewHiveValidation(t *testing.T) {
 	}
 
 	// Should succeed: creating and setting value
-	if err := tx.CreateKey("TestKey", types.CreateKeyOptions{}); err != nil {
-		t.Fatalf("CreateKey failed: %v", err)
+	if createErr := tx.CreateKey("TestKey", types.CreateKeyOptions{}); createErr != nil {
+		t.Fatalf("CreateKey failed: %v", createErr)
 	}
 
-	if err := tx.SetValue("TestKey", "Value", types.REG_SZ, []byte("test")); err != nil {
-		t.Errorf("SetValue after CreateKey failed: %v", err)
+	if setErr := tx.SetValue("TestKey", "Value", types.REG_SZ, []byte("test")); setErr != nil {
+		t.Errorf("SetValue after CreateKey failed: %v", setErr)
 	}
 }
 

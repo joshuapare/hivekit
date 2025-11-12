@@ -46,11 +46,11 @@ type KeyMap struct {
 	ToggleDiffView  key.Binding
 
 	// Tree navigation helpers
-	GoToParent       key.Binding
-	ExpandAll        key.Binding
-	CollapseAll      key.Binding
-	ExpandLevel      key.Binding
-	CollapseToLevel  key.Binding
+	GoToParent      key.Binding
+	ExpandAll       key.Binding
+	CollapseAll     key.Binding
+	ExpandLevel     key.Binding
+	CollapseToLevel key.Binding
 
 	// Bookmarks
 	ToggleBookmark key.Binding

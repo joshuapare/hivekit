@@ -49,16 +49,16 @@ func (r *reader) Find(path string) (types.NodeID, error) {
 	}
 
 	for _, seg := range segments {
-		subs, err := r.Subkeys(current)
-		if err != nil {
-			return 0, err
+		subs, subErr := r.Subkeys(current)
+		if subErr != nil {
+			return 0, subErr
 		}
 		needle := strings.ToLower(seg)
 		matched := false
 		for _, child := range subs {
-			meta, err := r.StatKey(child)
-			if err != nil {
-				return 0, err
+			meta, statErr := r.StatKey(child)
+			if statErr != nil {
+				return 0, statErr
 			}
 			if strings.ToLower(meta.Name) == needle {
 				current = child
@@ -99,8 +99,8 @@ func (r *reader) walk(id types.NodeID, fn func(types.NodeID) error) error {
 		return err
 	}
 	for _, off := range list {
-		if err := r.walk(types.NodeID(off), fn); err != nil {
-			return err
+		if walkErr := r.walk(types.NodeID(off), fn); walkErr != nil {
+			return walkErr
 		}
 	}
 	return nil

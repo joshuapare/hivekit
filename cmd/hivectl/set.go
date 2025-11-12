@@ -8,11 +8,11 @@ import (
 )
 
 var (
-	setType       string
-	setCreateKey  bool
-	setBackup     bool
-	setDryRun     bool
-	setDefrag     bool
+	setType      string
+	setCreateKey bool
+	setBackup    bool
+	setDryRun    bool
+	setDefrag    bool
 )
 
 func init() {

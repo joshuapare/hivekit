@@ -6,7 +6,7 @@ import (
 )
 
 // Open opens a registry hive file for reading.
-// Returns a Reader interface that can be used to query the 
+// Returns a Reader interface that can be used to query the
 // The caller must call Close() when done to release resources.
 //
 // Example:
@@ -21,7 +21,7 @@ func Open(path string, opts OpenOptions) (Reader, error) {
 }
 
 // OpenBytes opens a registry hive from a byte slice.
-// Returns a Reader interface that can be used to query the 
+// Returns a Reader interface that can be used to query the
 // The caller must call Close() when done to release resources.
 //
 // Example:
@@ -36,7 +36,7 @@ func OpenBytes(buf []byte, opts OpenOptions) (Reader, error) {
 	return reader.OpenBytes(buf, opts)
 }
 
-// NewEditor creates an Editor for transaction-based editing of a 
+// NewEditor creates an Editor for transaction-based editing of a
 // The Editor allows creating transactions that can be committed or rolled back atomically.
 //
 // Example:

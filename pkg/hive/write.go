@@ -20,7 +20,14 @@ import (
 // Example:
 //
 //	err := ops.SetValue("system.hive", "Software\\MyApp", "Version", REG_SZ, []byte("1.0.0"), nil)
-func SetValue(hivePath string, keyPath string, valueName string, valueType RegType, data []byte, opts *OperationOptions) error {
+func SetValue(
+	hivePath string,
+	keyPath string,
+	valueName string,
+	valueType RegType,
+	data []byte,
+	opts *OperationOptions,
+) error {
 	if !fileExists(hivePath) {
 		return fmt.Errorf("hive file not found: %s", hivePath)
 	}
@@ -60,16 +67,20 @@ func SetValue(hivePath string, keyPath string, valueName string, valueType RegTy
 
 	// Create key if requested
 	if opts.CreateKey {
-		if err := tx.CreateKey(keyPath, CreateKeyOptions{CreateParents: true}); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to create key: %w", err)
+		if createErr := tx.CreateKey(keyPath, CreateKeyOptions{CreateParents: true}); createErr != nil {
+			if rbErr := tx.Rollback(); rbErr != nil {
+				return fmt.Errorf("failed to create key: %w (rollback error: %w)", createErr, rbErr)
+			}
+			return fmt.Errorf("failed to create key: %w", createErr)
 		}
 	}
 
 	// Set value
-	if err := tx.SetValue(keyPath, valueName, valueType, data); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to set value: %w", err)
+	if setErr := tx.SetValue(keyPath, valueName, valueType, data); setErr != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("failed to set value: %w (rollback error: %w)", setErr, rbErr)
+		}
+		return fmt.Errorf("failed to set value: %w", setErr)
 	}
 
 	// Dry run? Don't commit
@@ -80,19 +91,19 @@ func SetValue(hivePath string, keyPath string, valueName string, valueType RegTy
 	// Commit to buffer
 	buf := &bytes.Buffer{}
 	writeOpts := types.WriteOptions{Repack: opts.Defragment}
-	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
+	if commitErr := tx.Commit(&bufWriter{buf}, writeOpts); commitErr != nil {
+		return fmt.Errorf("failed to commit changes: %w", commitErr)
 	}
 
 	// Write to file atomically
 	tempPath := hivePath + ".tmp"
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file: %w", err)
+	if writeErr := os.WriteFile(tempPath, buf.Bytes(), 0644); writeErr != nil {
+		return fmt.Errorf("failed to write temporary file: %w", writeErr)
 	}
 
-	if err := os.Rename(tempPath, hivePath); err != nil {
+	if renameErr := os.Rename(tempPath, hivePath); renameErr != nil {
 		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive: %w", err)
+		return fmt.Errorf("failed to replace hive: %w", renameErr)
 	}
 
 	return nil
@@ -119,7 +130,7 @@ func SetQWORDValue(hivePath string, keyPath string, valueName string, value uint
 	return SetValue(hivePath, keyPath, valueName, REG_QWORD, data, opts)
 }
 
-// DeleteKey deletes a registry key from the 
+// DeleteKey deletes a registry key from the
 //
 // Example:
 //
@@ -163,9 +174,11 @@ func DeleteKey(hivePath string, keyPath string, recursive bool, opts *OperationO
 	tx := ed.BeginWithLimits(*opts.Limits)
 
 	// Delete key
-	if err := tx.DeleteKey(keyPath, DeleteKeyOptions{Recursive: recursive}); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to delete key: %w", err)
+	if deleteErr := tx.DeleteKey(keyPath, DeleteKeyOptions{Recursive: recursive}); deleteErr != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("failed to delete key: %w (rollback error: %w)", deleteErr, rbErr)
+		}
+		return fmt.Errorf("failed to delete key: %w", deleteErr)
 	}
 
 	// Dry run? Don't commit
@@ -176,19 +189,19 @@ func DeleteKey(hivePath string, keyPath string, recursive bool, opts *OperationO
 	// Commit to buffer
 	buf := &bytes.Buffer{}
 	writeOpts := types.WriteOptions{Repack: opts.Defragment}
-	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
+	if commitErr := tx.Commit(&bufWriter{buf}, writeOpts); commitErr != nil {
+		return fmt.Errorf("failed to commit changes: %w", commitErr)
 	}
 
 	// Write to file atomically
 	tempPath := hivePath + ".tmp"
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file: %w", err)
+	if writeErr := os.WriteFile(tempPath, buf.Bytes(), 0644); writeErr != nil {
+		return fmt.Errorf("failed to write temporary file: %w", writeErr)
 	}
 
-	if err := os.Rename(tempPath, hivePath); err != nil {
+	if renameErr := os.Rename(tempPath, hivePath); renameErr != nil {
 		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive: %w", err)
+		return fmt.Errorf("failed to replace hive: %w", renameErr)
 	}
 
 	return nil
@@ -238,9 +251,11 @@ func DeleteValue(hivePath string, keyPath string, valueName string, opts *Operat
 	tx := ed.BeginWithLimits(*opts.Limits)
 
 	// Delete value
-	if err := tx.DeleteValue(keyPath, valueName); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to delete value: %w", err)
+	if deleteErr := tx.DeleteValue(keyPath, valueName); deleteErr != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("failed to delete value: %w (rollback error: %w)", deleteErr, rbErr)
+		}
+		return fmt.Errorf("failed to delete value: %w", deleteErr)
 	}
 
 	// Dry run? Don't commit
@@ -251,25 +266,25 @@ func DeleteValue(hivePath string, keyPath string, valueName string, opts *Operat
 	// Commit to buffer
 	buf := &bytes.Buffer{}
 	writeOpts := types.WriteOptions{Repack: opts.Defragment}
-	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
+	if commitErr := tx.Commit(&bufWriter{buf}, writeOpts); commitErr != nil {
+		return fmt.Errorf("failed to commit changes: %w", commitErr)
 	}
 
 	// Write to file atomically
 	tempPath := hivePath + ".tmp"
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file: %w", err)
+	if writeErr := os.WriteFile(tempPath, buf.Bytes(), 0644); writeErr != nil {
+		return fmt.Errorf("failed to write temporary file: %w", writeErr)
 	}
 
-	if err := os.Rename(tempPath, hivePath); err != nil {
+	if renameErr := os.Rename(tempPath, hivePath); renameErr != nil {
 		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive: %w", err)
+		return fmt.Errorf("failed to replace hive: %w", renameErr)
 	}
 
 	return nil
 }
 
-// encodeUTF16LEString encodes a UTF-8 string to UTF-16LE with null terminator
+// encodeUTF16LEString encodes a UTF-8 string to UTF-16LE with null terminator.
 func encodeUTF16LEString(s string) []byte {
 	// Convert to UTF-16
 	runes := []rune(s)
@@ -325,7 +340,7 @@ func ParseValueString(valueStr string, valueType string) (RegType, []byte, error
 	}
 }
 
-// parseHexString parses a hex string (with or without 0x prefix, with or without spaces)
+// parseHexString parses a hex string (with or without 0x prefix, with or without spaces).
 func parseHexString(s string) ([]byte, error) {
 	// Remove common separators and prefix
 	s = strings.TrimPrefix(s, "0x")

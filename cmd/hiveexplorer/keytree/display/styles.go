@@ -11,7 +11,7 @@ var (
 // Basic display styles
 var (
 	selectedStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#7D56F4")).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true)
+		Background(lipgloss.Color("#7D56F4")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Bold(true)
 )

@@ -63,35 +63,35 @@ func (w *Writer) WriteAtomic(path string, data []byte) error {
 	}
 
 	// Write data to temp file
-	if _, err := tmpFile.Write(data); err != nil {
+	if _, writeErr := tmpFile.Write(data); writeErr != nil {
 		cleanup()
-		return fmt.Errorf("writing to temp file: %w", err)
+		return fmt.Errorf("writing to temp file: %w", writeErr)
 	}
 
 	// Fsync to ensure data is on disk before rename
-	if err := tmpFile.Sync(); err != nil {
+	if syncErr := tmpFile.Sync(); syncErr != nil {
 		cleanup()
-		return fmt.Errorf("syncing temp file: %w", err)
+		return fmt.Errorf("syncing temp file: %w", syncErr)
 	}
 
 	// Close before rename (required on Windows)
-	if err := tmpFile.Close(); err != nil {
+	if closeErr := tmpFile.Close(); closeErr != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("closing temp file: %w", err)
+		return fmt.Errorf("closing temp file: %w", closeErr)
 	}
 
 	// Atomic rename
-	if err := os.Rename(tmpPath, absPath); err != nil {
+	if renameErr := os.Rename(tmpPath, absPath); renameErr != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("renaming temp file: %w", err)
+		return fmt.Errorf("renaming temp file: %w", renameErr)
 	}
 
 	// Fsync parent directory to ensure rename is persisted
 	// This is critical for crash consistency
-	if err := syncDir(dir); err != nil {
+	if syncDirErr := syncDir(dir); syncDirErr != nil {
 		// Don't fail the operation since data is already written
 		// Log this as a warning in production code
-		_ = err // Silence linter
+		_ = syncDirErr // Silence linter
 	}
 
 	return nil
@@ -103,7 +103,7 @@ func (w *Writer) WriteAtomic(path string, data []byte) error {
 // Returns the path to the backup file and any error encountered.
 //
 // Backup naming: <original>.<suffix>.<timestamp>
-// Example: system.types.bak.20060102-150405
+// Example: system.types.bak.20060102-150405.
 func (w *Writer) CreateBackup(path, suffix string) (string, error) {
 	// Check if source file exists
 	stat, err := os.Stat(path)
@@ -128,14 +128,14 @@ func (w *Writer) CreateBackup(path, suffix string) (string, error) {
 	}
 
 	// Write backup atomically
-	if err := w.WriteAtomic(backupPath, data); err != nil {
-		return "", fmt.Errorf("writing backup: %w", err)
+	if writeErr := w.WriteAtomic(backupPath, data); writeErr != nil {
+		return "", fmt.Errorf("writing backup: %w", writeErr)
 	}
 
 	// Verify backup
-	if err := verifyBackup(backupPath, stat.Size()); err != nil {
+	if verifyErr := verifyBackup(backupPath, stat.Size()); verifyErr != nil {
 		os.Remove(backupPath)
-		return "", fmt.Errorf("backup verification failed: %w", err)
+		return "", fmt.Errorf("backup verification failed: %w", verifyErr)
 	}
 
 	return backupPath, nil
@@ -157,8 +157,8 @@ func (w *Writer) RestoreBackup(path, backupPath string) error {
 	}
 
 	// Write backup data to original path atomically
-	if err := w.WriteAtomic(path, data); err != nil {
-		return fmt.Errorf("restoring from backup: %w", err)
+	if writeErr := w.WriteAtomic(path, data); writeErr != nil {
+		return fmt.Errorf("restoring from backup: %w", writeErr)
 	}
 
 	return nil
@@ -181,8 +181,8 @@ func (w *Writer) CopyFile(src, dst string) error {
 	}
 
 	// Write to destination atomically
-	if err := w.WriteAtomic(dst, data); err != nil {
-		return fmt.Errorf("writing destination file: %w", err)
+	if writeErr := w.WriteAtomic(dst, data); writeErr != nil {
+		return fmt.Errorf("writing destination file: %w", writeErr)
 	}
 
 	return nil
@@ -197,8 +197,8 @@ func syncDir(dir string) error {
 	}
 	defer d.Close()
 
-	if err := d.Sync(); err != nil {
-		return fmt.Errorf("syncing directory: %w", err)
+	if syncErr := d.Sync(); syncErr != nil {
+		return fmt.Errorf("syncing directory: %w", syncErr)
 	}
 
 	return nil

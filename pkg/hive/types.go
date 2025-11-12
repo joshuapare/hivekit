@@ -4,13 +4,13 @@ import "github.com/joshuapare/hivekit/pkg/types"
 
 // Re-export commonly used types from pkg/types so users only need to import pkg/hive
 
-// Core types
+// Core types.
 type (
 	NodeID  = types.NodeID
 	ValueID = types.ValueID
 )
 
-// Metadata types
+// Metadata types.
 type (
 	ValueMeta        = types.ValueMeta
 	KeyMeta          = types.KeyMeta
@@ -21,7 +21,7 @@ type (
 	RepairOptions    = types.RepairOptions
 )
 
-// Diagnostic types
+// Diagnostic types.
 type (
 	Severity     = types.Severity
 	DiagCategory = types.DiagCategory
@@ -31,7 +31,7 @@ type (
 	RepairAction = types.RepairAction
 )
 
-// Diagnostic constructor
+// Diagnostic constructor.
 var NewDiagnosticReport = types.NewDiagnosticReport
 
 // ReadOptions controls value reading behavior.
@@ -50,7 +50,7 @@ type DeleteKeyOptions = types.DeleteKeyOptions
 // RegType enumerates Windows registry value types.
 type RegType = types.RegType
 
-// Registry type constants
+// Registry type constants.
 const (
 	REG_NONE      = types.REG_NONE
 	REG_SZ        = types.REG_SZ
@@ -64,7 +64,7 @@ const (
 	REG_QWORD     = types.REG_QWORD
 )
 
-// Interface re-exports for advanced users
+// Interface re-exports for advanced users.
 type (
 	Reader = types.Reader
 	Editor = types.Editor
@@ -72,20 +72,20 @@ type (
 	Writer = types.Writer
 )
 
-// .reg file types
+// .reg file types.
 type (
 	RegParseOptions  = types.RegParseOptions
 	RegExportOptions = types.RegExportOptions
 	RegCodec         = types.RegCodec
 )
 
-// Error types
+// Error types.
 type (
 	Error   = types.Error
 	ErrKind = types.ErrKind
 )
 
-// Error kind constants
+// Error kind constants.
 const (
 	ErrKindFormat      = types.ErrKindFormat
 	ErrKindCorrupt     = types.ErrKindCorrupt
@@ -95,7 +95,7 @@ const (
 	ErrKindState       = types.ErrKindState
 )
 
-// Severity constants
+// Severity constants.
 const (
 	SevInfo     = types.SevInfo
 	SevWarning  = types.SevWarning
@@ -103,7 +103,7 @@ const (
 	SevCritical = types.SevCritical
 )
 
-// Diagnostic category constants
+// Diagnostic category constants.
 const (
 	DiagStructure   = types.DiagStructure
 	DiagData        = types.DiagData
@@ -111,7 +111,7 @@ const (
 	DiagPerformance = types.DiagPerformance
 )
 
-// Repair type constants
+// Repair type constants.
 const (
 	RepairTruncate = types.RepairTruncate
 	RepairRebuild  = types.RepairRebuild
@@ -120,7 +120,7 @@ const (
 	RepairDefault  = types.RepairDefault
 )
 
-// Risk level constants
+// Risk level constants.
 const (
 	RiskNone   = types.RiskNone
 	RiskLow    = types.RiskLow
@@ -128,7 +128,7 @@ const (
 	RiskHigh   = types.RiskHigh
 )
 
-// Common error sentinels
+// Common error sentinels.
 var (
 	ErrNotHive      = types.ErrNotHive
 	ErrCorrupt      = types.ErrCorrupt

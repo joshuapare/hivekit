@@ -28,96 +28,96 @@ func TestValueDecoders(t *testing.T) {
 
 	tests := map[string]func(hive.ValueID) error{
 		"Test": func(id hive.ValueID) error {
-			meta, err := r.StatValue(id)
-			if err != nil {
-				return err
+			meta, statErr := r.StatValue(id)
+			if statErr != nil {
+				return statErr
 			}
 			if meta.Type != hive.REG_DWORD {
-				return errMeta{meta}
+				return metaError{meta}
 			}
-			data, err := r.ValueBytes(id, hive.ReadOptions{CopyData: true})
-			if err != nil {
-				return err
+			data, readErr := r.ValueBytes(id, hive.ReadOptions{CopyData: true})
+			if readErr != nil {
+				return readErr
 			}
 			if !bytes.Equal(data, []byte{0x78, 0x56, 0x34, 0x12}) {
-				return errBytes{data}
+				return bytesError{data}
 			}
-			v, err := r.ValueDWORD(id)
-			if err != nil {
-				return err
+			v, dwordErr := r.ValueDWORD(id)
+			if dwordErr != nil {
+				return dwordErr
 			}
 			if v != 0x12345678 {
-				return errDWORD(v)
+				return dwordError(v)
 			}
 			return nil
 		},
 		"Path": func(id hive.ValueID) error {
-			meta, err := r.StatValue(id)
-			if err != nil {
-				return err
+			meta, statErr := r.StatValue(id)
+			if statErr != nil {
+				return statErr
 			}
 			if meta.Type != hive.REG_SZ {
-				return errMeta{meta}
+				return metaError{meta}
 			}
-			str, err := r.ValueString(id, hive.ReadOptions{})
-			if err != nil {
-				return err
+			str, stringErr := r.ValueString(id, hive.ReadOptions{})
+			if stringErr != nil {
+				return stringErr
 			}
 			if str != "C:\\Temp" {
-				return errString(str)
+				return stringError(str)
 			}
 			return nil
 		},
 		"Multi": func(id hive.ValueID) error {
-			meta, err := r.StatValue(id)
-			if err != nil {
-				return err
+			meta, statErr := r.StatValue(id)
+			if statErr != nil {
+				return statErr
 			}
 			if meta.Type != hive.REG_MULTI_SZ {
-				return errMeta{meta}
+				return metaError{meta}
 			}
-			vals, err := r.ValueStrings(id, hive.ReadOptions{})
-			if err != nil {
-				return err
+			vals, stringsErr := r.ValueStrings(id, hive.ReadOptions{})
+			if stringsErr != nil {
+				return stringsErr
 			}
 			if len(vals) != 2 || vals[0] != "One" || vals[1] != "Two" {
-				return errStrings{vals}
+				return stringsError{vals}
 			}
 			return nil
 		},
 	}
 
 	for _, id := range vals {
-		meta, err := r.StatValue(id)
-		if err != nil {
-			t.Fatalf("StatValue: %v", err)
+		meta, statErr := r.StatValue(id)
+		if statErr != nil {
+			t.Fatalf("StatValue: %v", statErr)
 		}
 		testFn, ok := tests[meta.Name]
 		if !ok {
 			t.Fatalf("unexpected value %q", meta.Name)
 		}
-		if err := testFn(id); err != nil {
-			t.Fatalf("value %s check failed: %v", meta.Name, err)
+		if testErr := testFn(id); testErr != nil {
+			t.Fatalf("value %s check failed: %v", meta.Name, testErr)
 		}
 	}
 }
 
-type errMeta struct{ hive.ValueMeta }
+type metaError struct{ hive.ValueMeta }
 
-func (e errMeta) Error() string { return fmt.Sprintf("unexpected meta: %+v", e.ValueMeta) }
+func (e metaError) Error() string { return fmt.Sprintf("unexpected meta: %+v", e.ValueMeta) }
 
-type errBytes struct{ got []byte }
+type bytesError struct{ got []byte }
 
-func (e errBytes) Error() string { return fmt.Sprintf("unexpected bytes: %x", e.got) }
+func (e bytesError) Error() string { return fmt.Sprintf("unexpected bytes: %x", e.got) }
 
-type errDWORD uint32
+type dwordError uint32
 
-func (e errDWORD) Error() string { return fmt.Sprintf("unexpected DWORD: 0x%x", uint32(e)) }
+func (e dwordError) Error() string { return fmt.Sprintf("unexpected DWORD: 0x%x", uint32(e)) }
 
-type errString string
+type stringError string
 
-func (e errString) Error() string { return fmt.Sprintf("unexpected string: %s", string(e)) }
+func (e stringError) Error() string { return "unexpected string: " + string(e) }
 
-type errStrings struct{ vals []string }
+type stringsError struct{ vals []string }
 
-func (e errStrings) Error() string { return fmt.Sprintf("unexpected multisz: %v", e.vals) }
+func (e stringsError) Error() string { return fmt.Sprintf("unexpected multisz: %v", e.vals) }

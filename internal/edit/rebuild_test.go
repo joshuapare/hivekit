@@ -15,10 +15,10 @@ func TestChecksumCalculation(t *testing.T) {
 	// Create minimal HBIN data for testing
 	hbin := make([]byte, 0x1000)
 	copy(hbin[:4], []byte("hbin"))
-	binary.LittleEndian.PutUint32(hbin[4:], 0)          // offset
-	binary.LittleEndian.PutUint32(hbin[8:], 0x1000)     // size
-	binary.LittleEndian.PutUint64(hbin[16:], 0)         // timestamp
-	binary.LittleEndian.PutUint32(hbin[24:], 0)         // spare
+	binary.LittleEndian.PutUint32(hbin[4:], 0)      // offset
+	binary.LittleEndian.PutUint32(hbin[8:], 0x1000) // size
+	binary.LittleEndian.PutUint64(hbin[16:], 0)     // timestamp
+	binary.LittleEndian.PutUint32(hbin[24:], 0)     // spare
 
 	hbins := [][]byte{hbin}
 	rootOffset := int32(0x20)
@@ -267,9 +267,9 @@ func TestNKMinimumSize(t *testing.T) {
 		name string
 		path string
 	}{
-		{"root", ""},        // Empty name - most likely to trigger bug
-		{"single char", "A"}, // Single character name
-		{"short", "AB"},      // Two character name
+		{"root", ""},              // Empty name - most likely to trigger bug
+		{"single char", "A"},      // Single character name
+		{"short", "AB"},           // Two character name
 		{"longer", "TypedValues"}, // Longer name that should be fine
 	}
 
@@ -314,10 +314,20 @@ func TestNKMinimumSize(t *testing.T) {
 
 			// Verify payload is at least NKMinSize
 			if payloadSize < format.NKMinSize {
-				t.Errorf("NK payload size: got %d bytes, want at least %d bytes (NKMinSize)", payloadSize, format.NKMinSize)
+				t.Errorf(
+					"NK payload size: got %d bytes, want at least %d bytes (NKMinSize)",
+					payloadSize,
+					format.NKMinSize,
+				)
 			}
 
-			t.Logf("Key %q: NK cell size=%d, payload=%d bytes (minimum=%d)", tt.path, cellSize, payloadSize, format.NKMinSize)
+			t.Logf(
+				"Key %q: NK cell size=%d, payload=%d bytes (minimum=%d)",
+				tt.path,
+				cellSize,
+				payloadSize,
+				format.NKMinSize,
+			)
 		})
 	}
 }

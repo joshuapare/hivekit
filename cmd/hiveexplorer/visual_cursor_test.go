@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	
 )
 
 // TestVisualCursorMovement verifies that the visual cursor position updates

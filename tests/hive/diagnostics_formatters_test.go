@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestDiagnosticFormatters tests all output formatters
+// TestDiagnosticFormatters tests all output formatters.
 func TestDiagnosticFormatters(t *testing.T) {
 	// Create a sample diagnostic report
 	report := hive.NewDiagnosticReport()
@@ -174,7 +175,7 @@ func TestDiagnosticFormatters(t *testing.T) {
 	})
 }
 
-// TestDiagnosticFormatters_Empty tests formatters with empty report
+// TestDiagnosticFormatters_Empty tests formatters with empty report.
 func TestDiagnosticFormatters_Empty(t *testing.T) {
 	report := hive.NewDiagnosticReport()
 	report.FileSize = 4096
@@ -217,7 +218,7 @@ func TestDiagnosticFormatters_Empty(t *testing.T) {
 	})
 }
 
-// TestDiagnosticJSON_Roundtrip tests JSON marshaling/unmarshaling
+// TestDiagnosticJSON_Roundtrip tests JSON marshaling/unmarshaling.
 func TestDiagnosticJSON_Roundtrip(t *testing.T) {
 	original := hive.NewDiagnosticReport()
 	original.FilePath = "roundtrip.hive"
@@ -254,7 +255,7 @@ func TestDiagnosticJSON_Roundtrip(t *testing.T) {
 	assert.Equal(t, original.Diagnostics[0].Issue, restored.Diagnostics[0].Issue)
 }
 
-// TestDiagnosticFormatters_SpecialCharacters tests handling of special characters
+// TestDiagnosticFormatters_SpecialCharacters tests handling of special characters.
 func TestDiagnosticFormatters_SpecialCharacters(t *testing.T) {
 	report := hive.NewDiagnosticReport()
 

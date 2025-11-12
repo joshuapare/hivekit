@@ -32,7 +32,7 @@ func BenchmarkNodeTimestamp(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				timestamp, err = r.KeyTimestamp(root)
 				if err != nil {
 					b.Fatalf("KeyTimestamp failed: %v", err)
@@ -58,7 +58,7 @@ func BenchmarkNodeTimestamp(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				timestamp = h.NodeTimestamp(root)
 			}
 
@@ -90,7 +90,7 @@ func BenchmarkNodeNrChildren(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				count, err = r.KeySubkeyCount(root)
 				if err != nil {
 					b.Fatalf("KeySubkeyCount failed: %v", err)
@@ -116,7 +116,7 @@ func BenchmarkNodeNrChildren(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				count = h.NodeNrChildren(root)
 			}
 
@@ -148,7 +148,7 @@ func BenchmarkNodeNrValues(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				count, err = r.KeyValueCount(root)
 				if err != nil {
 					b.Fatalf("KeyValueCount failed: %v", err)
@@ -174,7 +174,7 @@ func BenchmarkNodeNrValues(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				count = h.NodeNrValues(root)
 			}
 
@@ -206,7 +206,7 @@ func BenchmarkStatKey(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				meta, err = r.StatKey(root)
 				if err != nil {
 					b.Fatalf("StatKey failed: %v", err)
@@ -237,7 +237,7 @@ func BenchmarkStatKey(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				name = h.NodeName(root)
 				timestamp = h.NodeTimestamp(root)
 				nrChildren = h.NodeNrChildren(root)
@@ -274,7 +274,7 @@ func BenchmarkDetailKey(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				meta, err = r.StatKey(root)
 				if err != nil {
 					b.Fatalf("StatKey failed: %v", err)
@@ -303,7 +303,7 @@ func BenchmarkDetailKey(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				detail, err = r.DetailKey(root)
 				if err != nil {
 					b.Fatalf("DetailKey failed: %v", err)
@@ -349,7 +349,7 @@ func BenchmarkMetadataOnChildren(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			// Get metadata for all children
 			for _, child := range children {
 				meta, err = r.StatKey(child)
@@ -386,7 +386,7 @@ func BenchmarkMetadataOnChildren(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			// Get metadata for all children
 			for _, child := range children {
 				name = h.NodeName(child)

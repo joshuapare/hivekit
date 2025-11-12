@@ -74,7 +74,7 @@ func runDefrag(args []string) error {
 
 	// Output as JSON if requested
 	if jsonOut {
-		result := map[string]interface{}{
+		result := map[string]any{
 			"file":          hivePath,
 			"original_size": origSize,
 			"new_size":      newSize,

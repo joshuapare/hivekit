@@ -10,13 +10,13 @@ import (
 )
 
 var (
-	repairDryRun      bool
-	repairAutoOnly    bool
-	repairMaxRisk     string
+	repairDryRun       bool
+	repairAutoOnly     bool
+	repairMaxRisk      string
 	repairBackupSuffix string
-	repairNoBackup    bool
-	repairTolerant    bool
-	repairInteractive bool
+	repairNoBackup     bool
+	repairTolerant     bool
+	repairInteractive  bool
 )
 
 var repairCmd = &cobra.Command{
@@ -80,7 +80,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 
 	// Warn about no-backup
 	if repairNoBackup && !repairDryRun {
-		printInfo("⚠️  WARNING: Running without backup! Original file will be modified.\n")
+		printInfo("WARNING: Running without backup! Original file will be modified.\n")
 		printInfo("Press Ctrl+C to cancel or Enter to continue...\n")
 		fmt.Scanln()
 	}

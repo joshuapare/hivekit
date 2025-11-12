@@ -1,4 +1,4 @@
-// +build hivex
+//go:build hivex
 
 package reader
 

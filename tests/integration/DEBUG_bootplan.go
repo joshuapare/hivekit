@@ -1,4 +1,4 @@
-// +build ignore
+//go:build ignore
 
 package main
 
@@ -67,7 +67,15 @@ func main() {
 				if !vk.DataInline() {
 					// Check the data cell
 					dataAbs := int(format.HeaderSize) + int(vk.DataOffset)
-					dataCellSize := int32(buf[dataAbs]) | int32(buf[dataAbs+1])<<8 | int32(buf[dataAbs+2])<<16 | int32(buf[dataAbs+3])<<24
+					dataCellSize := int32(
+						buf[dataAbs],
+					) | int32(
+						buf[dataAbs+1],
+					)<<8 | int32(
+						buf[dataAbs+2],
+					)<<16 | int32(
+						buf[dataAbs+3],
+					)<<24
 					dataCellSize = -dataCellSize
 
 					fmt.Printf("\nData cell info:\n")

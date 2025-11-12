@@ -13,8 +13,8 @@ var (
 	successColor   = lipgloss.Color("#04B575")
 	warningColor   = lipgloss.Color("#FFA500")
 	errorColor     = lipgloss.Color("#FF4B4B")
-	mutedColor  = lipgloss.Color("#666666")
-	borderColor = lipgloss.Color("#383838")
+	mutedColor     = lipgloss.Color("#666666")
+	borderColor    = lipgloss.Color("#383838")
 
 	// Header styles
 	headerStyle = lipgloss.NewStyle().
@@ -43,7 +43,6 @@ var (
 	tableHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(primaryColor)
-
 
 	tableRowStyle = lipgloss.NewStyle()
 
@@ -127,9 +126,9 @@ var (
 				Foreground(lipgloss.Color("#FAFAFA")) // Normal color
 
 	// Diff prefixes/indicators
-	diffAddedPrefix    = "+"
-	diffRemovedPrefix  = "-"
-	diffModifiedPrefix = "~"
+	diffAddedPrefix     = "+"
+	diffRemovedPrefix   = "-"
+	diffModifiedPrefix  = "~"
 	diffUnchangedPrefix = " "
 )
 
@@ -175,4 +174,3 @@ func truncate(s string, maxLen int) string {
 	}
 	return s[:maxLen-3] + "..."
 }
-

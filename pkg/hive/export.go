@@ -36,7 +36,7 @@ func ExportReg(hivePath, regPath string, opts *ExportOptions) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(regPath, []byte(regContent), 0644); err != nil {
+	if err := os.WriteFile(regPath, []byte(regContent), 0600); err != nil {
 		return fmt.Errorf("failed to write .reg file %s: %w", regPath, err)
 	}
 
@@ -92,9 +92,9 @@ func ExportRegString(hivePath string, opts *ExportOptions) (string, error) {
 
 	// If subtree specified, find that node
 	if opts.SubtreePath != "" {
-		subtreeNode, err := r.Find(opts.SubtreePath)
-		if err != nil {
-			return "", fmt.Errorf("failed to find subtree %s: %w", opts.SubtreePath, err)
+		subtreeNode, findErr := r.Find(opts.SubtreePath)
+		if findErr != nil {
+			return "", fmt.Errorf("failed to find subtree %s: %w", opts.SubtreePath, findErr)
 		}
 		rootNode = subtreeNode
 	}

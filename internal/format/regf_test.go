@@ -10,13 +10,13 @@ func TestParseHeaderSuccess(t *testing.T) {
 	copy(buf, REGFSignature)
 	binary.LittleEndian.PutUint32(buf[REGFPrimarySeqOffset:], 1)
 	binary.LittleEndian.PutUint32(buf[REGFSecondarySeqOffset:], 2)
-	binary.LittleEndian.PutUint64(buf[REGFLastWriteOffset:], 123456789)
+	binary.LittleEndian.PutUint64(buf[REGFTimeStampOffset:], 123456789)
 	binary.LittleEndian.PutUint32(buf[REGFMajorVersionOffset:], 5)
 	binary.LittleEndian.PutUint32(buf[REGFMinorVersionOffset:], 6)
 	binary.LittleEndian.PutUint32(buf[REGFTypeOffset:], 7)
 	binary.LittleEndian.PutUint32(buf[REGFRootCellOffset:], 0x200)
 	binary.LittleEndian.PutUint32(buf[REGFDataSizeOffset:], 0x3000)
-	binary.LittleEndian.PutUint32(buf[REGFClusteringOffset:], 1)
+	binary.LittleEndian.PutUint32(buf[REGFClusterOffset:], 1)
 
 	hdr, err := ParseHeader(buf)
 	if err != nil {

@@ -4,10 +4,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/joshuapare/hivekit/internal/reader"
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/internal/reader"
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // Comprehensive corruption tests validating error detection, precise error reporting,
@@ -21,7 +22,7 @@ import (
 // ============================================================================
 
 // TestCorruption_RegfSignature tests detection of invalid REGF header signature.
-// Corruption: offset 0x0000, "regf" → "XXXX"
+// Corruption: offset 0x0000, "regf" → "XXXX".
 func TestCorruption_RegfSignature(t *testing.T) {
 	_, err := reader.Open("../../testdata/corrupted/corrupt_regf_signature", hive.OpenOptions{})
 	require.Error(t, err)
@@ -29,7 +30,7 @@ func TestCorruption_RegfSignature(t *testing.T) {
 }
 
 // TestCorruption_RegfTruncated tests detection of truncated REGF header.
-// Corruption: file truncated to 2048 bytes (less than HeaderSize=4096)
+// Corruption: file truncated to 2048 bytes (less than HeaderSize=4096).
 func TestCorruption_RegfTruncated(t *testing.T) {
 	_, err := reader.Open("../../testdata/corrupted/corrupt_regf_truncated", hive.OpenOptions{})
 	require.Error(t, err)
@@ -37,7 +38,7 @@ func TestCorruption_RegfTruncated(t *testing.T) {
 }
 
 // TestCorruption_HbinSignature tests detection of invalid HBIN signature.
-// Corruption: offset 0x1000, "hbin" → "YYYY"
+// Corruption: offset 0x1000, "hbin" → "YYYY".
 func TestCorruption_HbinSignature(t *testing.T) {
 	// With eager HBIN validation (Option A), Open() should fail immediately
 	_, err := reader.Open("../../testdata/corrupted/corrupt_hbin_signature", hive.OpenOptions{})
@@ -46,7 +47,7 @@ func TestCorruption_HbinSignature(t *testing.T) {
 }
 
 // TestCorruption_HbinSizeZero tests detection of HBIN with zero size.
-// Corruption: offset 0x1008, HBIN size → 0x00000000
+// Corruption: offset 0x1008, HBIN size → 0x00000000.
 func TestCorruption_HbinSizeZero(t *testing.T) {
 	// With eager HBIN validation (Option A), Open() should fail immediately
 	_, err := reader.Open("../../testdata/corrupted/corrupt_hbin_size_zero", hive.OpenOptions{})
@@ -55,7 +56,7 @@ func TestCorruption_HbinSizeZero(t *testing.T) {
 }
 
 // TestCorruption_HbinSizeUnaligned tests detection of improperly aligned HBIN size.
-// Corruption: offset 0x1008, HBIN size → 0x1234 (not multiple of 0x1000)
+// Corruption: offset 0x1008, HBIN size → 0x1234 (not multiple of 0x1000).
 func TestCorruption_HbinSizeUnaligned(t *testing.T) {
 	// With eager HBIN validation (Option A), Open() should fail immediately
 	_, err := reader.Open("../../testdata/corrupted/corrupt_hbin_size_unaligned", hive.OpenOptions{})
@@ -64,7 +65,7 @@ func TestCorruption_HbinSizeUnaligned(t *testing.T) {
 }
 
 // TestCorruption_HbinSizeOverflow tests detection of HBIN size exceeding file bounds.
-// Corruption: offset 0x1008, HBIN size → 0x100000 (1 MB, file is 8 KB)
+// Corruption: offset 0x1008, HBIN size → 0x100000 (1 MB, file is 8 KB).
 func TestCorruption_HbinSizeOverflow(t *testing.T) {
 	// With eager HBIN validation (Option A), Open() should fail immediately
 	_, err := reader.Open("../../testdata/corrupted/corrupt_hbin_size_overflow", hive.OpenOptions{})
@@ -72,7 +73,7 @@ func TestCorruption_HbinSizeOverflow(t *testing.T) {
 }
 
 // TestCorruption_CellSizeZero tests detection of cell with zero size.
-// Corruption: offset 0x1020, cell size → 0x00000000
+// Corruption: offset 0x1020, cell size → 0x00000000.
 func TestCorruption_CellSizeZero(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_cell_size_zero", hive.OpenOptions{})
 	require.NoError(t, err) // Opens successfully
@@ -92,7 +93,7 @@ func TestCorruption_CellSizeZero(t *testing.T) {
 // ============================================================================
 
 // TestCorruption_NkSignature_Strict tests strict mode rejection of invalid NK signature.
-// Corruption: offset 0x1022, "nk" → "XX"
+// Corruption: offset 0x1022, "nk" → "XX".
 func TestCorruption_NkSignature_Strict(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_nk_signature", hive.OpenOptions{})
 	require.NoError(t, err) // Opens successfully
@@ -108,7 +109,7 @@ func TestCorruption_NkSignature_Strict(t *testing.T) {
 }
 
 // TestCorruption_NkTruncated_Strict tests detection of truncated NK record.
-// Corruption: offset 0x1020, cell size reduced to 16 bytes (< NKMinSize=80)
+// Corruption: offset 0x1020, cell size reduced to 16 bytes (< NKMinSize=80).
 func TestCorruption_NkTruncated_Strict(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_nk_truncated", hive.OpenOptions{})
 	require.NoError(t, err) // Opens successfully
@@ -122,7 +123,7 @@ func TestCorruption_NkTruncated_Strict(t *testing.T) {
 }
 
 // TestCorruption_NkSubkeyListInvalid_Strict tests handling of invalid subkey list offset.
-// Corruption: offset 0x103C, subkey list offset → 0xDEADBEEF
+// Corruption: offset 0x103C, subkey list offset → 0xDEADBEEF.
 func TestCorruption_NkSubkeyListInvalid_Strict(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_nk_subkey_list_invalid", hive.OpenOptions{})
 	require.NoError(t, err)
@@ -146,7 +147,7 @@ func TestCorruption_NkSubkeyListInvalid_Strict(t *testing.T) {
 }
 
 // TestCorruption_NkSubkeyListInvalid_Tolerant tests tolerant mode continues despite bad subkey list.
-// Corruption: offset 0x103C, subkey list offset → 0xDEADBEEF
+// Corruption: offset 0x103C, subkey list offset → 0xDEADBEEF.
 func TestCorruption_NkSubkeyListInvalid_Tolerant(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_nk_subkey_list_invalid",
 		hive.OpenOptions{Tolerant: true})
@@ -164,7 +165,7 @@ func TestCorruption_NkSubkeyListInvalid_Tolerant(t *testing.T) {
 }
 
 // TestCorruption_CellOffsetOverflow tests protection against integer overflow.
-// Corruption: offset 0x103C, subkey list offset → 0xFFFFFF00 (near max uint32)
+// Corruption: offset 0x103C, subkey list offset → 0xFFFFFF00 (near max uint32).
 func TestCorruption_CellOffsetOverflow(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_cell_offset_overflow", hive.OpenOptions{})
 	require.NoError(t, err)
@@ -188,7 +189,7 @@ func TestCorruption_CellOffsetOverflow(t *testing.T) {
 
 // TestCorruption_VkSignature_Strict tests strict mode rejection of invalid VK signature.
 // Corruption: offset 0x1382, "vk" → "YY"
-// Base file: special (has VK records)
+// Base file: special (has VK records).
 func TestCorruption_VkSignature_Strict(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_vk_signature", hive.OpenOptions{})
 	require.NoError(t, err)
@@ -212,9 +213,9 @@ func TestCorruption_VkSignature_Strict(t *testing.T) {
 
 	// If we got values, trying to read the corrupted one should fail
 	for _, val := range values {
-		_, err := r.StatValue(val)
+		_, statErr := r.StatValue(val)
 		// At least one should fail with signature error
-		if err != nil && assert.Contains(t, err.Error(), "signature") {
+		if statErr != nil && assert.Contains(t, statErr.Error(), "signature") {
 			return
 		}
 	}
@@ -222,7 +223,7 @@ func TestCorruption_VkSignature_Strict(t *testing.T) {
 
 // TestCorruption_VkTruncated tests detection of truncated VK record.
 // Corruption: offset 0x1380, cell size reduced to 8 bytes (< VKMinSize=20)
-// Base file: special
+// Base file: special.
 func TestCorruption_VkTruncated(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_vk_truncated", hive.OpenOptions{})
 	require.NoError(t, err)
@@ -238,13 +239,13 @@ func TestCorruption_VkTruncated(t *testing.T) {
 	}
 
 	// Should fail accessing values or metadata due to truncation
-	_, err = r.Values(child)
+	_, _ = r.Values(child)
 	// May fail here or when accessing individual value
 }
 
 // TestCorruption_ValueDataTruncated_Strict tests detection of value data length exceeding cell.
 // Corruption: offset 0x1384, VK data length → 100 bytes (inline, but space is ~4 bytes)
-// Base file: special
+// Base file: special.
 func TestCorruption_ValueDataTruncated_Strict(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_value_data_truncated", hive.OpenOptions{})
 	require.NoError(t, err)
@@ -265,8 +266,8 @@ func TestCorruption_ValueDataTruncated_Strict(t *testing.T) {
 
 	// Reading value data should fail due to size mismatch
 	for _, val := range values {
-		_, err := r.ValueBytes(val, hive.ReadOptions{})
-		if err != nil {
+		_, readErr := r.ValueBytes(val, hive.ReadOptions{})
+		if readErr != nil {
 			return // Expected failure
 		}
 	}
@@ -274,7 +275,7 @@ func TestCorruption_ValueDataTruncated_Strict(t *testing.T) {
 
 // TestCorruption_ValueDataTruncated_Tolerant tests tolerant mode handling of truncated value data.
 // Corruption: offset 0x1384, VK data length → 100 bytes (inline, but space is ~4 bytes)
-// Base file: special
+// Base file: special.
 func TestCorruption_ValueDataTruncated_Tolerant(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_value_data_truncated",
 		hive.OpenOptions{Tolerant: true})
@@ -293,8 +294,8 @@ func TestCorruption_ValueDataTruncated_Tolerant(t *testing.T) {
 	values, _ := r.Values(child)
 	for _, val := range values {
 		// Metadata should be accessible
-		meta, err := r.StatValue(val)
-		if err == nil {
+		meta, statErr := r.StatValue(val)
+		if statErr == nil {
 			assert.NotEmpty(t, meta.Name)
 		}
 	}
@@ -302,7 +303,7 @@ func TestCorruption_ValueDataTruncated_Tolerant(t *testing.T) {
 
 // TestCorruption_ValueDataOffsetInvalid tests handling of out-of-bounds value data offset.
 // Corruption: offset 0x1428, VK data offset → 0xDEADBEEF
-// Base file: special
+// Base file: special.
 func TestCorruption_ValueDataOffsetInvalid(t *testing.T) {
 	r, err := reader.Open(
 		"../../testdata/corrupted/corrupt_value_data_offset_invalid",
@@ -327,8 +328,8 @@ func TestCorruption_ValueDataOffsetInvalid(t *testing.T) {
 
 	// Reading value data should fail with out-of-bounds error
 	for _, val := range values {
-		_, err := r.ValueBytes(val, hive.ReadOptions{})
-		if err != nil {
+		_, readErr := r.ValueBytes(val, hive.ReadOptions{})
+		if readErr != nil {
 			// Expected - should report out of bounds
 			return
 		}
@@ -341,7 +342,7 @@ func TestCorruption_ValueDataOffsetInvalid(t *testing.T) {
 
 // TestCorruption_SubkeyListBadSig tests detection of invalid subkey list signature.
 // Corruption: offset 0x1400, "lh" → "ZZ"
-// Base file: special (has LH subkey lists)
+// Base file: special (has LH subkey lists).
 func TestCorruption_SubkeyListBadSig(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_subkey_list_bad_sig", hive.OpenOptions{})
 	require.NoError(t, err)
@@ -360,7 +361,7 @@ func TestCorruption_SubkeyListBadSig(t *testing.T) {
 
 // TestCorruption_SubkeyListBadSig_Tolerant tests tolerant mode with bad subkey list.
 // Corruption: offset 0x1400, "lh" → "ZZ"
-// Base file: special
+// Base file: special.
 func TestCorruption_SubkeyListBadSig_Tolerant(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_subkey_list_bad_sig",
 		hive.OpenOptions{Tolerant: true})
@@ -378,7 +379,7 @@ func TestCorruption_SubkeyListBadSig_Tolerant(t *testing.T) {
 
 // TestCorruption_ValueListOffset tests handling of invalid value list offset.
 // Corruption: offset 0x1048, NK value list offset → 0x100000 (beyond file)
-// Base file: minimal
+// Base file: minimal.
 func TestCorruption_ValueListOffset(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_value_list_offset", hive.OpenOptions{})
 	require.NoError(t, err)
@@ -397,7 +398,7 @@ func TestCorruption_ValueListOffset(t *testing.T) {
 
 // TestCorruption_ValueListOffset_Tolerant tests tolerant mode with invalid value list.
 // Corruption: offset 0x1048, NK value list offset → 0x100000 (beyond file)
-// Base file: minimal
+// Base file: minimal.
 func TestCorruption_ValueListOffset_Tolerant(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_value_list_offset",
 		hive.OpenOptions{Tolerant: true})

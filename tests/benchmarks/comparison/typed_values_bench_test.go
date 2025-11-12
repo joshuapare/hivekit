@@ -43,7 +43,7 @@ func BenchmarkValueDword(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			dword, err = r.ValueDWORD(value)
 			if err != nil {
 				b.Fatalf("ValueDWORD failed: %v", err)
@@ -71,7 +71,7 @@ func BenchmarkValueDword(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			dword, err = h.ValueDword(value)
 			if err != nil {
 				b.Fatalf("ValueDword failed: %v", err)
@@ -118,7 +118,7 @@ func BenchmarkValueString(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			str, err = r.ValueString(value, hive.ReadOptions{})
 			if err != nil {
 				b.Fatalf("ValueString failed: %v", err)
@@ -146,7 +146,7 @@ func BenchmarkValueString(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			str, err = h.ValueString(value)
 			if err != nil {
 				b.Fatalf("ValueString failed: %v", err)
@@ -194,7 +194,7 @@ func BenchmarkValueQword(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			qword, err = r.ValueQWORD(value)
 			if err != nil {
 				b.Fatalf("ValueQWORD failed: %v", err)
@@ -224,7 +224,7 @@ func BenchmarkValueQword(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			qword, err = h.ValueQword(value)
 			if err != nil {
 				b.Fatalf("ValueQword failed: %v", err)
@@ -272,7 +272,7 @@ func BenchmarkValueMultipleStrings(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			strs, err = r.ValueStrings(value, hive.ReadOptions{})
 			if err != nil {
 				b.Fatalf("ValueStrings failed: %v", err)
@@ -302,7 +302,7 @@ func BenchmarkValueMultipleStrings(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			strs, err = h.ValueMultipleStrings(value)
 			if err != nil {
 				b.Fatalf("ValueMultipleStrings failed: %v", err)
@@ -347,7 +347,7 @@ func BenchmarkValueDecodeVsRawBytes(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			bytes, err = r.ValueBytes(value, hive.ReadOptions{})
 			if err != nil {
 				b.Fatalf("ValueBytes failed: %v", err)
@@ -385,7 +385,7 @@ func BenchmarkValueDecodeVsRawBytes(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			dword, err = r.ValueDWORD(value)
 			if err != nil {
 				b.Fatalf("ValueDWORD failed: %v", err)
@@ -412,7 +412,7 @@ func BenchmarkValueDecodeVsRawBytes(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			bytes, _, err = h.ValueValue(value)
 			if err != nil {
 				b.Fatalf("ValueValue failed: %v", err)
@@ -439,7 +439,7 @@ func BenchmarkValueDecodeVsRawBytes(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			dword, err = h.ValueDword(value)
 			if err != nil {
 				b.Fatalf("ValueDword failed: %v", err)
@@ -480,23 +480,24 @@ func BenchmarkAllDwordValues(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			for _, child := range children {
-				values, err := r.Values(child)
-				if err != nil {
-					b.Fatalf("Values failed: %v", err)
+				values, valuesErr := r.Values(child)
+				if valuesErr != nil {
+					b.Fatalf("Values failed: %v", valuesErr)
 				}
 
 				for _, val := range values {
-					vtype, err := r.ValueType(val)
-					if err != nil {
-						b.Fatalf("ValueType failed: %v", err)
+					vtype, typeErr := r.ValueType(val)
+					if typeErr != nil {
+						b.Fatalf("ValueType failed: %v", typeErr)
 					}
 
 					if vtype == hive.REG_DWORD {
-						dword, err = r.ValueDWORD(val)
-						if err != nil {
-							b.Fatalf("ValueDWORD failed: %v", err)
+						var dwordErr error
+						dword, dwordErr = r.ValueDWORD(val)
+						if dwordErr != nil {
+							b.Fatalf("ValueDWORD failed: %v", dwordErr)
 						}
 					}
 				}
@@ -522,14 +523,14 @@ func BenchmarkAllDwordValues(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			for _, child := range children {
 				values := h.NodeValues(child)
 
 				for _, val := range values {
-					vtype, _, err := h.ValueType(val)
-					if err != nil {
-						b.Fatalf("ValueType failed: %v", err)
+					vtype, _, typeErr := h.ValueType(val)
+					if typeErr != nil {
+						b.Fatalf("ValueType failed: %v", typeErr)
 					}
 
 					if vtype == bindings.REG_DWORD {

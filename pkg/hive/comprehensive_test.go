@@ -109,7 +109,7 @@ func TestMergeRegFiles_FileNotFound(t *testing.T) {
 	}
 }
 
-// TestMergeRegFiles_HiveNotFound tests batch merge with missing 
+// TestMergeRegFiles_HiveNotFound tests batch merge with missing.
 func TestMergeRegFiles_HiveNotFound(t *testing.T) {
 	err := hive.MergeRegFiles("nonexistent.hive", []string{"test.reg"}, nil)
 	if err == nil {
@@ -117,7 +117,7 @@ func TestMergeRegFiles_HiveNotFound(t *testing.T) {
 	}
 }
 
-// TestExportReg_HiveNotFound tests export with missing 
+// TestExportReg_HiveNotFound tests export with missing.
 func TestExportReg_HiveNotFound(t *testing.T) {
 	tempDir := t.TempDir()
 	outputFile := filepath.Join(tempDir, "output.reg")
@@ -128,7 +128,7 @@ func TestExportReg_HiveNotFound(t *testing.T) {
 	}
 }
 
-// TestExportRegString_HiveNotFound tests string export with missing 
+// TestExportRegString_HiveNotFound tests string export with missing.
 func TestExportRegString_HiveNotFound(t *testing.T) {
 	_, err := hive.ExportRegString("nonexistent.hive", nil)
 	if err == nil {
@@ -490,7 +490,7 @@ func TestMergeRegFiles_WithProgress(t *testing.T) {
 
 	// Create multiple .reg files
 	regFiles := make([]string, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		regFile := filepath.Join(tempDir, "test"+string(rune('0'+i))+".reg")
 		regFiles[i] = regFile
 		regContent := "Windows Registry Editor Version 5.00\n\n" +
@@ -544,7 +544,7 @@ func TestDefragment_RealHive(t *testing.T) {
 
 			// Verify backup exists
 			backupFile := hiveFile + ".bak"
-			if _, err := os.Stat(backupFile); err != nil {
+			if _, statErr := os.Stat(backupFile); statErr != nil {
 				t.Error("Backup not created")
 			}
 		})
@@ -637,7 +637,7 @@ func TestMergeRegString_WithAllOptions(t *testing.T) {
 
 	// Verify backup exists
 	backupFile := hiveFile + ".bak"
-	if _, err := os.Stat(backupFile); err != nil {
+	if _, statErr := os.Stat(backupFile); statErr != nil {
 		t.Error("Backup not created")
 	}
 }

@@ -26,7 +26,7 @@ import (
 //   2. Active: Call Diagnose() to scan entire hive
 
 // Severity classifies how serious a diagnostic issue is
-// Re-exported from internal/repair for public API
+// Re-exported from internal/repair for public API.
 type Severity = repair.Severity
 
 const (
@@ -37,7 +37,7 @@ const (
 )
 
 // DiagCategory classifies the type of issue found
-// Re-exported from internal/repair for public API
+// Re-exported from internal/repair for public API.
 type DiagCategory = repair.DiagCategory
 
 const (
@@ -48,7 +48,7 @@ const (
 )
 
 // RepairType describes what kind of repair action is suggested
-// Re-exported from internal/repair for public API
+// Re-exported from internal/repair for public API.
 type RepairType = repair.RepairType
 
 const (
@@ -60,7 +60,7 @@ const (
 )
 
 // RiskLevel indicates how dangerous a repair action is
-// Re-exported from internal/repair for public API
+// Re-exported from internal/repair for public API.
 type RiskLevel = repair.RiskLevel
 
 const (
@@ -71,18 +71,18 @@ const (
 )
 
 // Diagnostic represents a single issue found in the hive
-// Re-exported from internal/repair for public API
+// Re-exported from internal/repair for public API.
 type Diagnostic = repair.Diagnostic
 
 // DiagContext provides hierarchical context for better reporting
-// Re-exported from internal/repair for public API
+// Re-exported from internal/repair for public API.
 type DiagContext = repair.DiagContext
 
 // RepairAction describes how to fix the issue
-// Re-exported from internal/repair for public API
+// Re-exported from internal/repair for public API.
 type RepairAction = repair.RepairAction
 
-// DiagnosticReport collects all diagnostics found during scan
+// DiagnosticReport collects all diagnostics found during scan.
 type DiagnosticReport struct {
 	// Metadata
 	FilePath string        `json:"file_path,omitempty"`
@@ -101,7 +101,7 @@ type DiagnosticReport struct {
 	ByOffset    []Diagnostic              `json:"by_offset,omitempty"` // sorted by offset
 }
 
-// DiagSummary provides quick statistics
+// DiagSummary provides quick statistics.
 type DiagSummary struct {
 	Critical int `json:"critical"`
 	Errors   int `json:"errors"`
@@ -112,7 +112,7 @@ type DiagSummary struct {
 	AutoRepairable int `json:"auto_repairable"` // Safe for auto-repair
 }
 
-// NewDiagnosticReport creates an empty report
+// NewDiagnosticReport creates an empty report.
 func NewDiagnosticReport() *DiagnosticReport {
 	return &DiagnosticReport{
 		BySeverity:  make(map[Severity][]Diagnostic),
@@ -120,7 +120,7 @@ func NewDiagnosticReport() *DiagnosticReport {
 	}
 }
 
-// Add adds a diagnostic to the report and updates indices
+// Add adds a diagnostic to the report and updates indices.
 func (r *DiagnosticReport) Add(d Diagnostic) {
 	r.Diagnostics = append(r.Diagnostics, d)
 
@@ -148,7 +148,7 @@ func (r *DiagnosticReport) Add(d Diagnostic) {
 	r.ByStructure[d.Structure] = append(r.ByStructure[d.Structure], d)
 }
 
-// Finalize sorts diagnostics by offset and prepares for output
+// Finalize sorts diagnostics by offset and prepares for output.
 func (r *DiagnosticReport) Finalize() {
 	// Sort by offset for sequential access patterns
 	r.ByOffset = make([]Diagnostic, len(r.Diagnostics))
@@ -158,22 +158,22 @@ func (r *DiagnosticReport) Finalize() {
 	})
 }
 
-// HasCriticalIssues returns true if any critical issues were found
+// HasCriticalIssues returns true if any critical issues were found.
 func (r *DiagnosticReport) HasCriticalIssues() bool {
 	return r.Summary.Critical > 0
 }
 
-// HasErrors returns true if any errors or critical issues were found
+// HasErrors returns true if any errors or critical issues were found.
 func (r *DiagnosticReport) HasErrors() bool {
 	return r.Summary.Critical > 0 || r.Summary.Errors > 0
 }
 
-// HasAnyIssues returns true if any issues were found (including warnings and info)
+// HasAnyIssues returns true if any issues were found (including warnings and info).
 func (r *DiagnosticReport) HasAnyIssues() bool {
 	return len(r.Diagnostics) > 0
 }
 
-// GetAutoRepairable returns all diagnostics that are safe for auto-repair
+// GetAutoRepairable returns all diagnostics that are safe for auto-repair.
 func (r *DiagnosticReport) GetAutoRepairable() []Diagnostic {
 	result := make([]Diagnostic, 0, r.Summary.AutoRepairable)
 	for _, d := range r.Diagnostics {
@@ -184,7 +184,7 @@ func (r *DiagnosticReport) GetAutoRepairable() []Diagnostic {
 	return result
 }
 
-// GetByMaxRisk returns all diagnostics with repairs at or below the specified risk level
+// GetByMaxRisk returns all diagnostics with repairs at or below the specified risk level.
 func (r *DiagnosticReport) GetByMaxRisk(maxRisk RiskLevel) []Diagnostic {
 	result := make([]Diagnostic, 0)
 	for _, d := range r.Diagnostics {
@@ -199,7 +199,7 @@ func (r *DiagnosticReport) GetByMaxRisk(maxRisk RiskLevel) []Diagnostic {
 // Output Formatters
 // -----------------------------------------------------------------------------
 
-// FormatJSON returns the report as formatted JSON (2-space indentation)
+// FormatJSON returns the report as formatted JSON (2-space indentation).
 func (r *DiagnosticReport) FormatJSON() (string, error) {
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
@@ -208,7 +208,7 @@ func (r *DiagnosticReport) FormatJSON() (string, error) {
 	return string(data), nil
 }
 
-// FormatText returns a human-readable text report
+// FormatText returns a human-readable text report.
 func (r *DiagnosticReport) FormatText() string {
 	var b strings.Builder
 
@@ -293,7 +293,7 @@ func (r *DiagnosticReport) FormatText() string {
 	return b.String()
 }
 
-// FormatTextCompact returns a compact one-line-per-issue text format
+// FormatTextCompact returns a compact one-line-per-issue text format.
 func (r *DiagnosticReport) FormatTextCompact() string {
 	var b strings.Builder
 
@@ -310,7 +310,7 @@ func (r *DiagnosticReport) FormatTextCompact() string {
 }
 
 // FormatHexAnnotations returns annotations suitable for hex dump overlays
-// Format: offset,severity,structure,message
+// Format: offset,severity,structure,message.
 func (r *DiagnosticReport) FormatHexAnnotations() string {
 	var b strings.Builder
 

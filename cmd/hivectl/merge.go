@@ -8,12 +8,13 @@ import (
 )
 
 var (
-	mergeBackup    bool
-	mergeDryRun    bool
-	mergeDefrag    bool
-	mergeProgress  bool
-	mergeLimits    string
-	mergeContinue  bool
+	mergeBackup   bool
+	mergeDryRun   bool
+	mergeDefrag   bool
+	mergeProgress bool
+	mergeLimits   string
+	mergeContinue bool
+	mergeBackend  string
 )
 
 func init() {
@@ -24,6 +25,7 @@ func init() {
 	cmd.Flags().BoolVar(&mergeProgress, "progress", false, "Show progress during merge")
 	cmd.Flags().StringVar(&mergeLimits, "limits", "default", "Limits preset (default, strict, relaxed)")
 	cmd.Flags().BoolVar(&mergeContinue, "continue", false, "Continue on errors")
+	cmd.Flags().StringVar(&mergeBackend, "backend", "new", "Merge backend (new: fast mmap, old: legacy rebuild)")
 	rootCmd.AddCommand(cmd)
 }
 
@@ -74,6 +76,7 @@ func runMerge(args []string) error {
 
 	// Prepare options
 	opts := &hive.MergeOptions{
+		Backend:      hive.MergeBackend(mergeBackend),
 		Limits:       limits,
 		DryRun:       mergeDryRun,
 		CreateBackup: mergeBackup,
@@ -131,4 +134,3 @@ func runMerge(args []string) error {
 
 	return nil
 }
-

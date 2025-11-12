@@ -46,7 +46,7 @@ func DecodeVK(b []byte) (VKRecord, error) {
 	}
 	nameLen := buf.U16LE(b[VKNameLenOffset:])
 	dataLen := buf.U32LE(b[VKDataLenOffset:])
-	dataOff := buf.U32LE(b[VKDataOffsetField:])
+	dataOff := buf.U32LE(b[VKDataOffOffset:])
 	valType := buf.U32LE(b[VKTypeOffset:])
 	flags := buf.U16LE(b[VKFlagsOffset:])
 	base := VKNameOffset

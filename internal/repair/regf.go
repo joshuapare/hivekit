@@ -18,14 +18,14 @@ type REGFModule struct {
 func NewREGFModule() *REGFModule {
 	return &REGFModule{
 		RepairModuleBase: RepairModuleBase{
-			name: "REGF",
+			name: regfStructureName,
 		},
 	}
 }
 
 // CanRepair checks if this module can handle the given diagnostic.
 func (m *REGFModule) CanRepair(d Diagnostic) bool {
-	return d.Structure == "REGF" && d.Repair != nil
+	return d.Structure == regfStructureName && d.Repair != nil
 }
 
 // Validate checks if the repair is safe to apply.
@@ -60,11 +60,17 @@ func (m *REGFModule) Validate(data []byte, d Diagnostic) error {
 	case RepairDefault:
 		// Setting fields to default values
 		return nil
-	default:
+	case RepairTruncate, RepairRebuild, RepairRemove:
 		return &RepairError{
 			Module:  m.name,
 			Offset:  d.Offset,
 			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
+		}
+	default:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s (value=%d)", d.Repair.Type, d.Repair.Type),
 		}
 	}
 }
@@ -76,6 +82,12 @@ func (m *REGFModule) Apply(data []byte, d Diagnostic) error {
 		return m.applyReplaceRepair(data, d)
 	case RepairDefault:
 		return m.applyDefaultRepair(data, d)
+	case RepairTruncate, RepairRebuild, RepairRemove:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
+		}
 	default:
 		return &RepairError{
 			Module:  m.name,
@@ -101,7 +113,8 @@ func (m *REGFModule) Verify(data []byte, d Diagnostic) error {
 
 	// Verify it matches expected value based on repair type
 	switch d.Repair.Type {
-	case RepairReplace:
+	case RepairReplace, RepairDefault:
+		// Both RepairReplace and RepairDefault write an expected value
 		expectedValue, ok := d.Expected.(uint32)
 		if !ok {
 			return &RepairError{
@@ -116,6 +129,18 @@ func (m *REGFModule) Verify(data []byte, d Diagnostic) error {
 				Offset:  d.Offset,
 				Message: fmt.Sprintf("verification failed: expected 0x%X, got 0x%X", expectedValue, actualValue),
 			}
+		}
+	case RepairTruncate, RepairRebuild, RepairRemove:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
+		}
+	default:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
 		}
 	}
 

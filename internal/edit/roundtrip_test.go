@@ -263,7 +263,7 @@ func TestRoundTripAllValueTypes(t *testing.T) {
 				if len(readData) < minLen {
 					minLen = len(readData)
 				}
-				for i := 0; i < minLen; i++ {
+				for i := range minLen {
 					if data[i] != readData[i] {
 						t.Errorf("  First difference at byte %d: wrote 0x%02x, read 0x%02x", i, data[i], readData[i])
 						break
@@ -311,9 +311,9 @@ func TestRoundTripEdgeCases(t *testing.T) {
 				// Then navigate through Level1, Level2, ... Level19
 				for i := 1; i < 20; i++ {
 					segment := fmt.Sprintf("Level%d", i)
-					nextID, err := r.Lookup(currentID, segment)
-					if err != nil {
-						t.Fatalf("Lookup %s failed at level %d: %v", segment, i, err)
+					nextID, lookupErr := r.Lookup(currentID, segment)
+					if lookupErr != nil {
+						t.Fatalf("Lookup %s failed at level %d: %v", segment, i, lookupErr)
 					}
 					currentID = nextID
 				}
@@ -327,7 +327,7 @@ func TestRoundTripEdgeCases(t *testing.T) {
 					return err
 				}
 				// Create 100 values in one key
-				for i := 0; i < 100; i++ {
+				for i := range 100 {
 					valueName := fmt.Sprintf("Value%03d", i)
 					data := make([]byte, 4)
 					binary.LittleEndian.PutUint32(data, uint32(i))
@@ -368,7 +368,7 @@ func TestRoundTripEdgeCases(t *testing.T) {
 
 				// Verify all expected names exist
 				missingCount := 0
-				for i := 0; i < 100; i++ {
+				for i := range 100 {
 					expectedName := fmt.Sprintf("Value%03d", i)
 					if !valueNames[expectedName] {
 						t.Errorf("Missing value: %s", expectedName)
@@ -392,7 +392,7 @@ func TestRoundTripEdgeCases(t *testing.T) {
 					return err
 				}
 				// Create 100 subkeys
-				for i := 0; i < 100; i++ {
+				for i := range 100 {
 					subkeyName := fmt.Sprintf("ManySubkeys\\Subkey%03d", i)
 					if err := tx.CreateKey(subkeyName, types.CreateKeyOptions{CreateParents: true}); err != nil {
 						return err

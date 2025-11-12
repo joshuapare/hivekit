@@ -19,7 +19,7 @@ type Tree struct {
 // Nodes can be:
 // - Unchanged: point to base hive data (zero-copy)
 // - Modified: contain new in-memory data
-// - New: created in this transaction
+// - New: created in this transaction.
 type Node struct {
 	// Identity
 	Name   string // key name
@@ -41,10 +41,10 @@ type Node struct {
 
 // Value represents a registry value (VK record) in the AST.
 type Value struct {
-	Name  string         // value name ("" for default/unnamed)
-	Type  types.RegType  // registry type (REG_SZ, REG_DWORD, etc.)
-	Data  []byte         // value data (may point to BaseHive for zero-copy)
-	Dirty bool           // true if modified in this transaction
+	Name  string        // value name ("" for default/unnamed)
+	Type  types.RegType // registry type (REG_SZ, REG_DWORD, etc.)
+	Data  []byte        // value data (may point to BaseHive for zero-copy)
+	Dirty bool          // true if modified in this transaction
 }
 
 // NewTree creates a new empty tree.
@@ -137,8 +137,8 @@ func (n *Node) LoadChildren() error {
 
 	n.Children = make([]*Node, 0, len(childIDs))
 	for _, childID := range childIDs {
-		meta, err := n.BaseReader.StatKey(childID)
-		if err != nil {
+		meta, statErr := n.BaseReader.StatKey(childID)
+		if statErr != nil {
 			continue
 		}
 
@@ -229,7 +229,7 @@ func splitPath(path string) []string {
 
 	segments := make([]string, 0)
 	start := 0
-	for i := 0; i < len(path); i++ {
+	for i := range len(path) {
 		if path[i] == RegistryPathSeparator[0] {
 			if i > start {
 				segments = append(segments, path[start:i])

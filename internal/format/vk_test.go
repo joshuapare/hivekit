@@ -15,8 +15,11 @@ func TestDecodeVKInline(t *testing.T) {
 	buf := make([]byte, VKFixedHeaderSize+len(name))
 	copy(buf, VKSignature)
 	binary.LittleEndian.PutUint16(buf[VKNameLenOffset:], uint16(len(name)))
-	binary.LittleEndian.PutUint32(buf[VKDataLenOffset:], VKDataInlineBit|4) // high bit => inline, length 4
-	binary.LittleEndian.PutUint32(buf[VKDataOffsetField:], 0x11223344)      // inline payload
+	binary.LittleEndian.PutUint32(
+		buf[VKDataLenOffset:],
+		VKDataInlineBit|4,
+	) // high bit => inline, length 4
+	binary.LittleEndian.PutUint32(buf[VKDataOffOffset:], 0x11223344) // inline payload
 	binary.LittleEndian.PutUint32(buf[VKTypeOffset:], regDWORD)
 	binary.LittleEndian.PutUint16(buf[VKFlagsOffset:], VKFlagASCIIName)
 	copy(buf[VKNameOffset:], name)
@@ -35,7 +38,7 @@ func TestDecodeVKReferenced(t *testing.T) {
 	copy(buf, VKSignature)
 	binary.LittleEndian.PutUint16(buf[VKNameLenOffset:], 0)
 	binary.LittleEndian.PutUint32(buf[VKDataLenOffset:], 8)
-	binary.LittleEndian.PutUint32(buf[VKDataOffsetField:], 0x200)
+	binary.LittleEndian.PutUint32(buf[VKDataOffOffset:], 0x200)
 	binary.LittleEndian.PutUint32(buf[VKTypeOffset:], regSZ)
 	binary.LittleEndian.PutUint16(buf[VKFlagsOffset:], 0)
 
@@ -60,7 +63,7 @@ func TestDecodeVKReferenced(t *testing.T) {
 // - special hive: 2 values with this issue
 // - rlenvalue_test_hive: 6 values
 // - large hive: 3,633 values
-// - windows-2003-server-system: 15,926 values
+// - windows-2003-server-system: 15,926 values.
 func TestDecodeVK_CompNameFlag(t *testing.T) {
 	// Create a VK record with:
 	// - Type: REG_DWORD (4)
@@ -76,9 +79,12 @@ func TestDecodeVK_CompNameFlag(t *testing.T) {
 	copy(buf, VKSignature)
 	binary.LittleEndian.PutUint16(buf[VKNameLenOffset:], uint16(len(name)))
 	binary.LittleEndian.PutUint32(buf[VKDataLenOffset:], VKDataInlineBit|4) // inline, 4 bytes
-	binary.LittleEndian.PutUint32(buf[VKDataOffsetField:], 0x12345678)      // inline data payload
+	binary.LittleEndian.PutUint32(buf[VKDataOffOffset:], 0x12345678)        // inline data payload
 	binary.LittleEndian.PutUint32(buf[VKTypeOffset:], regDWORD)             // Type: REG_DWORD
-	binary.LittleEndian.PutUint16(buf[VKFlagsOffset:], VKFlagASCIIName)     // Flags: VK_VALUE_COMP_NAME
+	binary.LittleEndian.PutUint16(
+		buf[VKFlagsOffset:],
+		VKFlagASCIIName,
+	) // Flags: VK_VALUE_COMP_NAME
 	copy(buf[VKNameOffset:], name)
 
 	vk, err := DecodeVK(buf)

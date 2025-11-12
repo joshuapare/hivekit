@@ -2,13 +2,14 @@ package hive
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 
-	"github.com/joshuapare/hivekit/pkg/ast"
 	"github.com/joshuapare/hivekit/internal/edit"
 	"github.com/joshuapare/hivekit/internal/reader"
+	"github.com/joshuapare/hivekit/pkg/ast"
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
@@ -59,19 +60,19 @@ func Defragment(hivePath string) error {
 	// Commit with repack enabled
 	buf := &bytes.Buffer{}
 	writeOpts := types.WriteOptions{Repack: true}
-	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to defragment hive %s: %w", hivePath, err)
+	if commitErr := tx.Commit(&bufWriter{buf}, writeOpts); commitErr != nil {
+		return fmt.Errorf("failed to defragment hive %s: %w", hivePath, commitErr)
 	}
 
 	// Write atomically (temp file, then rename)
 	tempPath := hivePath + ".tmp"
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file %s: %w", tempPath, err)
+	if writeErr := os.WriteFile(tempPath, buf.Bytes(), 0644); writeErr != nil {
+		return fmt.Errorf("failed to write temporary file %s: %w", tempPath, writeErr)
 	}
 
-	if err := os.Rename(tempPath, hivePath); err != nil {
+	if renameErr := os.Rename(tempPath, hivePath); renameErr != nil {
 		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive %s: %w", hivePath, err)
+		return fmt.Errorf("failed to replace hive %s: %w", hivePath, renameErr)
 	}
 
 	return nil
@@ -131,28 +132,38 @@ func ValidateHive(hivePath string, limits Limits) error {
 
 	// Build AST (this represents the current state of the hive)
 	// The empty transaction means we're building from the base hive only
-	tree, err := ast.BuildIncremental(r, tx.(interface {
+	txWithMethods, ok := tx.(interface {
 		GetCreatedKeys() map[string]bool
 		GetDeletedKeys() map[string]bool
 		GetSetValues() map[ast.ValueKey]ast.ValueData
 		GetDeletedValues() map[ast.ValueKey]bool
-	}), baseHive)
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to build AST for validation: %w", err)
+	})
+	if !ok {
+		_ = tx.Rollback()
+		return errors.New("transaction does not implement required methods")
 	}
 
-	tx.Rollback() // Clean up
+	tree, buildErr := ast.BuildIncremental(r, txWithMethods, baseHive)
+	if buildErr != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("failed to build AST for validation: %w (rollback error: %w)", buildErr, rbErr)
+		}
+		return fmt.Errorf("failed to build AST for validation: %w", buildErr)
+	}
+
+	if rollbackErr := tx.Rollback(); rollbackErr != nil {
+		return fmt.Errorf("failed to rollback read-only transaction: %w", rollbackErr)
+	}
 
 	// Validate against limits
-	if err := tree.ValidateTree(limits); err != nil {
-		return fmt.Errorf("hive validation failed: %w", err)
+	if validateErr := tree.ValidateTree(limits); validateErr != nil {
+		return fmt.Errorf("hive validation failed: %w", validateErr)
 	}
 
 	return nil
 }
 
-// HiveInfo returns basic information about a registry 
+// HiveInfo returns basic information about a registry
 //
 // This includes:
 //   - Root key count

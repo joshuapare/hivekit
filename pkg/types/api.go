@@ -85,7 +85,7 @@ const (
 	REG_QWORD     RegType = 11
 )
 
-// String implements the Stringer interface for RegType
+// String implements the Stringer interface for RegType.
 func (t RegType) String() string {
 	switch t {
 	case REG_NONE:
@@ -134,18 +134,19 @@ type KeyMeta struct {
 
 // KeyDetail exposes detailed NK record metadata for inspection/forensics.
 type KeyDetail struct {
-	KeyMeta                      // Embedded basic metadata
-	Flags              uint16    // NK flags (compressed name, root key, etc.)
-	ParentOffset       uint32    // Cell offset of parent NK
-	SubkeyListOffset   uint32    // Cell offset of subkey list
-	ValueListOffset    uint32    // Cell offset of value list
-	SecurityOffset     uint32    // Cell offset of security descriptor (SK)
-	ClassNameOffset    uint32    // Cell offset of class name
-	MaxNameLength      uint32    // Maximum subkey name length
-	MaxClassLength     uint32    // Maximum class length
-	MaxValueNameLength uint32    // Maximum value name length
-	MaxValueDataLength uint32    // Maximum value data length
-	ClassName          string    // Class name (if present)
+	KeyMeta // Embedded basic metadata
+
+	Flags              uint16 // NK flags (compressed name, root key, etc.)
+	ParentOffset       uint32 // Cell offset of parent NK
+	SubkeyListOffset   uint32 // Cell offset of subkey list
+	ValueListOffset    uint32 // Cell offset of value list
+	SecurityOffset     uint32 // Cell offset of security descriptor (SK)
+	ClassNameOffset    uint32 // Cell offset of class name
+	MaxNameLength      uint32 // Maximum subkey name length
+	MaxClassLength     uint32 // Maximum class length
+	MaxValueNameLength uint32 // Maximum value name length
+	MaxValueDataLength uint32 // Maximum value data length
+	ClassName          string // Class name (if present)
 }
 
 // HiveInfo exposes registry hive header (REGF) metadata.

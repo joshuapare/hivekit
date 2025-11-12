@@ -10,20 +10,31 @@ import (
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
-// diagnosticScanner encapsulates the state for a full diagnostic scan
+const (
+	// Diagnostic confidence thresholds.
+	confidenceLow    = 0.8
+	confidenceMedium = 0.9
+	confidenceHigh   = 0.95
+
+	// Diagnostic limits.
+	minQWORDSize       = 8
+	maxIssuesPerReport = 10
+)
+
+// diagnosticScanner encapsulates the state for a full diagnostic scan.
 type diagnosticScanner struct {
-	r              *reader
-	report         *types.DiagnosticReport
-	visitedCells   map[uint32]bool // Track cells we've seen (detect cycles)
-	visitedNodes   map[uint32]bool // Track NK nodes we've traversed
-	orphanedCells  map[uint32]bool // Cells not referenced by tree
-	startTime      time.Time
-	cellCount      int
-	nodeCount      int
-	valueCount     int
+	r             *reader
+	report        *types.DiagnosticReport
+	visitedCells  map[uint32]bool // Track cells we've seen (detect cycles)
+	visitedNodes  map[uint32]bool // Track NK nodes we've traversed
+	orphanedCells map[uint32]bool // Cells not referenced by tree
+	startTime     time.Time
+	cellCount     int
+	nodeCount     int
+	valueCount    int
 }
 
-// newDiagnosticScanner creates a scanner for full hive validation
+// newDiagnosticScanner creates a scanner for full hive validation.
 func newDiagnosticScanner(r *reader) *diagnosticScanner {
 	return &diagnosticScanner{
 		r:             r,
@@ -35,7 +46,7 @@ func newDiagnosticScanner(r *reader) *diagnosticScanner {
 	}
 }
 
-// scan performs exhaustive hive validation
+// scan performs exhaustive hive validation.
 func (s *diagnosticScanner) scan() (*types.DiagnosticReport, error) {
 	// Phase 1: Validate REGF header
 	s.validateREGF()
@@ -64,7 +75,7 @@ func (s *diagnosticScanner) scan() (*types.DiagnosticReport, error) {
 	return s.report, nil
 }
 
-// validateREGF validates the REGF header
+// validateREGF validates the REGF header.
 func (s *diagnosticScanner) validateREGF() {
 	// Header was already validated during Open(), but we can add additional checks
 	head := s.r.head
@@ -81,7 +92,7 @@ func (s *diagnosticScanner) validateREGF() {
 			&types.RepairAction{
 				Type:        types.RepairDefault,
 				Description: "Sync sequence numbers (indicates clean close)",
-				Confidence:  0.8,
+				Confidence:  confidenceLow,
 				Risk:        types.RiskLow,
 				AutoApply:   false,
 			},
@@ -116,7 +127,7 @@ func (s *diagnosticScanner) validateREGF() {
 	}
 }
 
-// validateHBINs validates all HBIN structures
+// validateHBINs validates all HBIN structures.
 func (s *diagnosticScanner) validateHBINs() {
 	offset := int(format.HeaderSize)
 	dataEnd := int(format.HeaderSize) + int(s.r.head.HiveBinsDataSize)
@@ -162,7 +173,7 @@ func (s *diagnosticScanner) validateHBINs() {
 	}
 }
 
-// catalogCells walks all HBINs and catalogs every cell
+// catalogCells walks all HBINs and catalogs every cell.
 func (s *diagnosticScanner) catalogCells() {
 	offset := int(format.HeaderSize)
 	dataEnd := int(format.HeaderSize) + int(s.r.head.HiveBinsDataSize)
@@ -190,14 +201,14 @@ func (s *diagnosticScanner) catalogCells() {
 				actualSize = -actualSize // Allocated cell
 			}
 
-			if actualSize < 8 {
+			if actualSize < minQWORDSize {
 				// Invalid cell size
 				s.report.Add(diagStructure(
 					types.SevError,
 					uint64(cellStart),
 					"CELL",
 					fmt.Sprintf("Invalid cell size: %d", actualSize),
-					">= 8",
+					fmt.Sprintf(">= %d", minQWORDSize),
 					actualSize,
 					nil,
 				))
@@ -219,7 +230,7 @@ func (s *diagnosticScanner) catalogCells() {
 	}
 }
 
-// walkTree traverses the NK tree from the given node
+// walkTree traverses the NK tree from the given node.
 func (s *diagnosticScanner) walkTree(nodeID types.NodeID, path string) {
 	offset := uint32(nodeID)
 
@@ -297,7 +308,7 @@ func (s *diagnosticScanner) walkTree(nodeID types.NodeID, path string) {
 	}
 }
 
-// validateNK validates NK record fields
+// validateNK validates NK record fields.
 func (s *diagnosticScanner) validateNK(nk format.NKRecord, nodeID types.NodeID, path string) {
 	offset := uint32(nodeID)
 	ctx := &types.DiagContext{KeyPath: path, CellOffset: offset}
@@ -339,7 +350,7 @@ func (s *diagnosticScanner) validateNK(nk format.NKRecord, nodeID types.NodeID, 
 			&types.RepairAction{
 				Type:        types.RepairReplace,
 				Description: "Set subkey count to 0",
-				Confidence:  0.9,
+				Confidence:  confidenceMedium,
 				Risk:        types.RiskLow,
 				AutoApply:   true,
 			},
@@ -359,7 +370,7 @@ func (s *diagnosticScanner) validateNK(nk format.NKRecord, nodeID types.NodeID, 
 			&types.RepairAction{
 				Type:        types.RepairReplace,
 				Description: "Set value count to 0",
-				Confidence:  0.9,
+				Confidence:  confidenceMedium,
 				Risk:        types.RiskLow,
 				AutoApply:   true,
 			},
@@ -379,7 +390,7 @@ func (s *diagnosticScanner) validateNK(nk format.NKRecord, nodeID types.NodeID, 
 			&types.RepairAction{
 				Type:        types.RepairDefault,
 				Description: "Set subkey list offset to InvalidOffset (0xFFFFFFFF)",
-				Confidence:  0.95,
+				Confidence:  confidenceHigh,
 				Risk:        types.RiskLow,
 				AutoApply:   true,
 			},
@@ -399,7 +410,7 @@ func (s *diagnosticScanner) validateNK(nk format.NKRecord, nodeID types.NodeID, 
 			&types.RepairAction{
 				Type:        types.RepairDefault,
 				Description: "Set value list offset to InvalidOffset (0xFFFFFFFF)",
-				Confidence:  0.95,
+				Confidence:  confidenceHigh,
 				Risk:        types.RiskLow,
 				AutoApply:   true,
 			},
@@ -412,7 +423,15 @@ func (s *diagnosticScanner) validateNK(nk format.NKRecord, nodeID types.NodeID, 
 		if nk.SubkeyListOffset >= maxOffset {
 			s.report.Add(diagIntegrity(
 				types.SevError,
-				uint64(format.HeaderSize)+uint64(offset)+uint64(format.CellHeaderSize)+uint64(format.NKSubkeyListOffset),
+				uint64(
+					format.HeaderSize,
+				)+uint64(
+					offset,
+				)+uint64(
+					format.CellHeaderSize,
+				)+uint64(
+					format.NKSubkeyListOffset,
+				),
 				"NK",
 				fmt.Sprintf("Subkey list offset 0x%X exceeds hive size 0x%X", nk.SubkeyListOffset, maxOffset),
 				fmt.Sprintf("< 0x%X", maxOffset),
@@ -441,7 +460,7 @@ func (s *diagnosticScanner) validateNK(nk format.NKRecord, nodeID types.NodeID, 
 	}
 }
 
-// walkValues validates all values for a key
+// walkValues validates all values for a key.
 func (s *diagnosticScanner) walkValues(nodeID types.NodeID, path string) {
 	values, err := s.r.Values(nodeID)
 	if err != nil {
@@ -455,13 +474,13 @@ func (s *diagnosticScanner) walkValues(nodeID types.NodeID, path string) {
 		delete(s.orphanedCells, vOffset) // Mark as referenced
 
 		// Try to read value metadata
-		_, err := s.r.StatValue(vid)
-		if err != nil {
+		_, statErr := s.r.StatValue(vid)
+		if statErr != nil {
 			s.report.Add(diagData(
 				types.SevError,
 				uint64(format.HeaderSize)+uint64(vOffset),
 				"VK",
-				fmt.Sprintf("Failed to read VK: %v", err),
+				fmt.Sprintf("Failed to read VK: %v", statErr),
 				"valid VK record",
 				"corrupted",
 				&types.DiagContext{KeyPath: path, CellOffset: vOffset},
@@ -479,7 +498,7 @@ func (s *diagnosticScanner) walkValues(nodeID types.NodeID, path string) {
 	}
 }
 
-// detectOrphans identifies cells not referenced by the tree
+// detectOrphans identifies cells not referenced by the tree.
 func (s *diagnosticScanner) detectOrphans() {
 	orphanCount := len(s.orphanedCells)
 	if orphanCount > 0 {
@@ -496,7 +515,7 @@ func (s *diagnosticScanner) detectOrphans() {
 		// Report first few orphans (don't spam with thousands)
 		count := 0
 		for offset := range s.orphanedCells {
-			if count >= 10 {
+			if count >= maxIssuesPerReport {
 				break
 			}
 			s.report.Add(diagIntegrity(
@@ -514,7 +533,7 @@ func (s *diagnosticScanner) detectOrphans() {
 	}
 }
 
-// validateIntegrity performs final integrity checks
+// validateIntegrity performs final integrity checks.
 func (s *diagnosticScanner) validateIntegrity() {
 	// No additional checks for now
 	// The scan stats are captured in the report's FileSize and ScanTime fields

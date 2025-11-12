@@ -7,6 +7,12 @@ import (
 
 // MergeOptions controls merge behavior.
 type MergeOptions struct {
+	// Backend specifies which merge implementation to use.
+	// MergeBackendNew (default): Fast mmap-based merge (4-119x faster)
+	// MergeBackendOld: Legacy full-rebuild merge (for compatibility)
+	// If empty, defaults to MergeBackendNew.
+	Backend MergeBackend
+
 	// Limits defines registry constraints to enforce during merge.
 	// If nil, DefaultLimits() is used automatically.
 	Limits *Limits
@@ -32,7 +38,7 @@ type MergeOptions struct {
 	// No modifications are made to the hive when true.
 	DryRun bool
 
-	// CreateBackup creates a .bak file before modifying the 
+	// CreateBackup creates a .bak file before modifying the
 	// The backup is created at <hivePath>.bak.
 	CreateBackup bool
 }
@@ -63,7 +69,7 @@ type OperationOptions struct {
 // ExportOptions controls .reg export behavior.
 type ExportOptions struct {
 	// SubtreePath exports only this subtree (e.g., "Software\\MyApp").
-	// If empty, exports the entire 
+	// If empty, exports the entire
 	SubtreePath string
 
 	// Encoding specifies output encoding.

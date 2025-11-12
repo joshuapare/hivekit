@@ -21,8 +21,8 @@ func TestMergeRegFile_Simple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Create simple .reg file
@@ -31,8 +31,8 @@ func TestMergeRegFile_Simple(t *testing.T) {
 [HKEY_LOCAL_MACHINE\TestKey]
 "TestValue"="TestData"
 `
-	if err := os.WriteFile(regFile, []byte(regContent), 0644); err != nil {
-		t.Fatalf("Failed to create .reg file: %v", err)
+	if writeErr := os.WriteFile(regFile, []byte(regContent), 0644); writeErr != nil {
+		t.Fatalf("Failed to create .reg file: %v", writeErr)
 	}
 
 	// Merge
@@ -62,8 +62,8 @@ func TestMergeRegString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Merge from string
@@ -89,8 +89,8 @@ func TestMergeRegFile_WithProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Create .reg with multiple operations
@@ -105,8 +105,8 @@ func TestMergeRegFile_WithProgress(t *testing.T) {
 [HKEY_LOCAL_MACHINE\Key3]
 "Value3"="Data3"
 `
-	if err := os.WriteFile(regFile, []byte(regContent), 0644); err != nil {
-		t.Fatalf("Failed to create .reg file: %v", err)
+	if writeErr := os.WriteFile(regFile, []byte(regContent), 0644); writeErr != nil {
+		t.Fatalf("Failed to create .reg file: %v", writeErr)
 	}
 
 	// Track progress calls
@@ -146,8 +146,8 @@ func TestMergeRegFile_WithBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Create simple .reg
@@ -156,8 +156,8 @@ func TestMergeRegFile_WithBackup(t *testing.T) {
 [HKEY_LOCAL_MACHINE\BackupTest]
 "Value"="Data"
 `
-	if err := os.WriteFile(regFile, []byte(regContent), 0644); err != nil {
-		t.Fatalf("Failed to create .reg file: %v", err)
+	if writeErr := os.WriteFile(regFile, []byte(regContent), 0644); writeErr != nil {
+		t.Fatalf("Failed to create .reg file: %v", writeErr)
 	}
 
 	// Merge with backup
@@ -170,8 +170,8 @@ func TestMergeRegFile_WithBackup(t *testing.T) {
 	}
 
 	// Verify backup exists
-	if _, err := os.Stat(backupFile); err != nil {
-		t.Errorf("Backup file not created: %v", err)
+	if _, statErr := os.Stat(backupFile); statErr != nil {
+		t.Errorf("Backup file not created: %v", statErr)
 	}
 
 	// Verify backup is same as original
@@ -192,8 +192,8 @@ func TestMergeRegFile_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Get original hive content
@@ -205,8 +205,8 @@ func TestMergeRegFile_DryRun(t *testing.T) {
 [HKEY_LOCAL_MACHINE\DryRunTest]
 "Value"="Data"
 `
-	if err := os.WriteFile(regFile, []byte(regContent), 0644); err != nil {
-		t.Fatalf("Failed to create .reg file: %v", err)
+	if writeErr := os.WriteFile(regFile, []byte(regContent), 0644); writeErr != nil {
+		t.Fatalf("Failed to create .reg file: %v", writeErr)
 	}
 
 	// Merge with dry run
@@ -235,8 +235,8 @@ func TestMergeRegFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Create multiple .reg files
@@ -250,8 +250,8 @@ func TestMergeRegFiles(t *testing.T) {
 		regContent := "Windows Registry Editor Version 5.00\n\n" +
 			"[HKEY_LOCAL_MACHINE\\BatchTest" + string(rune('1'+i)) + "]\n" +
 			"\"Value\"=\"Data\"\n"
-		if err := os.WriteFile(regFile, []byte(regContent), 0644); err != nil {
-			t.Fatalf("Failed to create .reg file %d: %v", i, err)
+		if writeErr := os.WriteFile(regFile, []byte(regContent), 0644); writeErr != nil {
+			t.Fatalf("Failed to create .reg file %d: %v", i, writeErr)
 		}
 	}
 
@@ -317,8 +317,8 @@ func TestDefragment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Defragment
@@ -328,7 +328,7 @@ func TestDefragment(t *testing.T) {
 	}
 
 	// Verify backup was created
-	if _, err := os.Stat(backupFile); err != nil {
+	if _, statErr := os.Stat(backupFile); statErr != nil {
 		t.Error("Backup not created during defragment")
 	}
 
@@ -389,8 +389,8 @@ func TestMergeRegFile_ErrorHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Create .reg with operations (some might fail)
@@ -402,8 +402,8 @@ func TestMergeRegFile_ErrorHandling(t *testing.T) {
 [HKEY_LOCAL_MACHINE\ErrorTest]
 "Value2"="Data2"
 `
-	if err := os.WriteFile(regFile, []byte(regContent), 0644); err != nil {
-		t.Fatalf("Failed to create .reg file: %v", err)
+	if writeErr := os.WriteFile(regFile, []byte(regContent), 0644); writeErr != nil {
+		t.Fatalf("Failed to create .reg file: %v", writeErr)
 	}
 
 	// Track errors
@@ -434,8 +434,8 @@ func TestMergeRegFile_LimitViolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read minimal hive: %v", err)
 	}
-	if err := os.WriteFile(hiveFile, minimalHive, 0644); err != nil {
-		t.Fatalf("Failed to create test hive: %v", err)
+	if writeErr := os.WriteFile(hiveFile, minimalHive, 0644); writeErr != nil {
+		t.Fatalf("Failed to create test hive: %v", writeErr)
 	}
 
 	// Create .reg with value exceeding strict limits
@@ -443,8 +443,8 @@ func TestMergeRegFile_LimitViolation(t *testing.T) {
 	regContent := "Windows Registry Editor Version 5.00\n\n" +
 		"[HKEY_LOCAL_MACHINE\\LimitTest]\n" +
 		"\"LargeValue\"=\"" + largeData + "\"\n"
-	if err := os.WriteFile(regFile, []byte(regContent), 0644); err != nil {
-		t.Fatalf("Failed to create .reg file: %v", err)
+	if writeErr := os.WriteFile(regFile, []byte(regContent), 0644); writeErr != nil {
+		t.Fatalf("Failed to create .reg file: %v", writeErr)
 	}
 
 	// Merge with strict limits (should fail)

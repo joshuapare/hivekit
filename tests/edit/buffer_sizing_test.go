@@ -11,7 +11,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestDynamicBufferSizingAllRealHives tests buffer sizing with all real hive files
+// TestDynamicBufferSizingAllRealHives tests buffer sizing with all real hive files.
 func TestDynamicBufferSizingAllRealHives(t *testing.T) {
 	testFiles := []string{
 		"../../testdata/minimal",
@@ -42,8 +42,8 @@ func TestDynamicBufferSizingAllRealHives(t *testing.T) {
 			tx := ed.Begin()
 
 			w := &writer.MemWriter{}
-			if err := tx.Commit(w, hive.WriteOptions{}); err != nil {
-				t.Fatalf("Commit: %v", err)
+			if commitErr := tx.Commit(w, hive.WriteOptions{}); commitErr != nil {
+				t.Fatalf("Commit: %v", commitErr)
 			}
 
 			t.Logf("Buffer sizing: input=%d bytes, output=%d bytes", len(data), len(w.Buf))
@@ -69,7 +69,7 @@ func TestDynamicBufferSizingAllRealHives(t *testing.T) {
 	}
 }
 
-// TestDynamicBufferSizingManyKeys tests buffer sizing with many keys
+// TestDynamicBufferSizingManyKeys tests buffer sizing with many keys.
 func TestDynamicBufferSizingManyKeys(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/minimal")
 	if err != nil {
@@ -86,16 +86,16 @@ func TestDynamicBufferSizingManyKeys(t *testing.T) {
 	tx := ed.Begin()
 
 	// Create 100 keys to stress test buffer sizing
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		keyName := formatKeyName(i)
-		if err := tx.CreateKey(keyName, hive.CreateKeyOptions{}); err != nil {
-			t.Fatalf("CreateKey %d: %v", i, err)
+		if createErr := tx.CreateKey(keyName, hive.CreateKeyOptions{}); createErr != nil {
+			t.Fatalf("CreateKey %d: %v", i, createErr)
 		}
 	}
 
 	w := &writer.MemWriter{}
-	if err := tx.Commit(w, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit: %v", err)
+	if commitErr := tx.Commit(w, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit: %v", commitErr)
 	}
 
 	// Verify all keys are present
@@ -115,7 +115,7 @@ func TestDynamicBufferSizingManyKeys(t *testing.T) {
 }
 
 // TestDynamicBufferSizingManyValues tests buffer sizing with the rlenvalue real hive
-// which contains multiple values of varying sizes
+// which contains multiple values of varying sizes.
 func TestDynamicBufferSizingManyValues(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/rlenvalue_test_hive")
 	if err != nil {
@@ -133,8 +133,8 @@ func TestDynamicBufferSizingManyValues(t *testing.T) {
 
 	// Just round-trip to test buffer sizing with real multi-value hive
 	w := &writer.MemWriter{}
-	if err := tx.Commit(w, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit: %v", err)
+	if commitErr := tx.Commit(w, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit: %v", commitErr)
 	}
 
 	t.Logf("Real multi-value hive: input=%d bytes, output=%d bytes", len(data), len(w.Buf))
@@ -156,7 +156,7 @@ func TestDynamicBufferSizingManyValues(t *testing.T) {
 	}
 }
 
-// TestDynamicBufferSizingDeepNesting tests buffer sizing with deeply nested keys
+// TestDynamicBufferSizingDeepNesting tests buffer sizing with deeply nested keys.
 func TestDynamicBufferSizingDeepNesting(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/minimal")
 	if err != nil {
@@ -174,19 +174,19 @@ func TestDynamicBufferSizingDeepNesting(t *testing.T) {
 
 	// Create deeply nested keys (20 levels)
 	path := ""
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		if i > 0 {
 			path += "\\"
 		}
 		path += formatKeyName(i)
-		if err := tx.CreateKey(path, hive.CreateKeyOptions{CreateParents: true}); err != nil {
-			t.Fatalf("CreateKey depth %d: %v", i, err)
+		if createErr := tx.CreateKey(path, hive.CreateKeyOptions{CreateParents: true}); createErr != nil {
+			t.Fatalf("CreateKey depth %d: %v", i, createErr)
 		}
 	}
 
 	w := &writer.MemWriter{}
-	if err := tx.Commit(w, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit: %v", err)
+	if commitErr := tx.Commit(w, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit: %v", commitErr)
 	}
 
 	// Verify the nested structure
@@ -200,8 +200,8 @@ func TestDynamicBufferSizingDeepNesting(t *testing.T) {
 	currentID, _ := r2.Root()
 	depth := 0
 	for depth < 20 {
-		children, err := r2.Subkeys(currentID)
-		if err != nil || len(children) == 0 {
+		children, subErr := r2.Subkeys(currentID)
+		if subErr != nil || len(children) == 0 {
 			break
 		}
 		currentID = children[0]
@@ -215,7 +215,7 @@ func TestDynamicBufferSizingDeepNesting(t *testing.T) {
 	t.Logf("Deep nesting (20 levels) result: %d bytes", len(w.Buf))
 }
 
-// formatKeyName formats a key name with a numeric suffix
+// formatKeyName formats a key name with a numeric suffix.
 func formatKeyName(i int) string {
 	return "Key" + string(rune('0'+i%10)) + string(rune('A'+i/10))
 }

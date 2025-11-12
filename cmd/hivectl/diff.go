@@ -9,11 +9,11 @@ import (
 )
 
 var (
-	diffKey         string
-	diffValuesOnly  bool
-	diffIgnoreCase  bool
-	diffOutput      string
-	diffFormat      string
+	diffKey        string
+	diffValuesOnly bool
+	diffIgnoreCase bool
+	diffOutput     string
+	diffFormat     string
 )
 
 func init() {

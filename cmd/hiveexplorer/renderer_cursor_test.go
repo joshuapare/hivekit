@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	
 )
 
 // TestRendererCursorSync verifies that the virtuallist renderer's cursor

@@ -10,7 +10,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// Test that we can successfully open and read real hive files
+// Test that we can successfully open and read real hive files.
 func TestReadRealHives(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -52,15 +52,15 @@ func TestReadRealHives(t *testing.T) {
 
 			// List some subkeys if present
 			if rootMeta.SubkeyN > 0 {
-				children, err := r.Subkeys(rootID)
-				if err != nil {
-					t.Fatalf("Subkeys: %v", err)
+				children, subkeysErr := r.Subkeys(rootID)
+				if subkeysErr != nil {
+					t.Fatalf("Subkeys: %v", subkeysErr)
 				}
 				t.Logf("Root has %d subkeys:", len(children))
 				for i, child := range children {
-					childMeta, err := r.StatKey(child)
-					if err != nil {
-						t.Logf("  [%d]: error: %v", i, err)
+					childMeta, statErr := r.StatKey(child)
+					if statErr != nil {
+						t.Logf("  [%d]: error: %v", i, statErr)
 					} else {
 						t.Logf("  [%d]: %q (%d subkeys, %d values)", i, childMeta.Name, childMeta.SubkeyN, childMeta.ValueN)
 					}
@@ -74,7 +74,7 @@ func TestReadRealHives(t *testing.T) {
 	}
 }
 
-// Test round-trip: read real hive → commit with no changes → verify readable
+// Test round-trip: read real hive → commit with no changes → verify readable.
 func TestRoundTripRealHives(t *testing.T) {
 	testCases := []string{
 		"../../testdata/minimal",
@@ -143,7 +143,7 @@ func TestRoundTripRealHives(t *testing.T) {
 	}
 }
 
-// Test specific known content from the test files
+// Test specific known content from the test files.
 func TestRLenValue(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/rlenvalue_test_hive")
 	if err != nil {
@@ -187,14 +187,15 @@ func TestRLenValue(t *testing.T) {
 	var foundValue bool
 	var valueData []byte
 	for _, valID := range values {
-		meta, err := r.StatValue(valID)
-		if err != nil {
+		meta, statErr := r.StatValue(valID)
+		if statErr != nil {
 			continue
 		}
 		if meta.Name == "33Bytes" {
-			valueData, err = r.ValueBytes(valID, hive.ReadOptions{})
-			if err != nil {
-				t.Fatalf("ValueBytes: %v", err)
+			var readErr error
+			valueData, readErr = r.ValueBytes(valID, hive.ReadOptions{})
+			if readErr != nil {
+				t.Fatalf("ValueBytes: %v", readErr)
 			}
 			t.Logf("33Bytes value: type=%d, len=%d", meta.Type, len(valueData))
 			foundValue = true

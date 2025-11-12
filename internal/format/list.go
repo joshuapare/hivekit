@@ -36,7 +36,7 @@ func decodeLI(b []byte, count uint32) ([]uint32, error) {
 		return nil, fmt.Errorf("li list: %w", ErrTruncated)
 	}
 	out := make([]uint32, count)
-	for i := uint32(0); i < count; i++ {
+	for i := range count {
 		out[i] = buf.U32LE(b[i*OffsetFieldSize:])
 	}
 	return out, nil
@@ -47,7 +47,7 @@ func decodeLF(b []byte, count uint32) ([]uint32, error) {
 		return nil, fmt.Errorf("lf list: %w", ErrTruncated)
 	}
 	out := make([]uint32, count)
-	for i := uint32(0); i < count; i++ {
+	for i := range count {
 		start := int(i) * LFEntrySize
 		out[i] = buf.U32LE(b[start:])
 	}
@@ -66,7 +66,7 @@ func IsRIList(b []byte) bool {
 
 // DecodeRIList decodes an RI (indirect) subkey list and returns the offsets
 // to the constituent LF/LH lists. The caller must fetch and decode each sub-list.
-// RI structure: signature (SignatureSize bytes) + count (2 bytes) + array of offsets (OffsetFieldSize bytes each)
+// RI structure: signature (SignatureSize bytes) + count (2 bytes) + array of offsets (OffsetFieldSize bytes each).
 func DecodeRIList(b []byte) ([]uint32, error) {
 	if len(b) < ListHeaderSize {
 		return nil, fmt.Errorf("ri list: %w", ErrTruncated)
@@ -81,7 +81,7 @@ func DecodeRIList(b []byte) ([]uint32, error) {
 	}
 	// Each entry is an OffsetFieldSize-byte offset to an LF/LH list
 	offsets := make([]uint32, count)
-	for i := uint16(0); i < count; i++ {
+	for i := range count {
 		offsets[i] = buf.U32LE(b[ListHeaderSize+i*OffsetFieldSize:])
 	}
 	return offsets, nil
@@ -97,7 +97,7 @@ func DecodeValueList(b []byte, count uint32) ([]uint32, error) {
 		return nil, fmt.Errorf("value list: %w", ErrTruncated)
 	}
 	out := make([]uint32, count)
-	for i := uint32(0); i < count; i++ {
+	for i := range count {
 		out[i] = buf.U32LE(b[i*OffsetFieldSize:])
 	}
 	return out, nil

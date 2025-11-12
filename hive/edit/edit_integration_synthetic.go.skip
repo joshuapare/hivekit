@@ -1,0 +1,391 @@
+package edit
+
+import (
+	"bytes"
+	"path/filepath"
+	"testing"
+
+	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/alloc"
+	"github.com/joshuapare/hivekit/hive/index"
+)
+
+// Test_KeyEditor_EnsureKeyPath_Simple tests creating a simple key path
+func Test_KeyEditor_EnsureKeyPath_Simple(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	editor := NewKeyEditor(h, allocator, idx)
+
+	// Get root key reference (usually at offset 0x20)
+	rootRef := uint32(0x20)
+
+	// Create a simple path: Software\Test
+	segments := []string{"Software", "Test"}
+	finalRef, created, err := editor.EnsureKeyPath(rootRef, segments)
+	if err != nil {
+		t.Fatalf("EnsureKeyPath failed: %v", err)
+	}
+
+	if !created {
+		t.Error("Expected keys to be created")
+	}
+
+	if finalRef == 0 {
+		t.Error("Expected non-zero final reference")
+	}
+
+	// Verify the keys exist in the index
+	softwareRef, ok := idx.GetNK(rootRef, "software")
+	if !ok {
+		t.Error("Software key not found in index")
+	}
+
+	testRef, ok := idx.GetNK(softwareRef, "test")
+	if !ok {
+		t.Error("Test key not found in index")
+	}
+
+	if testRef != finalRef {
+		t.Errorf("Final ref mismatch: got 0x%X, want 0x%X", finalRef, testRef)
+	}
+}
+
+// Test_KeyEditor_EnsureKeyPath_Existing tests that existing keys are reused
+func Test_KeyEditor_EnsureKeyPath_Existing(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	editor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+
+	// Create path first time
+	segments := []string{"Software", "Microsoft"}
+	ref1, created1, err := editor.EnsureKeyPath(rootRef, segments)
+	if err != nil {
+		t.Fatalf("First EnsureKeyPath failed: %v", err)
+	}
+	if !created1 {
+		t.Error("Expected keys to be created on first call")
+	}
+
+	// Create same path again - should reuse existing
+	ref2, created2, err := editor.EnsureKeyPath(rootRef, segments)
+	if err != nil {
+		t.Fatalf("Second EnsureKeyPath failed: %v", err)
+	}
+	if created2 {
+		t.Error("Expected no new keys on second call")
+	}
+
+	if ref1 != ref2 {
+		t.Errorf("References differ: first=0x%X, second=0x%X", ref1, ref2)
+	}
+}
+
+// Test_KeyEditor_EnsureKeyPath_CaseInsensitive tests case-insensitive matching
+func Test_KeyEditor_EnsureKeyPath_CaseInsensitive(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	editor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+
+	// Create with uppercase
+	ref1, _, err := editor.EnsureKeyPath(rootRef, []string{"SOFTWARE"})
+	if err != nil {
+		t.Fatalf("First EnsureKeyPath failed: %v", err)
+	}
+
+	// Try to create with lowercase - should find existing
+	ref2, created, err := editor.EnsureKeyPath(rootRef, []string{"software"})
+	if err != nil {
+		t.Fatalf("Second EnsureKeyPath failed: %v", err)
+	}
+
+	if created {
+		t.Error("Expected to reuse existing key (case-insensitive)")
+	}
+
+	if ref1 != ref2 {
+		t.Errorf("Expected same ref for case-insensitive match: 0x%X vs 0x%X", ref1, ref2)
+	}
+}
+
+// Test_KeyEditor_DeleteKey_NotImplemented tests that DeleteKey returns ErrNotImplemented
+func Test_KeyEditor_DeleteKey_NotImplemented(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	editor := NewKeyEditor(h, allocator, idx)
+
+	err := editor.DeleteKey(0x100, false)
+	if err != ErrNotImplemented {
+		t.Errorf("Expected ErrNotImplemented, got %v", err)
+	}
+}
+
+// Test_ValueEditor_UpsertValue_Inline tests creating inline values (≤4 bytes)
+func Test_ValueEditor_UpsertValue_Inline(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	// Create a test key first
+	keyEditor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+	keyRef, _, err := keyEditor.EnsureKeyPath(rootRef, []string{"TestKey"})
+	if err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	// Create value editor
+	valueEditor := NewValueEditor(h, allocator, idx)
+
+	// Create a DWORD value (4 bytes - inline)
+	dwordData := []byte{0x01, 0x02, 0x03, 0x04}
+	err = valueEditor.UpsertValue(keyRef, "TestDword", REG_DWORD, dwordData)
+	if err != nil {
+		t.Fatalf("UpsertValue failed: %v", err)
+	}
+
+	// Verify value exists in index
+	vkRef, ok := idx.GetVK(keyRef, "testdword")
+	if !ok {
+		t.Error("Value not found in index")
+	}
+	if vkRef == 0 {
+		t.Error("Expected non-zero VK reference")
+	}
+}
+
+// Test_ValueEditor_UpsertValue_External tests external storage (5-16344 bytes)
+func Test_ValueEditor_UpsertValue_External(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	keyEditor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+	keyRef, _, err := keyEditor.EnsureKeyPath(rootRef, []string{"TestKey"})
+	if err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	valueEditor := NewValueEditor(h, allocator, idx)
+
+	// Create a binary value with 100 bytes (external storage)
+	binaryData := bytes.Repeat([]byte{0xAB}, 100)
+	err = valueEditor.UpsertValue(keyRef, "TestBinary", REG_BINARY, binaryData)
+	if err != nil {
+		t.Fatalf("UpsertValue failed: %v", err)
+	}
+
+	// Verify value exists
+	vkRef, ok := idx.GetVK(keyRef, "testbinary")
+	if !ok {
+		t.Error("Value not found in index")
+	}
+	if vkRef == 0 {
+		t.Error("Expected non-zero VK reference")
+	}
+}
+
+// Test_ValueEditor_UpsertValue_Update tests updating an existing value
+func Test_ValueEditor_UpsertValue_Update(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	keyEditor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+	keyRef, _, err := keyEditor.EnsureKeyPath(rootRef, []string{"TestKey"})
+	if err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	valueEditor := NewValueEditor(h, allocator, idx)
+
+	// Create initial value
+	data1 := []byte{0x01, 0x02, 0x03, 0x04}
+	err = valueEditor.UpsertValue(keyRef, "TestValue", REG_DWORD, data1)
+	if err != nil {
+		t.Fatalf("First UpsertValue failed: %v", err)
+	}
+
+	// Update with different data
+	data2 := []byte{0x05, 0x06, 0x07, 0x08}
+	err = valueEditor.UpsertValue(keyRef, "TestValue", REG_DWORD, data2)
+	if err != nil {
+		t.Fatalf("Second UpsertValue failed: %v", err)
+	}
+
+	// Verify updated value exists (we can't easily verify content without a reader)
+	vkRef, ok := idx.GetVK(keyRef, "testvalue")
+	if !ok {
+		t.Error("Updated value not found in index")
+	}
+	if vkRef == 0 {
+		t.Error("Expected non-zero VK reference")
+	}
+}
+
+// Test_ValueEditor_UpsertValue_NoOp tests that unchanged values don't trigger updates
+func Test_ValueEditor_UpsertValue_NoOp(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	keyEditor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+	keyRef, _, err := keyEditor.EnsureKeyPath(rootRef, []string{"TestKey"})
+	if err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	valueEditor := NewValueEditor(h, allocator, idx)
+
+	// Create value
+	data := []byte{0x01, 0x02, 0x03, 0x04}
+	err = valueEditor.UpsertValue(keyRef, "TestValue", REG_DWORD, data)
+	if err != nil {
+		t.Fatalf("First UpsertValue failed: %v", err)
+	}
+
+	// Upsert with same data - should be no-op
+	err = valueEditor.UpsertValue(keyRef, "TestValue", REG_DWORD, data)
+	if err != nil {
+		t.Fatalf("Second UpsertValue (no-op) failed: %v", err)
+	}
+
+	// Just verify it still exists
+	vkRef, ok := idx.GetVK(keyRef, "testvalue")
+	if !ok {
+		t.Error("Value not found in index after no-op")
+	}
+	if vkRef == 0 {
+		t.Error("Expected non-zero VK reference")
+	}
+}
+
+// Test_ValueEditor_DeleteValue tests value deletion
+func Test_ValueEditor_DeleteValue(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	keyEditor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+	keyRef, _, err := keyEditor.EnsureKeyPath(rootRef, []string{"TestKey"})
+	if err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	valueEditor := NewValueEditor(h, allocator, idx)
+
+	// Create value
+	data := []byte{0x01, 0x02, 0x03, 0x04}
+	err = valueEditor.UpsertValue(keyRef, "TestValue", REG_DWORD, data)
+	if err != nil {
+		t.Fatalf("UpsertValue failed: %v", err)
+	}
+
+	// Delete value
+	err = valueEditor.DeleteValue(keyRef, "TestValue")
+	if err != nil {
+		t.Fatalf("DeleteValue failed: %v", err)
+	}
+
+	// Note: Index doesn't support removal, so we can't verify it's gone from index
+	// In a real implementation, we'd rebuild the index or add Remove methods
+}
+
+// Test_ValueEditor_DeleteValue_Idempotent tests that deleting non-existent value succeeds
+func Test_ValueEditor_DeleteValue_Idempotent(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	keyEditor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+	keyRef, _, err := keyEditor.EnsureKeyPath(rootRef, []string{"TestKey"})
+	if err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	valueEditor := NewValueEditor(h, allocator, idx)
+
+	// Delete non-existent value - should succeed
+	err = valueEditor.DeleteValue(keyRef, "NonExistent")
+	if err != nil {
+		t.Errorf("DeleteValue on non-existent value should succeed, got: %v", err)
+	}
+}
+
+// Test_ValueEditor_DefaultValue tests working with the (Default) value (empty name)
+func Test_ValueEditor_DefaultValue(t *testing.T) {
+	h, allocator, idx := setupTestEnvironment(t)
+	defer h.Close()
+
+	keyEditor := NewKeyEditor(h, allocator, idx)
+	rootRef := uint32(0x20)
+	keyRef, _, err := keyEditor.EnsureKeyPath(rootRef, []string{"TestKey"})
+	if err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	valueEditor := NewValueEditor(h, allocator, idx)
+
+	// Create default value (empty name)
+	data := []byte("default")
+	err = valueEditor.UpsertValue(keyRef, "", REG_SZ, data)
+	if err != nil {
+		t.Fatalf("UpsertValue for default value failed: %v", err)
+	}
+
+	// Verify it exists (empty name in index)
+	vkRef, ok := idx.GetVK(keyRef, "")
+	if !ok {
+		t.Error("Default value not found in index")
+	}
+	if vkRef == 0 {
+		t.Error("Expected non-zero VK reference for default value")
+	}
+}
+
+// setupTestEnvironment creates a minimal test hive with allocator and index
+func setupTestEnvironment(t *testing.T) (*hive.Hive, *alloc.FastAllocator, index.ReadWriteIndex) {
+	t.Helper()
+
+	// Create temporary hive file
+	dir := t.TempDir()
+	hivePath := filepath.Join(dir, "test.hiv")
+
+	// Create minimal hive (similar to bigdata tests)
+	createMinimalHive(t, hivePath)
+
+	// Open hive
+	h, err := hive.Open(hivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+
+	// Create allocator
+	allocator, err := alloc.NewFast(h)
+	if err != nil {
+		h.Close()
+		t.Fatalf("Failed to create allocator: %v", err)
+	}
+
+	// Create index (use StringIndex for simplicity)
+	// Provide initial capacity hints
+	idx := index.NewStringIndex(1024, 1024)
+
+	// Add root NK to index (offset 0x20 is conventional root)
+	idx.AddNK(0, "root", 0x20)
+
+	return h, allocator, idx
+}
+
+// createMinimalHive creates a minimal valid hive file
+func createMinimalHive(t *testing.T, path string) {
+	t.Helper()
+
+	// Delegate to the bigdata helpers
+	// This creates a hive with plenty of free space
+	createTestHiveWithRootNK(t, path, 1024*1024) // 1MB
+}

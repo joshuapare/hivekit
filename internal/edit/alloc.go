@@ -20,7 +20,8 @@ func newAllocator() *allocator {
 // alloc assigns an offset for a cell of the given size and advances the allocator.
 // Cells in hives must be 8-byte aligned per spec.
 // CRITICAL: Cells must NOT span HBIN boundaries. Each HBIN has format.HBINDataSize bytes of data.
-func (a *allocator) alloc(size int) int32 {
+// size must be non-negative and fit in int32 range (validated by caller).
+func (a *allocator) alloc(size int32) int32 {
 	const hbinDataSize = format.HBINDataSize
 
 	// Round size up to 8-byte boundary
@@ -34,13 +35,13 @@ func (a *allocator) alloc(size int) int32 {
 	posInHBIN := a.nextOffset % hbinDataSize
 
 	// Check if cell fits in current HBIN
-	if posInHBIN+int32(alignedSize) > hbinDataSize {
+	if posInHBIN+alignedSize > hbinDataSize {
 		// Cell doesn't fit, skip to next HBIN
 		// The remaining space in current HBIN will be wasted (or filled with free cell)
 		a.nextOffset = (currentHBIN + 1) * hbinDataSize
 	}
 
 	offset := a.nextOffset
-	a.nextOffset += int32(alignedSize)
+	a.nextOffset += alignedSize
 	return offset
 }

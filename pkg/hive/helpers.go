@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-
 )
 
 // bufWriter implements Writer for in-memory buffers.
@@ -32,8 +31,8 @@ func copyFile(src, dst string) error {
 	}
 	defer dstFile.Close()
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("failed to copy data: %w", err)
+	if _, copyErr := io.Copy(dstFile, srcFile); copyErr != nil {
+		return fmt.Errorf("failed to copy data: %w", copyErr)
 	}
 
 	return dstFile.Close()

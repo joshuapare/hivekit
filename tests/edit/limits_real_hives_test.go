@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joshuapare/hivekit/pkg/ast"
 	"github.com/joshuapare/hivekit/internal/edit"
 	"github.com/joshuapare/hivekit/internal/reader"
+	"github.com/joshuapare/hivekit/pkg/ast"
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
@@ -43,15 +43,15 @@ func TestLimitsValidation_RealHives(t *testing.T) {
 			tx := ed.Begin() // Uses DefaultLimits
 
 			// Make a simple modification
-			if err := tx.CreateKey("TestKey", hive.CreateKeyOptions{}); err != nil {
-				t.Fatalf("Failed to create key: %v", err)
+			if createErr := tx.CreateKey("TestKey", hive.CreateKeyOptions{}); createErr != nil {
+				t.Fatalf("Failed to create key: %v", createErr)
 			}
 			tx.SetValue("TestKey", "TestValue", hive.REG_SZ, []byte("test data"))
 
 			// Should succeed with valid hive and minimal changes
 			buf := &bytes.Buffer{}
-			if err := tx.Commit(&bufWriter{buf}, hive.WriteOptions{}); err != nil {
-				t.Fatalf("Commit failed on real hive %s: %v", tc.name, err)
+			if commitErr := tx.Commit(&bufWriter{buf}, hive.WriteOptions{}); commitErr != nil {
+				t.Fatalf("Commit failed on real hive %s: %v", tc.name, commitErr)
 			}
 
 			// Verify we got output
@@ -81,10 +81,10 @@ func TestLimitsValidation_LargeHive(t *testing.T) {
 	tx := ed.BeginWithLimits(ast.RelaxedLimits())
 
 	// Make multiple modifications
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		keyName := "BulkTestKey" + string(rune('A'+i%26)) + string(rune('0'+i/26))
-		if err := tx.CreateKey(keyName, hive.CreateKeyOptions{}); err != nil {
-			t.Fatalf("Failed to create key %s: %v", keyName, err)
+		if createErr := tx.CreateKey(keyName, hive.CreateKeyOptions{}); createErr != nil {
+			t.Fatalf("Failed to create key %s: %v", keyName, createErr)
 		}
 		tx.SetValue(keyName, "Value1", hive.REG_SZ, []byte("test data"))
 		tx.SetValue(keyName, "Value2", hive.REG_DWORD, []byte{0x01, 0x02, 0x03, 0x04})
@@ -92,8 +92,8 @@ func TestLimitsValidation_LargeHive(t *testing.T) {
 
 	// Should succeed with relaxed limits
 	buf := &bytes.Buffer{}
-	if err := tx.Commit(&bufWriter{buf}, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit failed with relaxed limits: %v", err)
+	if commitErr := tx.Commit(&bufWriter{buf}, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit failed with relaxed limits: %v", commitErr)
 	}
 }
 
@@ -119,9 +119,9 @@ func TestLimitsValidation_StrictLimits_LargeHive(t *testing.T) {
 	tx := ed.BeginWithLimits(limits)
 
 	// Try to add many keys (should eventually hit size limit)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		keyName := "Key" + string(rune('A'+i%26)) + string(rune('0'+(i/26)%10)) + string(rune('0'+i/260))
-		if err := tx.CreateKey(keyName, hive.CreateKeyOptions{}); err != nil {
+		if createErr := tx.CreateKey(keyName, hive.CreateKeyOptions{}); createErr != nil {
 			// Continue even if create fails
 			continue
 		}
@@ -161,8 +161,8 @@ func TestLimitsValidation_ValueNameLength(t *testing.T) {
 	limits.MaxValueNameLen = 20 // Short limit
 	tx := ed.BeginWithLimits(limits)
 
-	if err := tx.CreateKey("TestKey", hive.CreateKeyOptions{}); err != nil {
-		t.Fatalf("Failed to create key: %v", err)
+	if createErr := tx.CreateKey("TestKey", hive.CreateKeyOptions{}); createErr != nil {
+		t.Fatalf("Failed to create key: %v", createErr)
 	}
 
 	// Add value with name exceeding limit
@@ -203,14 +203,14 @@ func TestLimitsValidation_MultipleViolations(t *testing.T) {
 	tx := ed.BeginWithLimits(limits)
 
 	// Create multiple violations
-	if err := tx.CreateKey("Key1", hive.CreateKeyOptions{}); err != nil {
-		t.Fatalf("Failed to create key1: %v", err)
+	if createErr := tx.CreateKey("Key1", hive.CreateKeyOptions{}); createErr != nil {
+		t.Fatalf("Failed to create key1: %v", createErr)
 	}
-	if err := tx.CreateKey("Key2", hive.CreateKeyOptions{}); err != nil {
-		t.Fatalf("Failed to create key2: %v", err)
+	if create2Err := tx.CreateKey("Key2", hive.CreateKeyOptions{}); create2Err != nil {
+		t.Fatalf("Failed to create key2: %v", create2Err)
 	}
-	if err := tx.CreateKey("Key3", hive.CreateKeyOptions{}); err != nil {
-		t.Fatalf("Failed to create key3: %v", err)
+	if create3Err := tx.CreateKey("Key3", hive.CreateKeyOptions{}); create3Err != nil {
+		t.Fatalf("Failed to create key3: %v", create3Err)
 	}
 
 	// Add too many values to Key1
@@ -257,8 +257,8 @@ func TestLimitsValidation_NoChanges(t *testing.T) {
 
 	// Commit without any changes
 	buf := &bytes.Buffer{}
-	if err := tx.Commit(&bufWriter{buf}, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit failed with no changes: %v", err)
+	if commitErr := tx.Commit(&bufWriter{buf}, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit failed with no changes: %v", commitErr)
 	}
 
 	// Should succeed
@@ -287,8 +287,8 @@ func TestLimitsValidation_DeepNesting(t *testing.T) {
 
 	// Create a deep path
 	deepPath := "L1\\L2\\L3\\L4\\L5\\L6\\L7\\L8\\L9\\L10\\L11"
-	if err := tx.CreateKey(deepPath, hive.CreateKeyOptions{CreateParents: true}); err != nil {
-		t.Fatalf("Failed to create deep path: %v", err)
+	if createErr := tx.CreateKey(deepPath, hive.CreateKeyOptions{CreateParents: true}); createErr != nil {
+		t.Fatalf("Failed to create deep path: %v", createErr)
 	}
 
 	// Should fail due to depth
@@ -323,10 +323,10 @@ func TestLimitsValidation_ExactAtLimit(t *testing.T) {
 	tx := ed.BeginWithLimits(limits)
 
 	// Create exactly MaxSubkeys subkeys
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		keyName := "Key" + string(rune('0'+i))
-		if err := tx.CreateKey(keyName, hive.CreateKeyOptions{}); err != nil {
-			t.Fatalf("Failed to create key%d: %v", i, err)
+		if createErr := tx.CreateKey(keyName, hive.CreateKeyOptions{}); createErr != nil {
+			t.Fatalf("Failed to create key%d: %v", i, createErr)
 		}
 	}
 
@@ -337,7 +337,7 @@ func TestLimitsValidation_ExactAtLimit(t *testing.T) {
 
 	// Should succeed (at limit, not over)
 	buf := &bytes.Buffer{}
-	if err := tx.Commit(&bufWriter{buf}, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit failed at exact limit: %v", err)
+	if commitErr := tx.Commit(&bufWriter{buf}, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit failed at exact limit: %v", commitErr)
 	}
 }

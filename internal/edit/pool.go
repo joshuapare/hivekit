@@ -19,7 +19,11 @@ var bufferPool = sync.Pool{
 // getBuffer retrieves a buffer from the pool.
 // The buffer is at least 128 KB but may be larger if previously grown.
 func getBuffer() *[]byte {
-	return bufferPool.Get().(*[]byte)
+	buf, ok := bufferPool.Get().(*[]byte)
+	if !ok {
+		panic("bufferPool returned unexpected type")
+	}
+	return buf
 }
 
 // putBuffer returns a buffer to the pool for reuse.

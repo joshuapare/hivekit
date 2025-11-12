@@ -14,7 +14,7 @@ import (
 // This test investigates whether the issue is:
 // 1. Cell size mismatch
 // 2. Multi-cell data (db records)
-// 3. Some other format issue
+// 3. Some other format issue.
 func TestLargeValue_BootPlan(t *testing.T) {
 	hivePath := "../../testdata/suite/windows-xp-system"
 	if _, err := os.Stat(hivePath); os.IsNotExist(err) {
@@ -175,9 +175,9 @@ func TestLargeValue_BootPlan(t *testing.T) {
 
 		// Decode the db record to see block info
 		if string(sig) == "db" {
-			dbRec, err := format.DecodeDB(rdr.buf[dataAbs+4 : dataAbs+4+int(dataCellSize)])
-			if err != nil {
-				t.Logf("DecodeDB error: %v", err)
+			dbRec, decodeErr := format.DecodeDB(rdr.buf[dataAbs+4 : dataAbs+4+int(dataCellSize)])
+			if decodeErr != nil {
+				t.Logf("DecodeDB error: %v", decodeErr)
 			} else {
 				t.Logf("\nDB Record info:")
 				t.Logf("  Number of blocks: %d", dbRec.NumBlocks)
@@ -193,7 +193,7 @@ func TestLargeValue_BootPlan(t *testing.T) {
 		t.Logf("\nValueBytes error: %v", err)
 		t.FailNow()
 	} else {
-		t.Logf("\n✅ SUCCESS: ValueBytes read %d bytes!", len(data))
+		t.Logf("\nSUCCESS: ValueBytes read %d bytes!", len(data))
 
 		// Verify it matches expected length
 		if len(data) != 25544 {

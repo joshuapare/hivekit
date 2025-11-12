@@ -4,14 +4,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshuapare/hivekit/bindings"
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/bindings"
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // TestNodeName tests hivex_node_name
-// Gets the name of a node
+// Gets the name of a node.
 func TestNodeName(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -54,7 +55,7 @@ func TestNodeName(t *testing.T) {
 	}
 }
 
-// TestNodeNameSpecialChars tests node names with special characters
+// TestNodeNameSpecialChars tests node names with special characters.
 func TestNodeNameSpecialChars(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -85,8 +86,8 @@ func TestNodeNameSpecialChars(t *testing.T) {
 
 	// Compare names for each child
 	for i := range goChildren {
-		goMeta, err := goHive.StatKey(goChildren[i])
-		require.NoError(t, err)
+		goMeta, statErr := goHive.StatKey(goChildren[i])
+		require.NoError(t, statErr)
 
 		hivexName := hivexHive.NodeName(hivexChildren[i])
 
@@ -98,7 +99,7 @@ func TestNodeNameSpecialChars(t *testing.T) {
 }
 
 // TestNodeTimestamp tests hivex_node_timestamp
-// Gets the last write timestamp of a node
+// Gets the last write timestamp of a node.
 func TestNodeTimestamp(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -151,7 +152,7 @@ func TestNodeTimestamp(t *testing.T) {
 }
 
 // TestNodeNrChildren tests hivex_node_nr_children
-// Gets the count of children without loading them
+// Gets the count of children without loading them.
 func TestNodeNrChildren(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -203,7 +204,7 @@ func TestNodeNrChildren(t *testing.T) {
 }
 
 // TestNodeNrValues tests hivex_node_nr_values
-// Gets the count of values without loading them
+// Gets the count of values without loading them.
 func TestNodeNrValues(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -211,7 +212,7 @@ func TestNodeNrValues(t *testing.T) {
 		expectedCount int // On root node
 	}{
 		{"minimal", TestHives.Minimal, 0},
-		{"special", TestHives.Special, 0}, // Root has 0 values
+		{"special", TestHives.Special, 0},     // Root has 0 values
 		{"rlenvalue", TestHives.RLenValue, 0}, // Root has 0 values
 	}
 
@@ -254,7 +255,7 @@ func TestNodeNrValues(t *testing.T) {
 	}
 }
 
-// TestNodeNrValuesOnChildren tests value counts on child nodes (where values actually are)
+// TestNodeNrValuesOnChildren tests value counts on child nodes (where values actually are).
 func TestNodeNrValuesOnChildren(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -312,7 +313,7 @@ func TestNodeNrValuesOnChildren(t *testing.T) {
 	}
 }
 
-// TestMetadataConsistency verifies all metadata is consistent across operations
+// TestMetadataConsistency verifies all metadata is consistent across operations.
 func TestMetadataConsistency(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -343,7 +344,7 @@ func TestMetadataConsistency(t *testing.T) {
 	assert.NotZero(t, hivexTimestamp, "Timestamp should not be zero")
 }
 
-// TestMetadataRecursive tests metadata across entire tree
+// TestMetadataRecursive tests metadata across entire tree.
 func TestMetadataRecursive(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -373,7 +374,7 @@ func TestMetadataRecursive(t *testing.T) {
 	}
 }
 
-// compareMetadataRecursive recursively compares metadata for all nodes
+// compareMetadataRecursive recursively compares metadata for all nodes.
 func compareMetadataRecursive(t *testing.T, goHive hive.Reader, hivexHive *bindings.Hive,
 	goNode hive.NodeID, hivexNode bindings.NodeHandle, depth int) {
 	t.Helper()
@@ -407,7 +408,7 @@ func compareMetadataRecursive(t *testing.T, goHive hive.Reader, hivexHive *bindi
 }
 
 // TestDetailKey tests gohivex-specific DetailKey function
-// This returns full NK record details beyond basic metadata
+// This returns full NK record details beyond basic metadata.
 func TestDetailKey(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()

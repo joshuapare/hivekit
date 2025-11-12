@@ -13,10 +13,11 @@ import (
 	"time"
 	"unsafe"
 
+	"golang.org/x/text/encoding/charmap"
+
 	"github.com/joshuapare/hivekit/internal/format"
 	"github.com/joshuapare/hivekit/internal/mmfile"
 	"github.com/joshuapare/hivekit/pkg/types"
-	"golang.org/x/text/encoding/charmap"
 )
 
 // Open maps the hive at path and returns an implementation of types.Reader.
@@ -46,12 +47,12 @@ type reader struct {
 	opts           types.OpenOptions
 	head           format.Header
 	closed         bool
-	validatedHBINs map[uint32]bool        // HBIN offset -> validated (populated at Open)
-	hbinIndex      []hbinIndexEntry       // Fast HBIN lookup index (built at Open)
-	diagnostics    *diagnosticCollector   // nil unless CollectDiagnostics=true (zero-cost)
+	validatedHBINs map[uint32]bool      // HBIN offset -> validated (populated at Open)
+	hbinIndex      []hbinIndexEntry     // Fast HBIN lookup index (built at Open)
+	diagnostics    *diagnosticCollector // nil unless CollectDiagnostics=true (zero-cost)
 }
 
-// hbinIndexEntry stores HBIN position for fast lookup
+// hbinIndexEntry stores HBIN position for fast lookup.
 type hbinIndexEntry struct {
 	offset int // Absolute offset in file (including REGF header)
 	size   int // Total HBIN size including header
@@ -80,8 +81,8 @@ func newReader(buf []byte, unmap func() error, opts types.OpenOptions) (types.Re
 
 	// Validate all HBIN structures at open time (Option A: structural boundary)
 	// This provides clear contract: "Open succeeds = structure is sound"
-	if err := r.validateAllHBINs(); err != nil {
-		return nil, err
+	if validateErr := r.validateAllHBINs(); validateErr != nil {
+		return nil, validateErr
 	}
 
 	return r, nil
@@ -172,7 +173,7 @@ func (r *reader) DetailKey(id types.NodeID) (types.KeyDetail, error) {
 	// Get class name if present
 	className := ""
 	if nk.ClassLength > 0 && nk.ClassNameOffset != math.MaxUint32 {
-		if classData, err := r.cell(nk.ClassNameOffset); err == nil {
+		if classData, cellErr := r.cell(nk.ClassNameOffset); cellErr == nil {
 			className = string(classData.Data[:min(len(classData.Data), int(nk.ClassLength))])
 		}
 	}
@@ -291,8 +292,8 @@ func (r *reader) Lookup(parent types.NodeID, childName string) (types.NodeID, er
 
 	// Case-insensitive search
 	for _, child := range children {
-		name, err := r.KeyName(child)
-		if err != nil {
+		name, nameErr := r.KeyName(child)
+		if nameErr != nil {
 			continue // Skip keys we can't read
 		}
 		if strings.EqualFold(name, childName) {
@@ -363,9 +364,9 @@ func (r *reader) StatValue(id types.ValueID) (types.ValueMeta, error) {
 			name = string(nameBytes)
 		} else {
 			// Extended characters need decoder
-			decoded, err := charmap.Windows1252.NewDecoder().Bytes(nameBytes)
-			if err != nil {
-				return types.ValueMeta{}, wrapFormatErr(fmt.Errorf("failed to decode Windows-1252 value name: %w", err))
+			decoded, decodeErr := charmap.Windows1252.NewDecoder().Bytes(nameBytes)
+			if decodeErr != nil {
+				return types.ValueMeta{}, wrapFormatErr(fmt.Errorf("failed to decode Windows-1252 value name: %w", decodeErr))
 			}
 			name = string(decoded)
 		}
@@ -442,7 +443,7 @@ func (r *reader) ValueBytes(id types.ValueID, ro types.ReadOptions) ([]byte, err
 	return data, nil
 }
 
-func (r *reader) ValueString(id types.ValueID, ro types.ReadOptions) (string, error) {
+func (r *reader) ValueString(id types.ValueID, _ types.ReadOptions) (string, error) {
 	if err := r.ensureOpen(); err != nil {
 		return "", err
 	}
@@ -453,6 +454,18 @@ func (r *reader) ValueString(id types.ValueID, ro types.ReadOptions) (string, er
 	switch types.RegType(vk.Type) {
 	case types.REG_SZ, types.REG_EXPAND_SZ:
 		return DecodeUTF16(data)
+	case types.REG_NONE,
+		types.REG_BINARY,
+		types.REG_DWORD,
+		types.REG_DWORD_BE,
+		types.REG_LINK,
+		types.REG_MULTI_SZ,
+		types.REG_QWORD:
+		return "", &types.Error{
+			Kind: types.ErrKindType,
+			Msg:  "registry value has different type",
+			Err:  types.ErrTypeMismatch,
+		}
 	default:
 		return "", &types.Error{
 			Kind: types.ErrKindType,
@@ -462,7 +475,7 @@ func (r *reader) ValueString(id types.ValueID, ro types.ReadOptions) (string, er
 	}
 }
 
-func (r *reader) ValueStrings(id types.ValueID, ro types.ReadOptions) ([]string, error) {
+func (r *reader) ValueStrings(id types.ValueID, _ types.ReadOptions) ([]string, error) {
 	if err := r.ensureOpen(); err != nil {
 		return nil, err
 	}
@@ -593,9 +606,9 @@ func (r *reader) subkeyList(offset uint32, expected uint32) ([]uint32, error) {
 	// Check if this is an RI (indirect) list
 	if format.IsRIList(cell.Data) {
 		// Decode RI to get offsets to sub-lists (LF/LH)
-		subListOffsets, err := format.DecodeRIList(cell.Data)
-		if err != nil {
-			return nil, wrapFormatErr(err)
+		subListOffsets, decodeErr := format.DecodeRIList(cell.Data)
+		if decodeErr != nil {
+			return nil, wrapFormatErr(decodeErr)
 		}
 
 		// Estimate capacity: RI lists typically have ~100 entries per sub-list
@@ -608,9 +621,9 @@ func (r *reader) subkeyList(offset uint32, expected uint32) ([]uint32, error) {
 
 		// Fetch and decode each sub-list, combining results
 		for _, subOffset := range subListOffsets {
-			subList, err := r.subkeyList(subOffset, 0)
-			if err != nil {
-				return nil, err
+			subList, subErr := r.subkeyList(subOffset, 0)
+			if subErr != nil {
+				return nil, subErr
 			}
 			result = append(result, subList...)
 		}
@@ -618,9 +631,9 @@ func (r *reader) subkeyList(offset uint32, expected uint32) ([]uint32, error) {
 	}
 
 	// Not RI - decode as LF/LH/LI
-	list, err := format.DecodeSubkeyList(cell.Data, expected)
-	if err != nil {
-		return nil, wrapFormatErr(err)
+	list, decodeErr := format.DecodeSubkeyList(cell.Data, expected)
+	if decodeErr != nil {
+		return nil, wrapFormatErr(decodeErr)
 	}
 	return list, nil
 }
@@ -649,7 +662,7 @@ func (r *reader) valueList(offset uint32, count uint32) ([]types.ValueID, error)
 }
 
 // vkOnly reads just the VK record without fetching the data
-// Used by StatValue which only needs metadata
+// Used by StatValue which only needs metadata.
 func (r *reader) vkOnly(offset uint32) (format.VKRecord, error) {
 	cell, err := r.cell(offset)
 	if err != nil {
@@ -778,14 +791,14 @@ func (r *reader) valueDB(
 	}
 
 	// Read the blocklist cell
-	blocklistCell, err := r.cell(db.BlocklistOffset)
-	if err != nil {
-		return format.VKRecord{}, nil, fmt.Errorf("db blocklist: %w", err)
+	blocklistCell, cellErr := r.cell(db.BlocklistOffset)
+	if cellErr != nil {
+		return format.VKRecord{}, nil, fmt.Errorf("db blocklist: %w", cellErr)
 	}
 
 	// Parse block offsets from the blocklist (each offset is 4 bytes)
 	blockOffsets := make([]uint32, db.NumBlocks)
-	for i := uint16(0); i < db.NumBlocks; i++ {
+	for i := range db.NumBlocks {
 		offset := int(i) * format.OffsetFieldSize
 		if offset+format.OffsetFieldSize > len(blocklistCell.Data) {
 			return format.VKRecord{}, nil, &types.Error{
@@ -813,9 +826,9 @@ func (r *reader) valueDB(
 	// Read and concatenate each data block
 	for i, blockOffset := range blockOffsets {
 		// Read the data block cell
-		blockCell, err := r.cell(blockOffset)
-		if err != nil {
-			return format.VKRecord{}, nil, fmt.Errorf("db block %d: %w", i, err)
+		blockCell, blockErr := r.cell(blockOffset)
+		if blockErr != nil {
+			return format.VKRecord{}, nil, fmt.Errorf("db block %d: %w", i, blockErr)
 		}
 
 		// DB blocks have 4 bytes of padding at the end (likely the next cell's header)
@@ -965,15 +978,15 @@ func (r *reader) cell(offset uint32) (format.Cell, error) {
 }
 
 // findHBINForOffset finds the HBIN that contains the given absolute offset.
-// Returns the HBIN's starting offset and ending offset, or error if not found.
-func (r *reader) findHBINForOffset(absOffset int) (hbinStart, hbinEnd int, err error) {
+// Returns the HBIN's ending offset, or error if not found.
+func (r *reader) findHBINForOffset(absOffset int) (int, error) {
 	// Use the index for fast lookup
 	for _, entry := range r.hbinIndex {
 		if absOffset >= entry.offset && absOffset < entry.offset+entry.size {
-			return entry.offset, entry.offset + entry.size, nil
+			return entry.offset + entry.size, nil
 		}
 	}
-	return 0, 0, &types.Error{
+	return 0, &types.Error{
 		Kind: types.ErrKindFormat,
 		Msg:  fmt.Sprintf("offset %d not in any HBIN", absOffset),
 		Err:  types.ErrCorrupt,
@@ -1007,7 +1020,7 @@ func (r *reader) readCellDataAcrossHBINs(absOffset int) ([]byte, error) {
 	}
 
 	// Fast path: find which HBIN this cell starts in using index
-	_, hbinEnd, err := r.findHBINForOffset(absOffset)
+	hbinEnd, err := r.findHBINForOffset(absOffset)
 	if err != nil {
 		return nil, err
 	}
@@ -1025,8 +1038,8 @@ func (r *reader) readCellDataAcrossHBINs(absOffset int) ([]byte, error) {
 
 	for copied < cellSize {
 		// Find current HBIN using index
-		_, currentHBINEnd, err := r.findHBINForOffset(currentOffset)
-		if err != nil {
+		currentHBINEnd, findErr := r.findHBINForOffset(currentOffset)
+		if findErr != nil {
 			return nil, &types.Error{
 				Kind: types.ErrKindFormat,
 				Msg:  "invalid HBIN while reading cell",
@@ -1189,7 +1202,7 @@ func (r *reader) ValueNameLenDecoded(id types.ValueID) (int, error) {
 
 // NodeStructSizeCalculated returns the calculated minimum NK structure size.
 // This matches hivex_node_struct_length() behavior.
-// Formula: CellHeaderSize + NKFixedHeaderSize + NameLength
+// Formula: CellHeaderSize + NKFixedHeaderSize + NameLength.
 func (r *reader) NodeStructSizeCalculated(id types.NodeID) (int, error) {
 	if err := r.ensureOpen(); err != nil {
 		return 0, err
@@ -1205,7 +1218,7 @@ func (r *reader) NodeStructSizeCalculated(id types.NodeID) (int, error) {
 // ValueStructSizeCalculated returns the calculated minimum VK structure size.
 // This matches hivex_value_struct_length() behavior exactly.
 // Hivex formula: decoded_name_len + VKHivexSizeConstant
-// Where VKHivexSizeConstant = 24 (determined by analyzing hivex source)
+// Where VKHivexSizeConstant = 24 (determined by analyzing hivex source).
 func (r *reader) ValueStructSizeCalculated(id types.ValueID) (int, error) {
 	if err := r.ensureOpen(); err != nil {
 		return 0, err
@@ -1304,8 +1317,8 @@ func (r *reader) GetChild(parent types.NodeID, name string) (types.NodeID, error
 
 	// Iterate through children and compare names
 	for _, childID := range children {
-		meta, err := r.StatKey(childID)
-		if err != nil {
+		meta, statErr := r.StatKey(childID)
+		if statErr != nil {
 			continue // Skip children we can't read
 		}
 
@@ -1331,8 +1344,8 @@ func (r *reader) GetValue(node types.NodeID, name string) (types.ValueID, error)
 
 	// Iterate through values and compare names
 	for _, valueID := range values {
-		valueName, err := r.ValueName(valueID)
-		if err != nil {
+		valueName, nameErr := r.ValueName(valueID)
+		if nameErr != nil {
 			continue // Skip values we can't read
 		}
 
@@ -1347,14 +1360,14 @@ func (r *reader) GetValue(node types.NodeID, name string) (types.ValueID, error)
 
 // Diagnostics & Forensics -------------------------------------------------------
 
-// recordDiagnostic records a diagnostic issue (zero-cost if collector is nil)
+// recordDiagnostic records a diagnostic issue (zero-cost if collector is nil).
 func (r *reader) recordDiagnostic(d types.Diagnostic) {
 	if r.diagnostics != nil {
 		r.diagnostics.record(d)
 	}
 }
 
-// GetDiagnostics returns passively collected diagnostics (if enabled)
+// GetDiagnostics returns passively collected diagnostics (if enabled).
 func (r *reader) GetDiagnostics() *types.DiagnosticReport {
 	if r.diagnostics == nil {
 		return nil
@@ -1362,7 +1375,7 @@ func (r *reader) GetDiagnostics() *types.DiagnosticReport {
 	return r.diagnostics.getReport()
 }
 
-// Diagnose performs exhaustive hive validation
+// Diagnose performs exhaustive hive validation.
 func (r *reader) Diagnose() (*types.DiagnosticReport, error) {
 	if err := r.ensureOpen(); err != nil {
 		return nil, err

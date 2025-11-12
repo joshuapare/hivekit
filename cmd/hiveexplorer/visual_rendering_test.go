@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	
 )
 
 // TestVisualCursorRendering checks that the cursor is visually rendered on the correct row.

@@ -35,7 +35,14 @@ type ValidationError struct {
 // Error implements the error interface.
 func (e *ValidationError) Error() string {
 	if e.Cause != nil {
-		return fmt.Sprintf("%s-repair validation failed (%s) at offset 0x%X: %s: %v", e.Phase, e.Module, e.Offset, e.Message, e.Cause)
+		return fmt.Sprintf(
+			"%s-repair validation failed (%s) at offset 0x%X: %s: %v",
+			e.Phase,
+			e.Module,
+			e.Offset,
+			e.Message,
+			e.Cause,
+		)
 	}
 	return fmt.Sprintf("%s-repair validation failed (%s) at offset 0x%X: %s", e.Phase, e.Module, e.Offset, e.Message)
 }

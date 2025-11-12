@@ -53,7 +53,7 @@ func TestDecodeNKTruncated(t *testing.T) {
 //
 // References:
 // - special hive: 1 node with UTF-16LE name
-// - windows-2003-server-software: 2 nodes with UTF-16LE names
+// - windows-2003-server-software: 2 nodes with UTF-16LE names.
 func TestDecodeNK_UTF16Name(t *testing.T) {
 	// Test name "abcd_äöüß" in UTF-16LE encoding
 	// UTF-16LE bytes for "abcd_äöüß":

@@ -133,10 +133,10 @@ func runDiagnose(cmd *cobra.Command, args []string) error {
 
 	// Exit code based on severity
 	if report.HasCriticalIssues() {
-		printInfo("\n⚠️  CRITICAL issues found\n")
+		printInfo("\nCRITICAL issues found\n")
 		os.Exit(2)
 	} else if report.HasErrors() {
-		printInfo("\n⚠️  Errors found\n")
+		printInfo("\nErrors found\n")
 		os.Exit(1)
 	} else if report.Summary.Warnings > 0 {
 		printInfo("\n✓ Warnings found (non-critical)\n")

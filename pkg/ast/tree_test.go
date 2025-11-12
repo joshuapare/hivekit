@@ -181,12 +181,24 @@ func TestFindNode(t *testing.T) {
 		expected string
 		found    bool
 	}{
-		{"", "", true},                                                                                     // root
-		{"Software", "Software", true},                                                                     // direct child
-		{"Software" + RegistryPathSeparator + "Microsoft", "Microsoft", true},                             // nested
-		{"Software" + RegistryPathSeparator + "Microsoft" + RegistryPathSeparator + "Windows", "Windows", true}, // deeply nested
-		{"Software" + RegistryPathSeparator + "DoesNotExist", "", false},                                  // not found
-		{"DoesNotExist", "", false},                                                                        // not found
+		{"", "", true},                 // root
+		{"Software", "Software", true}, // direct child
+		{
+			"Software" + RegistryPathSeparator + "Microsoft",
+			"Microsoft",
+			true,
+		}, // nested
+		{
+			"Software" + RegistryPathSeparator + "Microsoft" + RegistryPathSeparator + "Windows",
+			"Windows",
+			true,
+		}, // deeply nested
+		{
+			"Software" + RegistryPathSeparator + "DoesNotExist",
+			"",
+			false,
+		}, // not found
+		{"DoesNotExist", "", false}, // not found
 	}
 
 	for _, tt := range tests {
@@ -215,11 +227,26 @@ func TestSplitPath(t *testing.T) {
 		{"", nil},
 		{"Software", []string{"Software"}},
 		{"Software" + RegistryPathSeparator + "Microsoft", []string{"Software", "Microsoft"}},
-		{"Software" + RegistryPathSeparator + "Microsoft" + RegistryPathSeparator + "Windows", []string{"Software", "Microsoft", "Windows"}},
-		{RegistryPathSeparator + "Software", []string{"Software"}},                                                              // leading slash
-		{"Software" + RegistryPathSeparator, []string{"Software"}},                                                              // trailing slash
-		{RegistryPathSeparator + "Software" + RegistryPathSeparator + "Microsoft" + RegistryPathSeparator, []string{"Software", "Microsoft"}}, // both
-		{"Software" + RegistryPathSeparator + RegistryPathSeparator + "Microsoft", []string{"Software", "Microsoft"}},           // double slash
+		{
+			"Software" + RegistryPathSeparator + "Microsoft" + RegistryPathSeparator + "Windows",
+			[]string{"Software", "Microsoft", "Windows"},
+		},
+		{
+			RegistryPathSeparator + "Software",
+			[]string{"Software"},
+		}, // leading slash
+		{
+			"Software" + RegistryPathSeparator,
+			[]string{"Software"},
+		}, // trailing slash
+		{
+			RegistryPathSeparator + "Software" + RegistryPathSeparator + "Microsoft" + RegistryPathSeparator,
+			[]string{"Software", "Microsoft"},
+		}, // both
+		{
+			"Software" + RegistryPathSeparator + RegistryPathSeparator + "Microsoft",
+			[]string{"Software", "Microsoft"},
+		}, // double slash
 	}
 
 	for _, tt := range tests {

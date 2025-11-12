@@ -23,8 +23,8 @@ func TestMapReadOnlyUnix(t *testing.T) {
 		t.Fatalf("MapReadOnly: %v", err)
 	}
 	defer func() {
-		if err := cleanup(); err != nil {
-			t.Fatalf("cleanup: %v", err)
+		if cleanupErr := cleanup(); cleanupErr != nil {
+			t.Fatalf("cleanup: %v", cleanupErr)
 		}
 	}()
 	if len(data) != len(want) {
@@ -52,7 +52,7 @@ func TestMapReadOnlyUnixZeroLength(t *testing.T) {
 	if cleanup == nil {
 		t.Fatalf("expected cleanup function")
 	}
-	if err := cleanup(); err != nil {
-		t.Fatalf("cleanup: %v", err)
+	if cleanupErr := cleanup(); cleanupErr != nil {
+		t.Fatalf("cleanup: %v", cleanupErr)
 	}
 }

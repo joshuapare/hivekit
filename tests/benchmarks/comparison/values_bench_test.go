@@ -38,7 +38,7 @@ func BenchmarkNodeValues(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			values, err = r.Values(child)
 			if err != nil {
 				b.Fatalf("Values failed: %v", err)
@@ -65,7 +65,7 @@ func BenchmarkNodeValues(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			values = h.NodeValues(child)
 		}
 
@@ -109,7 +109,7 @@ func BenchmarkValueKey(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			name, err = r.ValueName(value)
 			if err != nil {
 				b.Fatalf("ValueName failed: %v", err)
@@ -142,7 +142,7 @@ func BenchmarkValueKey(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			name = h.ValueKey(value)
 		}
 
@@ -186,7 +186,7 @@ func BenchmarkValueType(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			vtype, err = r.ValueType(value)
 			if err != nil {
 				b.Fatalf("ValueType failed: %v", err)
@@ -220,7 +220,7 @@ func BenchmarkValueType(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			vtype, size, err = h.ValueType(value)
 			if err != nil {
 				b.Fatalf("ValueType failed: %v", err)
@@ -267,7 +267,7 @@ func BenchmarkValueValue(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			bytes, err = r.ValueBytes(value, hive.ReadOptions{})
 			if err != nil {
 				b.Fatalf("ValueBytes failed: %v", err)
@@ -300,7 +300,7 @@ func BenchmarkValueValue(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			bytes, _, err = h.ValueValue(value)
 			if err != nil {
 				b.Fatalf("ValueValue failed: %v", err)
@@ -351,7 +351,7 @@ func BenchmarkNodeGetValue(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				value, err = r.GetValue(child, tc.valueName)
 				if err != nil {
 					b.Fatalf("GetValue failed: %v", err)
@@ -378,7 +378,7 @@ func BenchmarkNodeGetValue(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				value = h.NodeGetValue(child, tc.valueName)
 			}
 
@@ -423,7 +423,7 @@ func BenchmarkStatValue(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			meta, err = r.StatValue(value)
 			if err != nil {
 				b.Fatalf("StatValue failed: %v", err)
@@ -460,7 +460,7 @@ func BenchmarkStatValue(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			name = h.ValueKey(value)
 			vtype, size, err = h.ValueType(value)
 			if err != nil {
@@ -503,16 +503,17 @@ func BenchmarkAllValuesWithMetadata(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
-			values, err := r.Values(child)
-			if err != nil {
-				b.Fatalf("Values failed: %v", err)
+		for range b.N {
+			values, valuesErr := r.Values(child)
+			if valuesErr != nil {
+				b.Fatalf("Values failed: %v", valuesErr)
 			}
 
 			for _, val := range values {
-				meta, err = r.StatValue(val)
-				if err != nil {
-					b.Fatalf("StatValue failed: %v", err)
+				var statErr error
+				meta, statErr = r.StatValue(val)
+				if statErr != nil {
+					b.Fatalf("StatValue failed: %v", statErr)
 				}
 			}
 		}
@@ -537,14 +538,14 @@ func BenchmarkAllValuesWithMetadata(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			values := h.NodeValues(child)
 
 			for _, val := range values {
 				name = h.ValueKey(val)
-				_, _, err := h.ValueType(val)
-				if err != nil {
-					b.Fatalf("ValueType failed: %v", err)
+				_, _, typeErr := h.ValueType(val)
+				if typeErr != nil {
+					b.Fatalf("ValueType failed: %v", typeErr)
 				}
 			}
 		}

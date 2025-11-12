@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/joshuapare/hivekit/internal/format"
 	"golang.org/x/text/encoding/charmap"
+
+	"github.com/joshuapare/hivekit/internal/format"
 )
 
 // DecodeValueName converts the raw name stored in a VK record into UTF-8. VK

@@ -8,24 +8,26 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// Prevent compiler from optimizing away benchmark results
+// Prevent compiler from optimizing away benchmark results.
+//
+//nolint:unused // Benchmark sink variables - intentionally write-only
 var (
-	benchResult     hive.Reader
-	benchNodeID     hive.NodeID
-	benchValueID    hive.ValueID
-	benchKeyMeta    hive.KeyMeta
-	benchValueMeta  hive.ValueMeta
-	benchBytes      []byte
-	benchString     string
-	benchStrings    []string
-	benchUint32     uint32
-	benchError      error
-	benchNodeIDs    []hive.NodeID
-	benchValueIDs   []hive.ValueID
-	benchInt        int
+	benchResult    hive.Reader
+	benchNodeID    hive.NodeID
+	benchValueID   hive.ValueID
+	benchKeyMeta   hive.KeyMeta
+	benchValueMeta hive.ValueMeta
+	benchBytes     []byte
+	benchString    string
+	benchStrings   []string
+	benchUint32    uint32
+	errBench       error
+	benchNodeIDs   []hive.NodeID
+	benchValueIDs  []hive.ValueID
+	benchInt       int
 )
 
-// Benchmark hive files of different sizes
+// Benchmark hive files of different sizes.
 var benchmarkHives = []struct {
 	name     string
 	path     string
@@ -36,7 +38,7 @@ var benchmarkHives = []struct {
 	{"large", "../../testdata/suite/windows-2012-software", "~125K keys, ~204K values"},
 }
 
-// BenchmarkOpenHive measures the cost of opening and parsing a hive
+// BenchmarkOpenHive measures the cost of opening and parsing a hive.
 func BenchmarkOpenHive(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -52,7 +54,7 @@ func BenchmarkOpenHive(b *testing.B) {
 			b.SetBytes(int64(len(data)))
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.OpenBytes(data, hive.OpenOptions{})
 				if err != nil {
 					b.Fatal(err)
@@ -67,7 +69,7 @@ func BenchmarkOpenHive(b *testing.B) {
 	}
 }
 
-// BenchmarkOpenHive_ZeroCopy measures zero-copy mode performance
+// BenchmarkOpenHive_ZeroCopy measures zero-copy mode performance.
 func BenchmarkOpenHive_ZeroCopy(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -82,7 +84,7 @@ func BenchmarkOpenHive_ZeroCopy(b *testing.B) {
 			b.SetBytes(int64(len(data)))
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.OpenBytes(data, hive.OpenOptions{ZeroCopy: true})
 				if err != nil {
 					b.Fatal(err)
@@ -95,7 +97,7 @@ func BenchmarkOpenHive_ZeroCopy(b *testing.B) {
 	}
 }
 
-// BenchmarkOpenAndReadRoot measures realistic open + basic operation
+// BenchmarkOpenAndReadRoot measures realistic open + basic operation.
 func BenchmarkOpenAndReadRoot(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -114,7 +116,7 @@ func BenchmarkOpenAndReadRoot(b *testing.B) {
 			b.SetBytes(int64(len(data)))
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.OpenBytes(data, hive.OpenOptions{ZeroCopy: true})
 				if err != nil {
 					b.Fatal(err)
@@ -142,7 +144,7 @@ func BenchmarkOpenAndReadRoot(b *testing.B) {
 	}
 }
 
-// BenchmarkReadAllKeys measures the cost of enumerating all keys in the hive
+// BenchmarkReadAllKeys measures the cost of enumerating all keys in the hive.
 func BenchmarkReadAllKeys(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -163,7 +165,7 @@ func BenchmarkReadAllKeys(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				keyCount = 0
 				err = r.Walk(rootID, func(nodeID hive.NodeID) error {
 					keyCount++
@@ -181,7 +183,7 @@ func BenchmarkReadAllKeys(b *testing.B) {
 	}
 }
 
-// BenchmarkReadAllValues measures the cost of reading all value metadata
+// BenchmarkReadAllValues measures the cost of reading all value metadata.
 func BenchmarkReadAllValues(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -202,17 +204,17 @@ func BenchmarkReadAllValues(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				valueCount = 0
 				err = r.Walk(rootID, func(nodeID hive.NodeID) error {
-					values, err := r.Values(nodeID)
-					if err != nil {
-						return err
+					values, valuesErr := r.Values(nodeID)
+					if valuesErr != nil {
+						return valuesErr
 					}
 					for _, valueID := range values {
-						valueMeta, err := r.StatValue(valueID)
-						if err != nil {
-							return err
+						valueMeta, statErr := r.StatValue(valueID)
+						if statErr != nil {
+							return statErr
 						}
 						valueCount++
 						benchValueMeta = valueMeta // Prevent optimization
@@ -230,7 +232,7 @@ func BenchmarkReadAllValues(b *testing.B) {
 	}
 }
 
-// BenchmarkReadValueData measures the cost of reading actual value data
+// BenchmarkReadValueData measures the cost of reading actual value data.
 func BenchmarkReadValueData(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -251,18 +253,18 @@ func BenchmarkReadValueData(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				bytesRead = 0
 				err = r.Walk(rootID, func(nodeID hive.NodeID) error {
-					values, err := r.Values(nodeID)
-					if err != nil {
-						return err
+					values, valuesErr := r.Values(nodeID)
+					if valuesErr != nil {
+						return valuesErr
 					}
 					for _, valueID := range values {
-						data, err := r.ValueBytes(valueID, hive.ReadOptions{})
-						if err == nil {
-							bytesRead += len(data)
-							benchBytes = data // Prevent optimization
+						valueData, bytesErr := r.ValueBytes(valueID, hive.ReadOptions{})
+						if bytesErr == nil {
+							bytesRead += len(valueData)
+							benchBytes = valueData // Prevent optimization
 						}
 					}
 					return nil
@@ -278,7 +280,7 @@ func BenchmarkReadValueData(b *testing.B) {
 	}
 }
 
-// BenchmarkPathLookup measures the cost of finding keys by path
+// BenchmarkPathLookup measures the cost of finding keys by path.
 func BenchmarkPathLookup(b *testing.B) {
 	paths := []string{
 		"\\ControlSet001\\Control\\Session Manager",
@@ -304,7 +306,7 @@ func BenchmarkPathLookup(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				for _, path := range paths {
 					nodeID, err = r.Find(path)
 					// Don't fail on not found - some hives don't have all paths
@@ -317,7 +319,7 @@ func BenchmarkPathLookup(b *testing.B) {
 	}
 }
 
-// BenchmarkSubkeyEnumeration measures the cost of listing subkeys
+// BenchmarkSubkeyEnumeration measures the cost of listing subkeys.
 func BenchmarkSubkeyEnumeration(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -338,7 +340,7 @@ func BenchmarkSubkeyEnumeration(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				subkeys, err = r.Subkeys(rootID)
 				if err != nil {
 					b.Fatal(err)
@@ -351,7 +353,7 @@ func BenchmarkSubkeyEnumeration(b *testing.B) {
 	}
 }
 
-// BenchmarkStatKey measures the cost of reading key metadata
+// BenchmarkStatKey measures the cost of reading key metadata.
 func BenchmarkStatKey(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -372,7 +374,7 @@ func BenchmarkStatKey(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				keyMeta, err = r.StatKey(rootID)
 				if err != nil {
 					b.Fatal(err)
@@ -385,7 +387,7 @@ func BenchmarkStatKey(b *testing.B) {
 	}
 }
 
-// BenchmarkValueStringDecode measures UTF-16LE to UTF-8 conversion cost
+// BenchmarkValueStringDecode measures UTF-16LE to UTF-8 conversion cost.
 func BenchmarkValueStringDecode(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -406,8 +408,8 @@ func BenchmarkValueStringDecode(b *testing.B) {
 			_ = r.Walk(rootID, func(nodeID hive.NodeID) error {
 				values, _ := r.Values(nodeID)
 				for _, valueID := range values {
-					meta, err := r.StatValue(valueID)
-					if err == nil && (meta.Type == hive.REG_SZ || meta.Type == hive.REG_EXPAND_SZ) {
+					meta, statErr := r.StatValue(valueID)
+					if statErr == nil && (meta.Type == hive.REG_SZ || meta.Type == hive.REG_EXPAND_SZ) {
 						stringValues = append(stringValues, valueID)
 						if len(stringValues) >= 1000 {
 							return hive.ErrNotFound // Stop early
@@ -426,7 +428,7 @@ func BenchmarkValueStringDecode(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				for _, valueID := range stringValues {
 					str, err = r.ValueString(valueID, hive.ReadOptions{})
 					if err == nil {
@@ -441,7 +443,7 @@ func BenchmarkValueStringDecode(b *testing.B) {
 	}
 }
 
-// BenchmarkFullTreeTraversal measures complete hive enumeration
+// BenchmarkFullTreeTraversal measures complete hive enumeration.
 func BenchmarkFullTreeTraversal(b *testing.B) {
 	for _, tc := range benchmarkHives {
 		b.Run(tc.name, func(b *testing.B) {
@@ -464,7 +466,7 @@ func BenchmarkFullTreeTraversal(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				keyCount = 0
 				valueCount = 0
 				bytesRead = 0
@@ -473,9 +475,9 @@ func BenchmarkFullTreeTraversal(b *testing.B) {
 					keyCount++
 
 					// Read key metadata
-					meta, err := r.StatKey(nodeID)
-					if err != nil {
-						return err
+					meta, statErr := r.StatKey(nodeID)
+					if statErr != nil {
+						return statErr
 					}
 					benchKeyMeta = meta
 
@@ -483,16 +485,16 @@ func BenchmarkFullTreeTraversal(b *testing.B) {
 					values, _ := r.Values(nodeID)
 					for _, valueID := range values {
 						valueCount++
-						valueMeta, err := r.StatValue(valueID)
-						if err != nil {
+						valueMeta, valStatErr := r.StatValue(valueID)
+						if valStatErr != nil {
 							continue
 						}
 						benchValueMeta = valueMeta
 
-						data, err := r.ValueBytes(valueID, hive.ReadOptions{})
-						if err == nil {
-							bytesRead += len(data)
-							benchBytes = data
+						valueData, bytesErr := r.ValueBytes(valueID, hive.ReadOptions{})
+						if bytesErr == nil {
+							bytesRead += len(valueData)
+							benchBytes = valueData
 						}
 					}
 

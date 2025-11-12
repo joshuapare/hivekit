@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree"
 )
 
 // TestLiveFilteringAfterThreeCharacters verifies that filtering only applies after 3+ characters
@@ -161,10 +161,10 @@ func TestLiveFilteringIncludesParentPaths(t *testing.T) {
 
 	// Verify all parent paths are present
 	expectedPaths := map[string]bool{
-		"Software":                                           false,
-		"Software\\Microsoft":                                false,
-		"Software\\Microsoft\\Windows":                       false,
-		"Software\\Microsoft\\Windows\\CurrentVersion":       false,
+		"Software":                                     false,
+		"Software\\Microsoft":                          false,
+		"Software\\Microsoft\\Windows":                 false,
+		"Software\\Microsoft\\Windows\\CurrentVersion": false,
 	}
 
 	for _, item := range items {

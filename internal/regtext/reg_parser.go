@@ -10,20 +10,20 @@ import (
 	"golang.org/x/text/transform"
 )
 
-// RegValue represents a value in a .reg file
+// RegValue represents a value in a .reg file.
 type RegValue struct {
 	Name string // Value name ("" for default value @)
 	Type string // Type: "string", "dword", "binary", "hex", etc.
 	Data string // Raw data string from .reg file
 }
 
-// RegKey represents a key in a .reg file with its values
+// RegKey represents a key in a .reg file with its values.
 type RegKey struct {
 	Path   string      // Full key path
 	Values []*RegValue // Values under this key
 }
 
-// RegStats contains statistics parsed from a .reg file
+// RegStats contains statistics parsed from a .reg file.
 type RegStats struct {
 	KeyCount   int       // Number of registry keys
 	ValueCount int       // Number of registry values
@@ -107,7 +107,7 @@ func ParseRegFile(r io.Reader) (*RegStats, error) {
 	return stats, nil
 }
 
-// parseRegValue parses a single value line from a .reg file
+// parseRegValue parses a single value line from a .reg file.
 func parseRegValue(line string) *RegValue {
 	// Handle default value: @="value" or @=hex:...
 	if strings.HasPrefix(line, DefaultValuePrefix) {
@@ -132,7 +132,7 @@ func parseRegValue(line string) *RegValue {
 		return nil
 	}
 
-	namePart := line[1:closingQuotePos] // Skip opening quote
+	namePart := line[1:closingQuotePos]   // Skip opening quote
 	valuePart := line[closingQuotePos+2:] // Skip closing quote and =
 
 	// Unescape the name

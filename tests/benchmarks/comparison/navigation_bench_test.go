@@ -26,7 +26,7 @@ func BenchmarkRoot(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				root, err = r.Root()
 				if err != nil {
 					b.Fatalf("Root failed: %v", err)
@@ -50,7 +50,7 @@ func BenchmarkRoot(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				root = h.Root()
 			}
 
@@ -82,7 +82,7 @@ func BenchmarkNodeChildren(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				children, err = r.Subkeys(root)
 				if err != nil {
 					b.Fatalf("Subkeys failed: %v", err)
@@ -108,7 +108,7 @@ func BenchmarkNodeChildren(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				children = h.NodeChildren(root)
 			}
 
@@ -152,7 +152,7 @@ func BenchmarkNodeGetChild(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				child, err = r.Lookup(root, tc.childName)
 				if err != nil {
 					b.Fatalf("Lookup failed: %v", err)
@@ -178,7 +178,7 @@ func BenchmarkNodeGetChild(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				child = h.NodeGetChild(root, tc.childName)
 			}
 
@@ -210,7 +210,7 @@ func BenchmarkNodeName(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				name, err = r.KeyName(root)
 				if err != nil {
 					b.Fatalf("KeyName failed: %v", err)
@@ -236,7 +236,7 @@ func BenchmarkNodeName(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				name = h.NodeName(root)
 			}
 
@@ -268,7 +268,7 @@ func BenchmarkFullTreeWalk(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				nodeCount = walkTreeGohivex(b, r, root)
 			}
 
@@ -291,7 +291,7 @@ func BenchmarkFullTreeWalk(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				nodeCount = walkTreeHivex(b, h, root)
 			}
 
@@ -317,14 +317,13 @@ func walkTreeGohivex(b *testing.B, r hive.Reader, node hive.NodeID) int {
 }
 
 // walkTreeHivex recursively walks tree and counts nodes.
-func walkTreeHivex(b *testing.B, h *bindings.Hive, node bindings.NodeHandle) int {
-	_ = b // Parameter kept for signature consistency with walkTreeGohivex
+func walkTreeHivex(_ *testing.B, h *bindings.Hive, node bindings.NodeHandle) int {
 	count := 1
 
 	children := h.NodeChildren(node)
 
 	for _, child := range children {
-		count += walkTreeHivex(b, h, child)
+		count += walkTreeHivex(nil, h, child)
 	}
 
 	return count
@@ -353,17 +352,17 @@ func BenchmarkNodeChildrenWithNames(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
-				children, err := r.Subkeys(root)
-				if err != nil {
-					b.Fatalf("Subkeys failed: %v", err)
+			for range b.N {
+				children, subkeysErr := r.Subkeys(root)
+				if subkeysErr != nil {
+					b.Fatalf("Subkeys failed: %v", subkeysErr)
 				}
 
 				names = make([]string, len(children))
 				for j, child := range children {
-					name, err := r.KeyName(child)
-					if err != nil {
-						b.Fatalf("KeyName failed: %v", err)
+					name, keyNameErr := r.KeyName(child)
+					if keyNameErr != nil {
+						b.Fatalf("KeyName failed: %v", keyNameErr)
 					}
 					names[j] = name
 				}
@@ -388,7 +387,7 @@ func BenchmarkNodeChildrenWithNames(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				children := h.NodeChildren(root)
 
 				names = make([]string, len(children))
@@ -433,7 +432,7 @@ func BenchmarkNodeParent(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			parent, err = r.Parent(child)
 			if err != nil {
 				b.Fatalf("Parent failed: %v", err)
@@ -460,7 +459,7 @@ func BenchmarkNodeParent(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			parent = h.NodeParent(child)
 		}
 

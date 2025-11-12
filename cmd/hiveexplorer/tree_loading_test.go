@@ -8,7 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	
+
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 

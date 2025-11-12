@@ -1,0 +1,66 @@
+Windows Registry Editor Version 5.00
+
+; Mixed case test - Case-insensitive path normalization
+; Same keys and values written with different case variations
+; Optimizer should normalize paths and deduplicate (30 ops → ~10 ops)
+
+; Variation 1 - lowercase
+[HKEY_LOCAL_MACHINE\software\casetest\config]
+"setting1"="value-v1"
+"setting2"=dword:00000001
+"setting3"="value-v1"
+
+; Variation 2 - UPPERCASE
+[HKEY_LOCAL_MACHINE\SOFTWARE\CASETEST\CONFIG]
+"SETTING1"="value-v2"
+"SETTING2"=dword:00000002
+"SETTING3"="value-v2"
+
+; Variation 3 - Mixed Case
+[HKEY_LOCAL_MACHINE\Software\CaseTest\Config]
+"Setting1"="value-v3"
+"Setting2"=dword:00000003
+"Setting3"="value-v3"
+
+; Variation 4 - Different mix
+[HKEY_LOCAL_MACHINE\SOFTWARE\casetest\CONFIG]
+"setting1"="value-v4"
+"SeTTing2"=dword:00000004
+"SETTING3"="value-v4"
+
+; Variation 5 - Another mix
+[HKEY_LOCAL_MACHINE\software\CASETEST\config]
+"SETTING1"="value-v5"
+"setting2"=dword:00000005
+"Setting3"="value-v5"
+
+; Variation 6 - PascalCase
+[HKEY_LOCAL_MACHINE\Software\Casetest\Config]
+"Setting1"="value-v6"
+"Setting2"=dword:00000006
+"Setting3"="value-v6"
+
+; Variation 7 - camelCase keys
+[HKEY_LOCAL_MACHINE\software\caseTest\config]
+"setting1"="value-v7"
+"setting2"=dword:00000007
+"setting3"="value-v7"
+
+; Variation 8 - UPPER with lower value names
+[HKEY_LOCAL_MACHINE\SOFTWARE\CASETEST\CONFIG]
+"setting1"="value-v8"
+"setting2"=dword:00000008
+"setting3"="value-v8"
+
+; Variation 9 - Random case mix
+[HKEY_LOCAL_MACHINE\SoFtWaRe\CaSeTeSt\CoNfIg]
+"sEtTiNg1"="value-v9"
+"SeTtInG2"=dword:00000009
+"sEtTiNg3"="value-v9"
+
+; Variation 10 - FINAL (should be kept after deduplication)
+[HKEY_LOCAL_MACHINE\Software\CaseTest\Config]
+"Setting1"="FINAL-VALUE"
+"Setting2"=dword:0000000a
+"Setting3"="FINAL-VALUE"
+

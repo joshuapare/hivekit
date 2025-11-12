@@ -8,7 +8,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
-// ErrNodeDeleted is returned when a node has been marked for deletion
+// ErrNodeDeleted is returned when a node has been marked for deletion.
 var ErrNodeDeleted = errors.New("node is deleted")
 
 // TransactionChanges represents the set of changes from a transaction.
@@ -60,8 +60,8 @@ func BuildIncremental(r types.Reader, changes TransactionChanges, baseHive []byt
 
 	// Apply created keys
 	for path := range changes.GetCreatedKeys() {
-		if err := ensurePathExists(tree, path); err != nil {
-			return nil, fmt.Errorf("failed to create path %s: %w", path, err)
+		if ensureErr := ensurePathExists(tree, path); ensureErr != nil {
+			return nil, fmt.Errorf("failed to create path %s: %w", path, ensureErr)
 		}
 	}
 
@@ -70,8 +70,8 @@ func BuildIncremental(r types.Reader, changes TransactionChanges, baseHive []byt
 		node := tree.FindNode(vk.Path)
 		if node == nil {
 			// Ensure path exists first
-			if err := ensurePathExists(tree, vk.Path); err != nil {
-				return nil, fmt.Errorf("failed to create path %s for value: %w", vk.Path, err)
+			if ensureErr := ensurePathExists(tree, vk.Path); ensureErr != nil {
+				return nil, fmt.Errorf("failed to create path %s for value: %w", vk.Path, ensureErr)
 			}
 			node = tree.FindNode(vk.Path)
 		}
@@ -90,8 +90,8 @@ func BuildIncremental(r types.Reader, changes TransactionChanges, baseHive []byt
 
 	// Apply deleted keys (must be done after value operations)
 	for path := range changes.GetDeletedKeys() {
-		if err := deletePath(tree, path); err != nil {
-			return nil, fmt.Errorf("failed to delete path %s: %w", path, err)
+		if deleteErr := deletePath(tree, path); deleteErr != nil {
+			return nil, fmt.Errorf("failed to delete path %s: %w", path, deleteErr)
 		}
 	}
 
@@ -144,8 +144,8 @@ func buildNodeFromBase(
 	childIDs, err := r.Subkeys(nodeID)
 	if err == nil {
 		for _, childID := range childIDs {
-			childMeta, err := r.StatKey(childID)
-			if err != nil {
+			childMeta, statErr := r.StatKey(childID)
+			if statErr != nil {
 				continue
 			}
 
@@ -155,10 +155,10 @@ func buildNodeFromBase(
 			}
 			childPath += childMeta.Name
 
-			child, err := buildNodeFromBase(r, childID, childPath, node, changes)
-			if err != nil {
+			child, buildErr := buildNodeFromBase(r, childID, childPath, node, changes)
+			if buildErr != nil {
 				// Skip deleted nodes (they return ErrNodeDeleted)
-				if errors.Is(err, ErrNodeDeleted) {
+				if errors.Is(buildErr, ErrNodeDeleted) {
 					continue
 				}
 				// For other errors, continue to skip the problematic child
@@ -172,8 +172,8 @@ func buildNodeFromBase(
 	valueIDs, err := r.Values(nodeID)
 	if err == nil {
 		for _, valueID := range valueIDs {
-			valueMeta, err := r.StatValue(valueID)
-			if err != nil {
+			valueMeta, statErr := r.StatValue(valueID)
+			if statErr != nil {
 				continue
 			}
 
@@ -196,8 +196,8 @@ func buildNodeFromBase(
 				node.Dirty = true
 			} else {
 				// Use original value (zero-copy)
-				data, err := r.ValueBytes(valueID, types.ReadOptions{CopyData: false})
-				if err != nil {
+				data, readErr := r.ValueBytes(valueID, types.ReadOptions{CopyData: false})
+				if readErr != nil {
 					continue
 				}
 				node.Values = append(node.Values, &Value{

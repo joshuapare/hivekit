@@ -13,7 +13,22 @@ import (
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
-// ErrKeyDeleted is returned when a key has been marked for deletion
+const (
+	// bufferSizeMultiplier is the multiplier for buffer size calculation.
+	// Adds 100% padding for alignment overhead, safety margin, and metadata.
+	bufferSizeMultiplier = 2
+
+	// listEntrySize is the size of a subkey list entry (offset + hash).
+	listEntrySize = 8
+
+	// inlineDataThreshold is the maximum data size that can be stored inline in VK cells.
+	inlineDataThreshold = format.DWORDSize
+
+	// listHeaderSize is the size of the list header (signature + count).
+	listHeaderSize = 4
+)
+
+// ErrKeyDeleted is returned when a key has been marked for deletion.
 var ErrKeyDeleted = errors.New("key is deleted")
 
 // rebuildHive creates a new hive image from the transaction plan.
@@ -32,17 +47,17 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 	neededSize := calculateBufferSize(root)
 	// Add 100% padding for alignment overhead, safety margin, and metadata
 	// This is conservative but ensures we never run out of space
-	bufferSize := max(neededSize*2, 64*1024)
+	bufferSize := max(neededSize*bufferSizeMultiplier, 64*1024)
 
 	// Ensure the pooled buffer is large enough
-	ensureCapacity(cellBuf, bufferSize)
+	ensureCapacity(cellBuf, int(bufferSize))
 
 	// Slice to working size
-	workBuf := (*cellBuf)[:bufferSize]
+	workBuf := (*cellBuf)[:int(bufferSize)]
 
 	// Serialize the tree into the buffer
-	if err := serializeNode(root, alloc, workBuf, opts); err != nil {
-		return nil, err
+	if serializeErr := serializeNode(root, alloc, workBuf, opts); serializeErr != nil {
+		return nil, serializeErr
 	}
 
 	// Trim buffer to actual size used
@@ -50,7 +65,7 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 		return nil, fmt.Errorf("buffer overflow: needed %d bytes, had %d (pre-calculated %d)",
 			alloc.nextOffset, len(workBuf), neededSize)
 	}
-	workBuf = workBuf[:alloc.nextOffset]
+	workBuf = workBuf[:int(alloc.nextOffset)]
 
 	// Build HBINs from the cell buffer
 	hbins := packCellBuffer(workBuf, opts.Repack)
@@ -61,38 +76,38 @@ func rebuildHive(tx *transaction, cellBuf *[]byte, opts types.WriteOptions) ([]b
 
 // calculateBufferSize recursively calculates the total buffer size needed
 // for all cells in the tree.
-func calculateBufferSize(node *treeNode) int {
+func calculateBufferSize(node *treeNode) int32 {
 	if node == nil {
 		return 0
 	}
 
-	total := 0
+	var total int32
 
 	// NK cell size: 4 (header) + format.NKFixedHeaderSize + name length, aligned to 8 bytes
-	nkSize := format.CellHeaderSize + format.NKFixedHeaderSize + len(node.name)
+	nkSize := int32(format.CellHeaderSize + format.NKFixedHeaderSize + len(node.name))
 	total += alignTo8(nkSize)
 
-	// Value list cell if there are values: 4 (header) + 4*count, aligned to 8 bytes
+	// Value list cell if there are values: header + DWORD*count, aligned to 8 bytes
 	if len(node.values) > 0 {
-		valListSize := 4 + len(node.values)*4
+		valListSize := int32(format.CellHeaderSize + len(node.values)*format.DWORDSize)
 		total += alignTo8(valListSize)
 
-		// Each VK cell: 4 (header) + format.VKFixedHeaderSize + name length, aligned to 8 bytes
+		// Each VK cell: header + format.VKFixedHeaderSize + name length, aligned to 8 bytes
 		for _, val := range node.values {
-			vkSize := format.CellHeaderSize + format.VKFixedHeaderSize + len(val.name)
+			vkSize := int32(format.CellHeaderSize + format.VKFixedHeaderSize + len(val.name))
 			total += alignTo8(vkSize)
 
-			// Data cell if data > 4 bytes: 4 (header) + data length, aligned to 8 bytes
-			if len(val.data) > 4 {
-				dataSize := 4 + len(val.data)
+			// Data cell if data > threshold: header + data length, aligned to 8 bytes
+			if len(val.data) > inlineDataThreshold {
+				dataSize := int32(format.CellHeaderSize + len(val.data))
 				total += alignTo8(dataSize)
 			}
 		}
 	}
 
-	// Subkey list cell if there are children: 4 (header) + 4 + count*8, aligned to 8 bytes
+	// Subkey list cell if there are children: header + list header + count*entrySize, aligned to 8 bytes
 	if len(node.children) > 0 {
-		subkeyListSize := 4 + 4 + len(node.children)*8
+		subkeyListSize := int32(format.CellHeaderSize + listHeaderSize + len(node.children)*listEntrySize)
 		total += alignTo8(subkeyListSize)
 	}
 
@@ -105,18 +120,18 @@ func calculateBufferSize(node *treeNode) int {
 }
 
 // alignTo8 returns the size aligned to 8-byte boundary.
-func alignTo8(size int) int {
-	if size%8 == 0 {
+func alignTo8(size int32) int32 {
+	if size%format.CellAlignment == 0 {
 		return size
 	}
-	return size + (8 - size%8)
+	return size + (format.CellAlignment - size%format.CellAlignment)
 }
 
 // treeNode represents a key in the logical tree.
 type treeNode struct {
 	name           string
-	nameCompressed bool   // true if name should be stored in compressed (Windows-1252) format
-	offset         int32  // cell offset (assigned during serialization)
+	nameCompressed bool  // true if name should be stored in compressed (Windows-1252) format
+	offset         int32 // cell offset (assigned during serialization)
 	parent         *treeNode
 	children       []*treeNode
 	childMap       map[string]*treeNode // O(1) lookup map for children
@@ -135,7 +150,7 @@ type treeValue struct {
 }
 
 // buildTree constructs the logical tree by merging base + changes.
-func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNode, error) {
+func buildTree(tx *transaction, _ *allocator, _ types.WriteOptions) (*treeNode, error) {
 	var root *treeNode
 
 	// If no base hive (creating from scratch), start with empty root
@@ -157,7 +172,7 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 			return nil, err
 		}
 
-		root, err = buildNodeFromBase(tx, alloc, rootID, "", nil)
+		root, err = buildNodeFromBase(tx, rootID, "", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -168,9 +183,7 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 		if node.exists {
 			continue // already in tree
 		}
-		if err := insertCreatedKey(root, path, node); err != nil {
-			return nil, err
-		}
+		insertCreatedKey(root, path, node)
 	}
 
 	// Apply value changes
@@ -182,9 +195,7 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 
 	// Apply value deletions
 	for vk := range tx.deletedVals {
-		if err := deleteValueInTree(root, vk.path, vk.name); err != nil {
-			return nil, err
-		}
+		deleteValueInTree(root, vk.path, vk.name)
 	}
 
 	return root, nil
@@ -193,7 +204,6 @@ func buildTree(tx *transaction, alloc *allocator, _ types.WriteOptions) (*treeNo
 // buildNodeFromBase recursively builds a treeNode from the base types.
 func buildNodeFromBase(
 	tx *transaction,
-	alloc *allocator,
 	id types.NodeID,
 	path string,
 	parent *treeNode,
@@ -219,11 +229,11 @@ func buildNodeFromBase(
 	}
 
 	// Load values
-	valueIDs, err := tx.editor.r.Values(id)
-	if err == nil {
+	valueIDs, valErr := tx.editor.r.Values(id)
+	if valErr == nil {
 		for _, vid := range valueIDs {
-			vmeta, err := tx.editor.r.StatValue(vid)
-			if err != nil {
+			vmeta, statErr := tx.editor.r.StatValue(vid)
+			if statErr != nil {
 				continue
 			}
 			vk := valueKey{path: path, name: vmeta.Name}
@@ -242,8 +252,8 @@ func buildNodeFromBase(
 				node.valueMap[vmeta.Name] = &node.values[len(node.values)-1]
 			} else {
 				// Use original value
-				data, err := tx.editor.r.ValueBytes(vid, types.ReadOptions{CopyData: true})
-				if err != nil {
+				data, readErr := tx.editor.r.ValueBytes(vid, types.ReadOptions{CopyData: true})
+				if readErr != nil {
 					continue
 				}
 				node.values = append(node.values, treeValue{
@@ -259,11 +269,11 @@ func buildNodeFromBase(
 	}
 
 	// Load subkeys
-	subkeys, err := tx.editor.r.Subkeys(id)
-	if err == nil {
+	subkeys, subErr := tx.editor.r.Subkeys(id)
+	if subErr == nil {
 		for _, sid := range subkeys {
-			smeta, err := tx.editor.r.StatKey(sid)
-			if err != nil {
+			smeta, statErr := tx.editor.r.StatKey(sid)
+			if statErr != nil {
 				continue
 			}
 			childPath := path
@@ -272,13 +282,13 @@ func buildNodeFromBase(
 			}
 			childPath += smeta.Name
 
-			child, err := buildNodeFromBase(tx, alloc, sid, childPath, node)
-			if err != nil {
+			child, buildErr := buildNodeFromBase(tx, sid, childPath, node)
+			if buildErr != nil {
 				// Skip deleted keys (they return ErrKeyDeleted)
-				if errors.Is(err, ErrKeyDeleted) {
+				if errors.Is(buildErr, ErrKeyDeleted) {
 					continue
 				}
-				return nil, err
+				return nil, buildErr
 			}
 			node.children = append(node.children, child)
 			node.childMap[child.name] = child
@@ -319,10 +329,10 @@ func insertChildSorted(parent, child *treeNode) {
 }
 
 // insertCreatedKey inserts a created key into the tree.
-func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
+func insertCreatedKey(root *treeNode, path string, _ *keyNode) {
 	segments := splitPath(path)
 	if len(segments) == 0 {
-		return nil
+		return
 	}
 
 	current := root
@@ -349,10 +359,9 @@ func insertCreatedKey(root *treeNode, path string, node *keyNode) error {
 		}
 		// If this is the last segment, we're at the target
 		if i == len(segments)-1 {
-			return nil
+			return
 		}
 	}
-	return nil
 }
 
 // setValueInTree sets a value in the tree.
@@ -384,15 +393,15 @@ func setValueInTree(root *treeNode, path, name string, typ types.RegType, data [
 }
 
 // deleteValueInTree deletes a value from the tree.
-func deleteValueInTree(root *treeNode, path, name string) error {
+func deleteValueInTree(root *treeNode, path, name string) {
 	node := findNode(root, path)
 	if node == nil {
-		return nil
+		return
 	}
 
 	// Use valueMap for O(1) lookup
 	if _, found := node.valueMap[name]; !found {
-		return nil // Value doesn't exist, nothing to delete
+		return // Value doesn't exist, nothing to delete
 	}
 
 	// Find and remove from slice
@@ -412,8 +421,6 @@ func deleteValueInTree(root *treeNode, path, name string) error {
 	for i := range node.values {
 		node.valueMap[node.values[i].name] = &node.values[i]
 	}
-
-	return nil
 }
 
 // findNode finds a node by path in the tree.
@@ -460,7 +467,7 @@ func splitPath(path string) []string {
 // 1. Serialize NK first (with placeholder 0 for list offsets)
 // 2. Serialize children (so we know their offsets)
 // 3. Serialize lists using known child offsets
-// 4. Update parent NK with list offsets
+// 4. Update parent NK with list offsets.
 func serializeNode(node *treeNode, alloc *allocator, buf []byte, opts types.WriteOptions) error {
 	// Sort children by name only if not already sorted
 	if !node.childrenSorted && len(node.children) > 0 {
@@ -561,13 +568,13 @@ func serializeNKToBuf(
 		flags = 0x00
 	}
 
-	contentSize := format.NKFixedHeaderSize + len(nameBytes) // Fixed from 0x50 to 0x4C
+	contentSize := int32(format.NKFixedHeaderSize + len(nameBytes)) // Fixed from 0x50 to 0x4C
 	// Ensure NK payload meets minimum size requirement (80 bytes)
 	// This is needed for keys with short/empty names (e.g., root)
 	if contentSize < format.NKMinSize {
 		contentSize = format.NKMinSize
 	}
-	totalSize := contentSize + 4         // +4 for cell header
+	totalSize := contentSize + 4 // +4 for cell header
 
 	// Allocate (will be 8-byte aligned)
 	offset := alloc.alloc(totalSize)
@@ -579,7 +586,7 @@ func serializeNKToBuf(
 	}
 
 	// Ensure buffer is large enough
-	if int(offset)+alignedTotalSize > len(buf) {
+	if int(offset)+int(alignedTotalSize) > len(buf) {
 		panic(fmt.Sprintf("buffer too small for NK: need %d bytes at offset %d, buffer is %d bytes",
 			alignedTotalSize, offset, len(buf)))
 	}
@@ -684,24 +691,30 @@ func serializeNKToBuf(
 func buildFinalHive(hbins [][]byte, rootOffset int32) ([]byte, error) {
 	header := make([]byte, format.HeaderSize)
 	// REGF Base Block Header (per Windows Registry File Format Specification)
-	copy(header[:4], format.REGFSignature)           // 0x00: Signature "regf"
-	binary.LittleEndian.PutUint32(header[4:], 1)     // 0x04: Primary sequence number
-	binary.LittleEndian.PutUint32(header[8:], 1)     // 0x08: Secondary sequence number
-	binary.LittleEndian.PutUint64(header[12:], 0)    // 0x0C: Last written timestamp (FILETIME)
-	binary.LittleEndian.PutUint32(header[20:], 1)    // 0x14: Major version
-	binary.LittleEndian.PutUint32(header[24:], 5)    // 0x18: Minor version (5 = Windows 2000+)
-	binary.LittleEndian.PutUint32(header[28:], 0)    // 0x1C: File type (0 = primary file)
-	binary.LittleEndian.PutUint32(header[32:], 1)    // 0x20: File format (1 = direct memory load)
+	copy(header[:4], format.REGFSignature)        // 0x00: Signature "regf"
+	binary.LittleEndian.PutUint32(header[4:], 1)  // 0x04: Primary sequence number
+	binary.LittleEndian.PutUint32(header[8:], 1)  // 0x08: Secondary sequence number
+	binary.LittleEndian.PutUint64(header[12:], 0) // 0x0C: Last written timestamp (FILETIME)
+	binary.LittleEndian.PutUint32(header[20:], 1) // 0x14: Major version
+	binary.LittleEndian.PutUint32(header[24:], 5) // 0x18: Minor version (5 = Windows 2000+)
+	binary.LittleEndian.PutUint32(header[28:], 0) // 0x1C: File type (0 = primary file)
+	binary.LittleEndian.PutUint32(header[32:], 1) // 0x20: File format (1 = direct memory load)
 	// Root offset - convert from cellBuf offset to HBIN-relative offset
-	binary.LittleEndian.PutUint32(header[36:], uint32(cellBufOffsetToHBINOffset(rootOffset))) // 0x24: Root cell offset
+	binary.LittleEndian.PutUint32(
+		header[36:],
+		uint32(cellBufOffsetToHBINOffset(rootOffset)),
+	) // 0x24: Root cell offset
 
 	// Calculate total HBIN data size
-	totalHBINSize := 0
+	var totalHBINSize uint32
 	for _, hbin := range hbins {
-		totalHBINSize += len(hbin)
+		totalHBINSize += uint32(len(hbin))
 	}
-	binary.LittleEndian.PutUint32(header[40:], uint32(totalHBINSize)) // 0x28: Hive bins data size
-	binary.LittleEndian.PutUint32(header[44:], 1)                     // 0x2C: Clustering factor (sector_size/512)
+	binary.LittleEndian.PutUint32(header[40:], totalHBINSize) // 0x28: Hive bins data size
+	binary.LittleEndian.PutUint32(
+		header[44:],
+		1,
+	) // 0x2C: Clustering factor (sector_size/512)
 
 	// Calculate checksum (XOR of first 508 bytes as 127 DWORDs)
 	var checksum uint32
@@ -766,7 +779,7 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 		nameBytes = encodeUTF16LE(val.name)
 		flags = 0x00
 	}
-	dataLen := len(val.data)
+	dataLen := int32(len(val.data))
 	dataOff := int32(-1) // Placeholder for unused offset (format.InvalidOffset)
 
 	// Determine if data should be inline (≤4 bytes)
@@ -789,7 +802,7 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 		dataOff = cellBufOffsetToHBINOffset(doff)
 	}
 
-	contentSize := format.VKFixedHeaderSize + len(nameBytes)
+	contentSize := int32(format.VKFixedHeaderSize + len(nameBytes))
 	totalSize := contentSize + 4
 	offset := alloc.alloc(totalSize)
 
@@ -799,7 +812,7 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 		alignedTotalSize = totalSize + (8 - totalSize%8)
 	}
 
-	if int(offset)+alignedTotalSize > len(buf) {
+	if int(offset)+int(alignedTotalSize) > len(buf) {
 		panic("buffer too small")
 	}
 
@@ -853,7 +866,7 @@ func serializeVKToBuf(val treeValue, alloc *allocator, buf []byte) int32 {
 
 // serializeValueListToBuf writes a value list cell directly to the buffer.
 func serializeValueListToBuf(offsets []int32, alloc *allocator, buf []byte) int32 {
-	contentSize := len(offsets) * 4
+	contentSize := int32(len(offsets) * 4)
 	totalSize := contentSize + 4
 	offset := alloc.alloc(totalSize)
 
@@ -875,7 +888,7 @@ func serializeValueListToBuf(offsets []int32, alloc *allocator, buf []byte) int3
 // serializeSubkeyListToBuf writes a subkey list (LF format) directly to the buffer.
 func serializeSubkeyListToBuf(offsets []int32, alloc *allocator, buf []byte) int32 {
 	count := len(offsets)
-	contentSize := 4 + count*8 // signature(2) + count(2) + entries(count*8) - NO padding!
+	contentSize := int32(4 + count*8) // signature(2) + count(2) + entries(count*8) - NO padding!
 	totalSize := contentSize + 4
 	offset := alloc.alloc(totalSize)
 

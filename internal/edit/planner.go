@@ -41,7 +41,7 @@ type EditorOptions struct {
 }
 
 // NewEditorWithOptions creates an Editor with custom options.
-func NewEditorWithOptions(r types.Reader, opts EditorOptions) *Editor {
+func NewEditorWithOptions(r types.Reader, _ EditorOptions) *Editor {
 	return &Editor{r: r}
 }
 
@@ -73,11 +73,11 @@ func (e *Editor) BeginWithLimits(limits ast.Limits) types.Tx {
 // transaction implements types.Tx and accumulates planned changes.
 type transaction struct {
 	editor      *Editor
-	createdKeys map[string]*keyNode   // path -> node metadata
-	deletedKeys map[string]bool       // path -> deleted
+	createdKeys map[string]*keyNode    // path -> node metadata
+	deletedKeys map[string]bool        // path -> deleted
 	setValues   map[valueKey]valueData // (path, name) -> value data
-	deletedVals map[valueKey]bool     // (path, name) -> deleted
-	limits      *ast.Limits        // registry limits to enforce
+	deletedVals map[valueKey]bool      // (path, name) -> deleted
+	limits      *ast.Limits            // registry limits to enforce
 	committed   bool
 	rolledBack  bool
 }
@@ -85,7 +85,6 @@ type transaction struct {
 // keyNode represents metadata for a key (new or existing).
 type keyNode struct {
 	exists bool            // true if key exists in base hive
-	nodeID types.NodeID     // ID if exists
 	parent string          // parent path
 	name   string          // key name
 	values map[string]bool // local value names (for conflict detection)
@@ -149,8 +148,8 @@ func (tx *transaction) CreateKey(path string, opts types.CreateKeyOptions) error
 				return &types.Error{Kind: types.ErrKindNotFound, Msg: fmt.Sprintf("parent key %q not found", parent)}
 			}
 			// Recursively create parent
-			if err := tx.CreateKey(parent, opts); err != nil {
-				return err
+			if createErr := tx.CreateKey(parent, opts); createErr != nil {
+				return createErr
 			}
 		} else if tx.deletedKeys[parent] {
 			// Parent exists in base but is deleted
@@ -194,12 +193,15 @@ func (tx *transaction) DeleteKey(path string, opts types.DeleteKeyOptions) error
 
 	// If not recursive, ensure no subkeys
 	if !opts.Recursive && tx.editor.r != nil {
-		subkeys, err := tx.editor.r.Subkeys(id)
-		if err != nil {
-			return err
+		subkeys, subkeysErr := tx.editor.r.Subkeys(id)
+		if subkeysErr != nil {
+			return subkeysErr
 		}
 		if len(subkeys) > 0 {
-			return &types.Error{Kind: types.ErrKindState, Msg: fmt.Sprintf("key %q has subkeys; use Recursive=true", path)}
+			return &types.Error{
+				Kind: types.ErrKindState,
+				Msg:  fmt.Sprintf("key %q has subkeys; use Recursive=true", path),
+			}
 		}
 	}
 
@@ -208,8 +210,8 @@ func (tx *transaction) DeleteKey(path string, opts types.DeleteKeyOptions) error
 
 	if opts.Recursive {
 		// Mark all descendants as deleted
-		if err := tx.markDescendantsDeleted(path); err != nil {
-			return err
+		if markErr := tx.markDescendantsDeleted(path); markErr != nil {
+			return markErr
 		}
 	}
 
@@ -226,21 +228,21 @@ func (tx *transaction) markDescendantsDeleted(path string) error {
 	if err != nil {
 		// path doesn't exist in base hive, nothing to delete
 		// This is not an error condition for deletion
-		return nil
+		return nil //nolint:nilerr // Intentionally skip errors when path doesn't exist during deletion
 	}
 	subkeys, subkeysErr := tx.editor.r.Subkeys(id)
 	if subkeysErr != nil {
 		return subkeysErr
 	}
 	for _, sid := range subkeys {
-		meta, err := tx.editor.r.StatKey(sid)
-		if err != nil {
+		meta, statErr := tx.editor.r.StatKey(sid)
+		if statErr != nil {
 			continue
 		}
 		childPath := path + "\\" + meta.Name
 		tx.deletedKeys[childPath] = true
-		if err := tx.markDescendantsDeleted(childPath); err != nil {
-			return err
+		if markErr := tx.markDescendantsDeleted(childPath); markErr != nil {
+			return markErr
 		}
 	}
 	return nil
@@ -264,7 +266,10 @@ func (tx *transaction) SetValue(path, name string, t types.RegType, data []byte)
 		_, err := findInBase(tx.editor.r, path)
 		keyExists = err == nil
 		if !keyExists && tx.createdKeys[path] == nil {
-			return &types.Error{Kind: types.ErrKindNotFound, Msg: fmt.Sprintf("key %q not found; create it first", path)}
+			return &types.Error{
+				Kind: types.ErrKindNotFound,
+				Msg:  fmt.Sprintf("key %q not found; create it first", path),
+			}
 		}
 	}
 
@@ -337,8 +342,8 @@ func (tx *transaction) validateLimits() error {
 	}
 
 	// Validate tree against limits
-	if err := tree.ValidateTree(*tx.limits); err != nil {
-		return ast.LimitViolation(err)
+	if validateErr := tree.ValidateTree(*tx.limits); validateErr != nil {
+		return ast.LimitViolation(validateErr)
 	}
 
 	return nil

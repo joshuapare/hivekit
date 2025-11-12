@@ -36,7 +36,7 @@ func BenchmarkNodeAddChild(b *testing.B) {
 
 	// Benchmark gohivex - single operation with commit for fair comparison
 	b.Run("gohivex/"+hf.Name, func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 			// Create fresh temp copy for each iteration
 			tmpFile, err := os.CreateTemp("", "bench-*.tmp")
@@ -47,14 +47,14 @@ func BenchmarkNodeAddChild(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive
@@ -97,7 +97,7 @@ func BenchmarkNodeAddChild(b *testing.B) {
 
 	// Benchmark hivex - single operation with commit for fair comparison
 	b.Run("hivex/"+hf.Name, func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 			// Create fresh temp copy for each iteration
 			tmpFile, err := os.CreateTemp("", "bench-*.tmp")
@@ -108,14 +108,14 @@ func BenchmarkNodeAddChild(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive with write flag
@@ -161,7 +161,7 @@ func BenchmarkNodeSetValue(b *testing.B) {
 
 	// Benchmark gohivex - single operation with commit for fair comparison
 	b.Run("gohivex/"+hf.Name, func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 			// Create fresh temp copy for each iteration
 			tmpFile, err := os.CreateTemp("", "bench-*.tmp")
@@ -172,14 +172,14 @@ func BenchmarkNodeSetValue(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive
@@ -222,7 +222,7 @@ func BenchmarkNodeSetValue(b *testing.B) {
 
 	// Benchmark hivex - single operation with commit for fair comparison
 	b.Run("hivex/"+hf.Name, func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 			// Create fresh temp copy for each iteration
 			tmpFile, err := os.CreateTemp("", "bench-*.tmp")
@@ -233,14 +233,14 @@ func BenchmarkNodeSetValue(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive with write flag
@@ -287,7 +287,7 @@ func BenchmarkNodeSetValues(b *testing.B) {
 
 	// Benchmark gohivex - single operation with commit for fair comparison
 	b.Run("gohivex/"+hf.Name, func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 			// Create fresh temp copy for each iteration
 			tmpFile, err := os.CreateTemp("", "bench-*.tmp")
@@ -298,14 +298,14 @@ func BenchmarkNodeSetValues(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive
@@ -354,7 +354,7 @@ func BenchmarkNodeSetValues(b *testing.B) {
 
 	// Benchmark hivex - single operation with commit for fair comparison
 	b.Run("hivex/"+hf.Name, func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 			// Create fresh temp copy for each iteration
 			tmpFile, err := os.CreateTemp("", "bench-*.tmp")
@@ -365,14 +365,14 @@ func BenchmarkNodeSetValues(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive with write flag
@@ -421,7 +421,7 @@ func BenchmarkNodeDeleteChild(b *testing.B) {
 
 	// Benchmark gohivex - single operation with commit for fair comparison
 	b.Run("gohivex/"+hf.Name, func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 			// Create fresh temp copy for each iteration
 			tmpFile, err := os.CreateTemp("", "bench-*.tmp")
@@ -432,14 +432,14 @@ func BenchmarkNodeDeleteChild(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive
@@ -489,7 +489,7 @@ func BenchmarkNodeDeleteChild(b *testing.B) {
 
 	// Benchmark hivex - single operation with commit for fair comparison
 	b.Run("hivex/"+hf.Name, func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 			// Create fresh temp copy for each iteration
 			tmpFile, err := os.CreateTemp("", "bench-*.tmp")
@@ -500,14 +500,14 @@ func BenchmarkNodeDeleteChild(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive with write flag
@@ -562,7 +562,7 @@ func BenchmarkCommit(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 
 			// Create temp copy for each iteration
@@ -574,14 +574,14 @@ func BenchmarkCommit(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive
@@ -625,7 +625,7 @@ func BenchmarkCommit(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			b.StopTimer()
 
 			// Create temp copy for each iteration
@@ -637,14 +637,14 @@ func BenchmarkCommit(b *testing.B) {
 			tmpFile.Close()
 
 			// Copy hive
-			data, err := os.ReadFile(hf.Path)
-			if err != nil {
+			data, readErr := os.ReadFile(hf.Path)
+			if readErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("ReadFile failed: %v", err)
+				b.Fatalf("ReadFile failed: %v", readErr)
 			}
-			if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+			if writeErr := os.WriteFile(tmpPath, data, 0644); writeErr != nil {
 				os.Remove(tmpPath)
-				b.Fatalf("WriteFile failed: %v", err)
+				b.Fatalf("WriteFile failed: %v", writeErr)
 			}
 
 			// Open hive with write flag

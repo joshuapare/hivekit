@@ -41,7 +41,7 @@ func TestRefreshReloadsValues(t *testing.T) {
 	// Simulate refresh loading updated values
 	updatedValues := []ValueInfo{
 		{Name: "Version", Type: "REG_SZ", StringVal: "1.0", Size: 3},
-		{Name: "Build", Type: "REG_DWORD", DWordVal: 101, Size: 4}, // Updated value
+		{Name: "Build", Type: "REG_DWORD", DWordVal: 101, Size: 4},    // Updated value
 		{Name: "NewValue", Type: "REG_SZ", StringVal: "New", Size: 3}, // New value
 	}
 	helper.LoadValues("Software", updatedValues)

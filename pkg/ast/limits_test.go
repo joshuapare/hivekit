@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -37,7 +38,8 @@ func TestValidateNode_KeyNameLength(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for key name too long")
 	}
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		if ve.Limit != "MaxKeyNameLen" {
 			t.Errorf("Expected MaxKeyNameLen error, got %s", ve.Limit)
 		}
@@ -75,7 +77,8 @@ func TestValidateNode_MaxSubkeys(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for too many subkeys")
 	}
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		if ve.Limit != "MaxSubkeys" {
 			t.Errorf("Expected MaxSubkeys error, got %s", ve.Limit)
 		}
@@ -104,7 +107,8 @@ func TestValidateNode_MaxValues(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for too many values")
 	}
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		if ve.Limit != "MaxValues" {
 			t.Errorf("Expected MaxValues error, got %s", ve.Limit)
 		}
@@ -127,7 +131,8 @@ func TestValidateValue_NameLength(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for value name too long")
 	}
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		if ve.Limit != "MaxValueNameLen" {
 			t.Errorf("Expected MaxValueNameLen error, got %s", ve.Limit)
 		}
@@ -150,7 +155,8 @@ func TestValidateValue_DataSize(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for value data too large")
 	}
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		if ve.Limit != "MaxValueSize" {
 			t.Errorf("Expected MaxValueSize error, got %s", ve.Limit)
 		}
@@ -177,7 +183,8 @@ func TestValidateTreeDepth(t *testing.T) {
 	if depth != 4 {
 		t.Errorf("Expected depth=4, got %d", depth)
 	}
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		if ve.Limit != "MaxTreeDepth" {
 			t.Errorf("Expected MaxTreeDepth error, got %s", ve.Limit)
 		}
@@ -224,7 +231,8 @@ func TestValidateTreeSize(t *testing.T) {
 	if size <= limits.MaxTotalSize {
 		t.Errorf("Expected size > %d, got %d", limits.MaxTotalSize, size)
 	}
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		if ve.Limit != "MaxTotalSize" {
 			t.Errorf("Expected MaxTotalSize error, got %s", ve.Limit)
 		}
@@ -256,7 +264,8 @@ func TestValidateTree_Comprehensive(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for tree with too many subkeys")
 	}
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		if ve.Limit != "MaxSubkeys" {
 			t.Errorf("Expected MaxSubkeys error, got %s", ve.Limit)
 		}
@@ -381,14 +390,15 @@ func TestLimitViolation(t *testing.T) {
 	}
 
 	err := LimitViolation(ve)
-	if _, ok := err.(*types.Error); !ok {
+	error := &types.Error{}
+	if !errors.As(err, &error) {
 		t.Error("LimitViolation should wrap in types.Error")
 	}
 
 	// Non-ValidationError should pass through
 	otherErr := &types.Error{Kind: types.ErrKindFormat, Msg: "test"}
 	wrapped := LimitViolation(otherErr)
-	if wrapped != otherErr {
+	if !errors.Is(wrapped, otherErr) {
 		t.Error("Non-ValidationError should pass through unchanged")
 	}
 }

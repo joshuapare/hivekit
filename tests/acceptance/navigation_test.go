@@ -3,14 +3,15 @@ package acceptance
 import (
 	"testing"
 
-	"github.com/joshuapare/hivekit/bindings"
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/bindings"
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // TestRoot tests hivex_root
-// Gets the root node of the hive
+// Gets the root node of the hive.
 func TestRoot(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -51,7 +52,7 @@ func TestRoot(t *testing.T) {
 }
 
 // TestNodeChildren tests hivex_node_children
-// Enumerates all child nodes of a given node
+// Enumerates all child nodes of a given node.
 func TestNodeChildren(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -95,8 +96,8 @@ func TestNodeChildren(t *testing.T) {
 
 			// Verify each child has a name
 			for i, goChild := range goChildren {
-				goChildMeta, err := goHive.StatKey(goChild)
-				require.NoError(t, err, "Failed to stat child %d", i)
+				goChildMeta, statErr := goHive.StatKey(goChild)
+				require.NoError(t, statErr, "Failed to stat child %d", i)
 
 				hivexChildName := hivexHive.NodeName(hivexChildren[i])
 
@@ -108,7 +109,7 @@ func TestNodeChildren(t *testing.T) {
 }
 
 // TestNodeChildrenRecursive tests recursive traversal
-// Walks the entire tree comparing structure
+// Walks the entire tree comparing structure.
 func TestNodeChildrenRecursive(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -139,7 +140,7 @@ func TestNodeChildrenRecursive(t *testing.T) {
 	}
 }
 
-// walkAndCompare recursively walks both trees and compares structure
+// walkAndCompare recursively walks both trees and compares structure.
 func walkAndCompare(t *testing.T, goHive hive.Reader, hivexHive *bindings.Hive,
 	goNode hive.NodeID, hivexNode bindings.NodeHandle, depth int) {
 	t.Helper()
@@ -174,7 +175,7 @@ func walkAndCompare(t *testing.T, goHive hive.Reader, hivexHive *bindings.Hive,
 	}
 }
 
-// TestNodeChildrenEmpty tests children of leaf nodes
+// TestNodeChildrenEmpty tests children of leaf nodes.
 func TestNodeChildrenEmpty(t *testing.T) {
 	// Use special hive which has known leaf nodes
 	goHive := openGoHivex(t, TestHives.Special)
@@ -197,8 +198,8 @@ func TestNodeChildrenEmpty(t *testing.T) {
 	// The special hive children are leaf nodes (no children of their own)
 	if len(goChildren) > 0 {
 		// Check first child has no children
-		goLeafChildren, err := goHive.Subkeys(goChildren[0])
-		require.NoError(t, err)
+		goLeafChildren, leafErr := goHive.Subkeys(goChildren[0])
+		require.NoError(t, leafErr)
 
 		hivexLeafChildren := hivexHive.NodeChildren(hivexChildren[0])
 
@@ -211,7 +212,7 @@ func TestNodeChildrenEmpty(t *testing.T) {
 }
 
 // TestNodeParent tests hivex_node_parent
-// Gets the parent node of a given node
+// Gets the parent node of a given node.
 func TestNodeParent(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -232,8 +233,8 @@ func TestNodeParent(t *testing.T) {
 
 	if len(goChildren) > 0 {
 		// Get parent of first child
-		goParent, err := goHive.Parent(goChildren[0])
-		require.NoError(t, err)
+		goParent, parentErr := goHive.Parent(goChildren[0])
+		require.NoError(t, parentErr)
 
 		hivexParent := hivexHive.NodeParent(hivexChildren[0])
 
@@ -243,7 +244,7 @@ func TestNodeParent(t *testing.T) {
 	}
 }
 
-// TestNodeParentOfRoot tests parent of root node
+// TestNodeParentOfRoot tests parent of root node.
 func TestNodeParentOfRoot(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -276,7 +277,7 @@ func TestNodeParentOfRoot(t *testing.T) {
 }
 
 // TestNodeGetChild tests hivex_node_get_child
-// Finds a child node by name
+// Finds a child node by name.
 func TestNodeGetChild(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -320,7 +321,7 @@ func TestNodeGetChild(t *testing.T) {
 	}
 }
 
-// TestNodeGetChildNotFound tests GetChild with non-existent name
+// TestNodeGetChildNotFound tests GetChild with non-existent name.
 func TestNodeGetChildNotFound(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -337,14 +338,14 @@ func TestNodeGetChildNotFound(t *testing.T) {
 	nonExistent := "this_key_does_not_exist_12345"
 
 	_, goErr := goHive.Lookup(goRoot, nonExistent)
-	assert.Error(t, goErr, "gohivex should error for non-existent child")
+	require.Error(t, goErr, "gohivex should error for non-existent child")
 
 	hivexChild := hivexHive.NodeGetChild(hivexRoot, nonExistent)
 	assert.Zero(t, hivexChild, "hivex should return 0 for non-existent child")
 }
 
 // TestNodeGetChildCaseInsensitive tests that child lookup is case-insensitive
-// Note: Per the gohivex API docs, Lookup is case-insensitive
+// Note: Per the gohivex API docs, Lookup is case-insensitive.
 func TestNodeGetChildCaseInsensitive(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()

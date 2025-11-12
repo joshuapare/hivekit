@@ -37,22 +37,22 @@ func buildSampleHive() ([]byte, map[string]uint32) {
 
 	rootBody := writeCell(hbin+int(rootOff), 0x90)
 	copy(buf[rootBody:], []byte{'n', 'k'})
-	binary.LittleEndian.PutUint16(buf[rootBody+0x02:], 0x20) // flags
-	binary.LittleEndian.PutUint64(buf[rootBody+0x04:], 0)    // last write (8 bytes)
-	binary.LittleEndian.PutUint32(buf[rootBody+0x0C:], 0)    // access bits
+	binary.LittleEndian.PutUint16(buf[rootBody+0x02:], 0x20)       // flags
+	binary.LittleEndian.PutUint64(buf[rootBody+0x04:], 0)          // last write (8 bytes)
+	binary.LittleEndian.PutUint32(buf[rootBody+0x0C:], 0)          // access bits
 	binary.LittleEndian.PutUint32(buf[rootBody+0x10:], 0xFFFFFFFF) // parent offset
-	binary.LittleEndian.PutUint32(buf[rootBody+0x14:], 1)    // subkey count (fixed from 0x10)
-	binary.LittleEndian.PutUint32(buf[rootBody+0x18:], 0)    // volatile subkey count
+	binary.LittleEndian.PutUint32(buf[rootBody+0x14:], 1)          // subkey count (fixed from 0x10)
+	binary.LittleEndian.PutUint32(buf[rootBody+0x18:], 0)          // volatile subkey count
 	binary.LittleEndian.PutUint32(buf[rootBody+0x1C:], subListOff) // subkey list offset (fixed from 0x18)
 	binary.LittleEndian.PutUint32(buf[rootBody+0x20:], 0xFFFFFFFF) // volatile subkey list offset
-	binary.LittleEndian.PutUint32(buf[rootBody+0x24:], 2)    // value count (fixed from 0x20)
+	binary.LittleEndian.PutUint32(buf[rootBody+0x24:], 2)          // value count (fixed from 0x20)
 	binary.LittleEndian.PutUint32(buf[rootBody+0x28:], valListOff) // value list offset (fixed from 0x24)
 	binary.LittleEndian.PutUint32(buf[rootBody+0x2C:], 0xFFFFFFFF) // security offset
 	binary.LittleEndian.PutUint32(buf[rootBody+0x30:], 0xFFFFFFFF) // class offset
 	rootName := []byte("HKEY_LOCAL_MACHINE")
 	binary.LittleEndian.PutUint32(buf[rootBody+0x34:], uint32(len(rootName))) // max name length
 	binary.LittleEndian.PutUint16(buf[rootBody+0x48:], uint16(len(rootName))) // name length (fixed from 0x4C)
-	copy(buf[rootBody+0x4C:], rootName) // name (fixed from 0x50)
+	copy(buf[rootBody+0x4C:], rootName)                                       // name (fixed from 0x50)
 
 	subCell := writeCell(hbin+int(subListOff), 0x18)
 	copy(buf[subCell:], []byte{'l', 'i'})
@@ -91,19 +91,19 @@ func buildSampleHive() ([]byte, map[string]uint32) {
 
 	childBody := writeCell(hbin+int(childOff), 0x60)
 	copy(buf[childBody:], []byte{'n', 'k'})
-	binary.LittleEndian.PutUint16(buf[childBody+0x02:], 0x20) // flags
-	binary.LittleEndian.PutUint64(buf[childBody+0x04:], 0)    // last write (8 bytes)
-	binary.LittleEndian.PutUint32(buf[childBody+0x0C:], 0)    // access bits
-	binary.LittleEndian.PutUint32(buf[childBody+0x10:], rootOff) // parent offset
-	binary.LittleEndian.PutUint32(buf[childBody+0x14:], 0)    // subkey count
-	binary.LittleEndian.PutUint32(buf[childBody+0x18:], 0)    // volatile subkey count
+	binary.LittleEndian.PutUint16(buf[childBody+0x02:], 0x20)       // flags
+	binary.LittleEndian.PutUint64(buf[childBody+0x04:], 0)          // last write (8 bytes)
+	binary.LittleEndian.PutUint32(buf[childBody+0x0C:], 0)          // access bits
+	binary.LittleEndian.PutUint32(buf[childBody+0x10:], rootOff)    // parent offset
+	binary.LittleEndian.PutUint32(buf[childBody+0x14:], 0)          // subkey count
+	binary.LittleEndian.PutUint32(buf[childBody+0x18:], 0)          // volatile subkey count
 	binary.LittleEndian.PutUint32(buf[childBody+0x1C:], 0xFFFFFFFF) // subkey list offset
 	binary.LittleEndian.PutUint32(buf[childBody+0x20:], 0xFFFFFFFF) // volatile subkey list offset
-	binary.LittleEndian.PutUint32(buf[childBody+0x24:], 0)    // value count
+	binary.LittleEndian.PutUint32(buf[childBody+0x24:], 0)          // value count
 	binary.LittleEndian.PutUint32(buf[childBody+0x28:], 0xFFFFFFFF) // value list offset
 	childName := []byte("SOFTWARE")
 	binary.LittleEndian.PutUint16(buf[childBody+0x48:], uint16(len(childName))) // name length (fixed from 0x4C)
-	copy(buf[childBody+0x4C:], childName) // name (fixed from 0x50)
+	copy(buf[childBody+0x4C:], childName)                                       // name (fixed from 0x50)
 
 	return buf, map[string]uint32{
 		"root":  rootOff,

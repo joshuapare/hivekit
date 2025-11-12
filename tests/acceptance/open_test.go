@@ -5,15 +5,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/joshuapare/hivekit/bindings"
 	"github.com/joshuapare/hivekit/internal/reader"
 	"github.com/joshuapare/hivekit/pkg/hive"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestOpen_BasicOpen tests hivex_open with basic usage
-// Compares gohivex reader.Open() vs bindings.Open()
+// Compares gohivex reader.Open() vs bindings.Open().
 func TestOpen_BasicOpen(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -61,7 +62,7 @@ func TestOpen_BasicOpen(t *testing.T) {
 }
 
 // TestOpen_OpenBytes tests opening from memory bytes
-// hivex doesn't directly support this, but we can verify gohivex works
+// hivex doesn't directly support this, but we can verify gohivex works.
 func TestOpen_OpenBytes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -96,7 +97,7 @@ func TestOpen_OpenBytes(t *testing.T) {
 }
 
 // TestOpen_ZeroCopy tests gohivex's zero-copy mode
-// This is a gohivex-specific feature not in hivex
+// This is a gohivex-specific feature not in hivex.
 func TestOpen_ZeroCopy(t *testing.T) {
 	data := loadHiveData(t, TestHives.Minimal)
 
@@ -118,19 +119,19 @@ func TestOpen_ZeroCopy(t *testing.T) {
 	assertSameNodeID(t, goRoot, hivexRoot)
 }
 
-// TestOpen_FileNotFound tests error handling for missing files
+// TestOpen_FileNotFound tests error handling for missing files.
 func TestOpen_FileNotFound(t *testing.T) {
 	nonexistent := "/tmp/does-not-exist-12345.hive"
 
 	// Both should fail gracefully
 	_, goErr := reader.Open(nonexistent, hive.OpenOptions{})
-	assert.Error(t, goErr, "gohivex should error on missing file")
+	require.Error(t, goErr, "gohivex should error on missing file")
 
 	_, hivexErr := bindings.Open(nonexistent, 0)
-	assert.Error(t, hivexErr, "hivex should error on missing file")
+	require.Error(t, hivexErr, "hivex should error on missing file")
 }
 
-// TestOpen_InvalidHive tests error handling for corrupt/invalid hive files
+// TestOpen_InvalidHive tests error handling for corrupt/invalid hive files.
 func TestOpen_InvalidHive(t *testing.T) {
 	// Create temporary invalid hive file
 	tempDir := t.TempDir()
@@ -142,14 +143,14 @@ func TestOpen_InvalidHive(t *testing.T) {
 
 	// Both should fail gracefully
 	_, goErr := reader.Open(invalidPath, hive.OpenOptions{})
-	assert.Error(t, goErr, "gohivex should error on invalid hive")
+	require.Error(t, goErr, "gohivex should error on invalid hive")
 
 	_, hivexErr := bindings.Open(invalidPath, 0)
-	assert.Error(t, hivexErr, "hivex should error on invalid hive")
+	require.Error(t, hivexErr, "hivex should error on invalid hive")
 }
 
 // TestClose_BasicClose tests hivex_close
-// Verifies both implementations properly release resources
+// Verifies both implementations properly release resources.
 func TestClose_BasicClose(t *testing.T) {
 	// Open with gohivex
 	goHive, err := reader.Open(TestHives.Minimal, hive.OpenOptions{})
@@ -157,7 +158,7 @@ func TestClose_BasicClose(t *testing.T) {
 
 	// Close should succeed
 	err = goHive.Close()
-	assert.NoError(t, err, "gohivex close failed")
+	require.NoError(t, err, "gohivex close failed")
 
 	// Open with hivex
 	hivexHive, err := bindings.Open(TestHives.Minimal, 0)
@@ -169,14 +170,14 @@ func TestClose_BasicClose(t *testing.T) {
 }
 
 // TestClose_DoubleClose tests closing twice
-// Both implementations should handle this gracefully
+// Both implementations should handle this gracefully.
 func TestClose_DoubleClose(t *testing.T) {
 	// Test gohivex
 	goHive, err := reader.Open(TestHives.Minimal, hive.OpenOptions{})
 	require.NoError(t, err)
 
 	err = goHive.Close()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Second close should be safe (no-op or graceful error)
 	err = goHive.Close()
@@ -188,7 +189,7 @@ func TestClose_DoubleClose(t *testing.T) {
 	require.NoError(t, err)
 
 	err = hivexHive.Close()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Second close
 	err = hivexHive.Close()
@@ -197,7 +198,7 @@ func TestClose_DoubleClose(t *testing.T) {
 }
 
 // TestLastModified tests hivex_last_modified
-// Returns the last modification timestamp from the REGF header
+// Returns the last modification timestamp from the REGF header.
 func TestLastModified(t *testing.T) {
 	tests := []struct {
 		name     string

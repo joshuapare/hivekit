@@ -60,15 +60,15 @@ type Model struct {
 	inputBuffer string // Buffer for search/path input
 
 	// Search state
-	searchQuery     string
-	searchMatchIdx  int // Current match index
-	searchMatches   int // Total matches
+	searchQuery    string
+	searchMatchIdx int // Current match index
+	searchMatches  int // Total matches
 
 	// Global value search state
-	globalValueSearchActive   bool                       // Flag indicating we have search results (enables n/N navigation)
-	globalValueSearchInProgress bool                     // Flag indicating search is currently running
-	globalValueSearchResults  []GlobalValueSearchResult // Cached results from global value search
-	globalValueSearchDebounce *time.Timer               // Debounce timer for search input
+	globalValueSearchActive     bool                      // Flag indicating we have search results (enables n/N navigation)
+	globalValueSearchInProgress bool                      // Flag indicating search is currently running
+	globalValueSearchResults    []GlobalValueSearchResult // Cached results from global value search
+	globalValueSearchDebounce   *time.Timer               // Debounce timer for search input
 
 	// Bookmarks
 	bookmarks map[string]bool // Set of bookmarked key paths
@@ -80,18 +80,18 @@ type Model struct {
 	statusMessage string
 
 	// Diff mode
-	diffMode        bool
-	comparePath     string              // Path to comparison hive
-	hiveDiff        *hive.HiveDiff     // Diff results
-	showAdded       bool                // Toggle for showing added keys
-	showRemoved     bool                // Toggle for showing removed keys
-	showModified    bool                // Toggle for showing modified keys
-	showUnchanged   bool                // Toggle for showing unchanged keys
-	diffOnlyView    bool                // Show only diff items vs full tree
-	currentDiffStatus hive.DiffStatus  // Track current key's diff status for value loading
+	diffMode          bool
+	comparePath       string          // Path to comparison hive
+	hiveDiff          *hive.HiveDiff  // Diff results
+	showAdded         bool            // Toggle for showing added keys
+	showRemoved       bool            // Toggle for showing removed keys
+	showModified      bool            // Toggle for showing modified keys
+	showUnchanged     bool            // Toggle for showing unchanged keys
+	diffOnlyView      bool            // Show only diff items vs full tree
+	currentDiffStatus hive.DiffStatus // Track current key's diff status for value loading
 
 	// State preservation for diff mode (restore tree state when exiting diff)
-	preDiffCursorPath string            // Cursor position before entering diff mode
+	preDiffCursorPath   string          // Cursor position before entering diff mode
 	preDiffExpandedKeys map[string]bool // Expanded keys before entering diff mode
 
 	// Reader caching for performance in diff mode
@@ -276,8 +276,8 @@ func (e errMsg) Error() string { return e.err.Error() }
 
 // Type aliases to valuetable types
 type (
-	valuesLoadedMsg   = valuetable.ValuesLoadedMsg
-	ValueInfo         = valuetable.ValueInfo
+	valuesLoadedMsg = valuetable.ValuesLoadedMsg
+	ValueInfo       = valuetable.ValueInfo
 )
 
 // convertValueInfos is an alias to valuetable.ConvertValueInfos
@@ -297,9 +297,9 @@ type restoreTreeStateMsg struct {
 
 // GlobalValueSearchResult represents a key that contains matching values
 type GlobalValueSearchResult struct {
-	KeyPath       string   // Path of the key containing matches
+	KeyPath        string       // Path of the key containing matches
 	MatchingValues []ValueMatch // List of values that matched
-	MatchCount    int      // Total number of matching values in this key
+	MatchCount     int          // Total number of matching values in this key
 }
 
 // ValueMatch represents a value that matched the search query

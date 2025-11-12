@@ -54,9 +54,9 @@ type EngineResult struct {
 	Duration  time.Duration
 
 	// Details
-	Repairs       []RepairDetail    // Details of each repair attempt
-	RollbackCount int               // Number of repairs rolled back (if failure)
-	BackupPath    string            // Path to backup file (if created)
+	Repairs        []RepairDetail  // Details of each repair attempt
+	RollbackCount  int             // Number of repairs rolled back (if failure)
+	BackupPath     string          // Path to backup file (if created)
 	TransactionLog *TransactionLog // Full transaction log for debugging
 }
 
@@ -93,7 +93,7 @@ func (s RepairStatus) String() string {
 	case RepairStatusRolledBack:
 		return "ROLLEDBACK"
 	default:
-		return "UNKNOWN"
+		return unknownStatusString
 	}
 }
 
@@ -168,8 +168,11 @@ func (e *Engine) ExecuteRepairs(data []byte, diagnostics []Diagnostic) (*EngineR
 				result.TransactionLog = e.txLog
 				return result, &EngineError{
 					Operation: "rollback",
-					Message:   fmt.Sprintf("repair failed and rollback encountered error after rolling back %d repairs", rollbackCount),
-					Cause:     err,
+					Message: fmt.Sprintf(
+						"repair failed and rollback encountered error after rolling back %d repairs",
+						rollbackCount,
+					),
+					Cause: err,
 				}
 			} else {
 				result.RollbackCount = rollbackCount
@@ -185,9 +188,18 @@ func (e *Engine) ExecuteRepairs(data []byte, diagnostics []Diagnostic) (*EngineR
 			result.TransactionLog = e.txLog
 			return result, &EngineError{
 				Operation: "repair",
-				Message:   fmt.Sprintf("repair failed at diagnostic %d, all repairs rolled back", result.Applied+result.Skipped),
-				Cause:     detail.Error,
+				Message: fmt.Sprintf(
+					"repair failed at diagnostic %d, all repairs rolled back",
+					result.Applied+result.Skipped,
+				),
+				Cause: detail.Error,
 			}
+		case RepairStatusPending:
+			// RepairStatusPending should not occur after processRepair
+			// This is a no-op for exhaustive checking
+		case RepairStatusRolledBack:
+			// RepairStatusRolledBack should not occur during initial processing
+			// This is a no-op for exhaustive checking
 		}
 	}
 

@@ -1,7 +1,5 @@
 package repair
 
-
-
 // RepairModule defines the interface that all repair modules must implement.
 // Each module is responsible for repairing a specific type of structure
 // (REGF, HBIN, NK, VK, etc.) and ensures repairs are safe and correct.

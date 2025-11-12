@@ -286,11 +286,11 @@ func TestRenderTreeItemDisplay_EmptyValues(t *testing.T) {
 // TestRenderTreeItemDisplay_NegativePadding tests padding clamping for very long content
 func TestRenderTreeItemDisplay_NegativePadding(t *testing.T) {
 	props := TreeItemDisplayProps{
-		Name:      strings.Repeat("VeryLongKeyName", 10), // 150 chars
-		Icon:      "▼",
-		CountText: "(999)",
-		Timestamp: "2024-01-15 10:30:45",
-		Prefix:    "+",
+		Name:        strings.Repeat("VeryLongKeyName", 10), // 150 chars
+		Icon:        "▼",
+		CountText:   "(999)",
+		Timestamp:   "2024-01-15 10:30:45",
+		Prefix:      "+",
 		PrefixStyle: lipgloss.NewStyle(),
 		ItemStyle:   lipgloss.NewStyle(),
 		Depth:       0,

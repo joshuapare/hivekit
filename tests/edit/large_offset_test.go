@@ -11,7 +11,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestLargeHiveOffsets verifies offset calculations in the large hive
+// TestLargeHiveOffsets verifies offset calculations in the large hive.
 func TestLargeHiveOffsets(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/large")
 	if err != nil {
@@ -30,8 +30,8 @@ func TestLargeHiveOffsets(t *testing.T) {
 	tx := ed.Begin()
 
 	w := &writer.MemWriter{}
-	if err := tx.Commit(w, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit: %v", err)
+	if commitErr := tx.Commit(w, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit: %v", commitErr)
 	}
 
 	buf := w.Buf

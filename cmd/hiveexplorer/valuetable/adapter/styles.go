@@ -30,7 +30,7 @@ var (
 				Foreground(warningColor)
 
 	modifiedRowStyle = lipgloss.NewStyle().
-			Foreground(warningColor)
+				Foreground(warningColor)
 
 	unchangedPrefixStyle = lipgloss.NewStyle().
 				Foreground(normalColor)

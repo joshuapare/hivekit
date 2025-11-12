@@ -52,11 +52,11 @@ func TestParseRegFile(t *testing.T) {
 
 func TestParseRegValue_BackslashEscaping(t *testing.T) {
 	tests := []struct {
-		name           string
-		line           string
-		expectedName   string
-		expectedType   string
-		shouldBeNil    bool
+		name         string
+		line         string
+		expectedName string
+		expectedType string
+		shouldBeNil  bool
 	}{
 		{
 			name:         "Value name ending with backslash",

@@ -10,7 +10,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestLargeHiveOriginalSubkeys tests if we can read subkeys from the original large hive
+// TestLargeHiveOriginalSubkeys tests if we can read subkeys from the original large hive.
 func TestLargeHiveOriginalSubkeys(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/large")
 	if err != nil {
@@ -45,16 +45,16 @@ func TestLargeHiveOriginalSubkeys(t *testing.T) {
 
 	// Try to read each child
 	for i, childID := range children {
-		childMeta, err := r.StatKey(childID)
-		if err != nil {
-			t.Errorf("Failed to read child %d: %v", i, err)
+		childMeta, statErr := r.StatKey(childID)
+		if statErr != nil {
+			t.Errorf("Failed to read child %d: %v", i, statErr)
 			continue
 		}
 		t.Logf("  Child %d: %q", i, childMeta.Name)
 	}
 }
 
-// TestLargeHiveRebuiltSubkeys tests if we can read subkeys from the rebuilt large hive
+// TestLargeHiveRebuiltSubkeys tests if we can read subkeys from the rebuilt large hive.
 func TestLargeHiveRebuiltSubkeys(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/large")
 	if err != nil {
@@ -72,8 +72,8 @@ func TestLargeHiveRebuiltSubkeys(t *testing.T) {
 	tx := ed.Begin()
 
 	w := &writer.MemWriter{}
-	if err := tx.Commit(w, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit: %v", err)
+	if commitErr := tx.Commit(w, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit: %v", commitErr)
 	}
 
 	t.Logf("Rebuilt hive: %d bytes", len(w.Buf))
@@ -107,9 +107,9 @@ func TestLargeHiveRebuiltSubkeys(t *testing.T) {
 
 	// Try to read each child
 	for i, childID := range children {
-		childMeta, err := r2.StatKey(childID)
-		if err != nil {
-			t.Errorf("Failed to read child %d: %v", i, err)
+		childMeta, statErr := r2.StatKey(childID)
+		if statErr != nil {
+			t.Errorf("Failed to read child %d: %v", i, statErr)
 			continue
 		}
 		t.Logf("  Child %d: %q", i, childMeta.Name)

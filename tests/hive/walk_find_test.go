@@ -46,11 +46,11 @@ func TestFindAndWalk(t *testing.T) {
 		t.Fatalf("unexpected child name: %s", childMeta.Name)
 	}
 
-	if id, err := r.Find("SOFTWARE"); err != nil || id != child {
-		t.Fatalf("Find child without root failed: %v, id=%v", err, id)
+	if id, findErr := r.Find("SOFTWARE"); findErr != nil || id != child {
+		t.Fatalf("Find child without root failed: %v, id=%v", findErr, id)
 	}
-	if id, err := r.Find("HKEY_LOCAL_MACHINE"); err != nil || id != root {
-		t.Fatalf("Find root failed: %v, id=%v", err, id)
+	if id, findErr := r.Find("HKEY_LOCAL_MACHINE"); findErr != nil || id != root {
+		t.Fatalf("Find root failed: %v, id=%v", findErr, id)
 	}
 	segments := normalizePathForTest("HKEY_LOCAL_MACHINE\\SOFTWARE")
 	if len(segments) != 1 || segments[0] != "SOFTWARE" {
@@ -59,14 +59,14 @@ func TestFindAndWalk(t *testing.T) {
 	if found := searchChildForTest(r, root, "SOFTWARE"); found != child {
 		t.Fatalf("search helper failed: got %v want %v", found, child)
 	}
-	if id, err := r.Find("HKEY_LOCAL_MACHINE\\SOFTWARE"); err != nil || id != child {
-		t.Fatalf("Find child failed: %v, id=%v", err, id)
+	if id, findErr := r.Find("HKEY_LOCAL_MACHINE\\SOFTWARE"); findErr != nil || id != child {
+		t.Fatalf("Find child failed: %v, id=%v", findErr, id)
 	}
-	if id, err := r.Find("HKLM\\SOFTWARE"); err != nil || id != child {
-		t.Fatalf("Find with alias failed: %v, id=%v", err, id)
+	if id, findErr := r.Find("HKLM\\SOFTWARE"); findErr != nil || id != child {
+		t.Fatalf("Find with alias failed: %v, id=%v", findErr, id)
 	}
-	if _, err := r.Find("ROOT\\missing"); !errors.Is(err, hive.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+	if _, findErr := r.Find("ROOT\\missing"); !errors.Is(findErr, hive.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", findErr)
 	}
 
 	var order []hive.NodeID
@@ -101,7 +101,16 @@ func normalizePathForTest(path string) []string {
 	if len(out) > 0 {
 		upper := strings.ToUpper(out[0])
 		switch upper {
-		case "HKLM", "HKEY_LOCAL_MACHINE", "HKCR", "HKEY_CLASSES_ROOT", "HKCU", "HKEY_CURRENT_USER", "HKU", "HKEY_USERS", "HKCC", "HKEY_CURRENT_CONFIG":
+		case "HKLM",
+			"HKEY_LOCAL_MACHINE",
+			"HKCR",
+			"HKEY_CLASSES_ROOT",
+			"HKCU",
+			"HKEY_CURRENT_USER",
+			"HKU",
+			"HKEY_USERS",
+			"HKCC",
+			"HKEY_CURRENT_CONFIG":
 			out = out[1:]
 		}
 	}

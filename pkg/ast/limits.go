@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/joshuapare/hivekit/internal/format"
@@ -286,7 +287,8 @@ func (n *Node) validateNodeRecursive(limits Limits, parentPath string, depth int
 
 	// Validate this node
 	if err := n.ValidateNode(limits); err != nil {
-		if ve, ok := err.(*ValidationError); ok {
+		ve := &ValidationError{}
+		if errors.As(err, &ve) {
 			ve.NodePath = path
 			return ve
 		}
@@ -315,7 +317,8 @@ func (n *Node) validateNodeRecursive(limits Limits, parentPath string, depth int
 
 // LimitViolation wraps a types.Error for limit violations.
 func LimitViolation(err error) error {
-	if ve, ok := err.(*ValidationError); ok {
+	ve := &ValidationError{}
+	if errors.As(err, &ve) {
 		return &types.Error{
 			Kind: types.ErrKindState,
 			Msg:  ve.Error(),

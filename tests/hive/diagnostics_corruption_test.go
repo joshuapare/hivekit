@@ -4,10 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joshuapare/hivekit/internal/reader"
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/internal/reader"
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // Comprehensive diagnostic tests for all corruption cases.
@@ -25,7 +26,7 @@ import (
 // behavior per the Phase 1 design - diagnostics are for files that open
 // successfully but have issues during traversal.
 
-// TestDiagnostics_Corruption_RegfSignature verifies REGF signature corruption
+// TestDiagnostics_Corruption_RegfSignature verifies REGF signature corruption.
 func TestDiagnostics_Corruption_RegfSignature(t *testing.T) {
 	// This fails at Open() - cannot collect diagnostics (expected)
 	_, err := reader.Open("../../testdata/corrupted/corrupt_regf_signature", hive.OpenOptions{
@@ -37,7 +38,7 @@ func TestDiagnostics_Corruption_RegfSignature(t *testing.T) {
 	t.Log("REGF signature corruption fails at Open() - diagnostics not available (expected)")
 }
 
-// TestDiagnostics_Corruption_RegfTruncated verifies truncated REGF detection
+// TestDiagnostics_Corruption_RegfTruncated verifies truncated REGF detection.
 func TestDiagnostics_Corruption_RegfTruncated(t *testing.T) {
 	// This fails at Open() - cannot collect diagnostics (expected)
 	_, err := reader.Open("../../testdata/corrupted/corrupt_regf_truncated", hive.OpenOptions{
@@ -48,7 +49,7 @@ func TestDiagnostics_Corruption_RegfTruncated(t *testing.T) {
 	t.Log("Truncated REGF fails at Open() - diagnostics not available (expected)")
 }
 
-// TestDiagnostics_Corruption_HbinSignature verifies HBIN signature corruption detection
+// TestDiagnostics_Corruption_HbinSignature verifies HBIN signature corruption detection.
 func TestDiagnostics_Corruption_HbinSignature(t *testing.T) {
 	// With eager HBIN validation, this fails at Open()
 	r, err := reader.Open("../../testdata/corrupted/corrupt_hbin_signature", hive.OpenOptions{
@@ -71,7 +72,7 @@ func TestDiagnostics_Corruption_HbinSignature(t *testing.T) {
 	assert.Contains(t, strings.ToLower(report.Diagnostics[0].Issue), "hbin", "Issue should mention HBIN")
 }
 
-// TestDiagnostics_Corruption_HbinSizeZero verifies zero HBIN size detection
+// TestDiagnostics_Corruption_HbinSizeZero verifies zero HBIN size detection.
 func TestDiagnostics_Corruption_HbinSizeZero(t *testing.T) {
 	_, err := reader.Open("../../testdata/corrupted/corrupt_hbin_size_zero", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -82,7 +83,7 @@ func TestDiagnostics_Corruption_HbinSizeZero(t *testing.T) {
 	t.Log("Zero HBIN size fails at Open() - diagnostics not available (expected)")
 }
 
-// TestDiagnostics_Corruption_HbinSizeUnaligned verifies unaligned HBIN size detection
+// TestDiagnostics_Corruption_HbinSizeUnaligned verifies unaligned HBIN size detection.
 func TestDiagnostics_Corruption_HbinSizeUnaligned(t *testing.T) {
 	_, err := reader.Open("../../testdata/corrupted/corrupt_hbin_size_unaligned", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -93,7 +94,7 @@ func TestDiagnostics_Corruption_HbinSizeUnaligned(t *testing.T) {
 	t.Log("Unaligned HBIN size fails at Open() - diagnostics not available (expected)")
 }
 
-// TestDiagnostics_Corruption_HbinSizeOverflow verifies HBIN size overflow detection
+// TestDiagnostics_Corruption_HbinSizeOverflow verifies HBIN size overflow detection.
 func TestDiagnostics_Corruption_HbinSizeOverflow(t *testing.T) {
 	_, err := reader.Open("../../testdata/corrupted/corrupt_hbin_size_overflow", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -107,7 +108,7 @@ func TestDiagnostics_Corruption_HbinSizeOverflow(t *testing.T) {
 // Cell Corruptions - May be detected during tree traversal
 // ============================================================================
 
-// TestDiagnostics_Corruption_CellSizeZero verifies zero cell size detection
+// TestDiagnostics_Corruption_CellSizeZero verifies zero cell size detection.
 func TestDiagnostics_Corruption_CellSizeZero(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_cell_size_zero", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -148,7 +149,7 @@ func TestDiagnostics_Corruption_CellSizeZero(t *testing.T) {
 	}
 }
 
-// TestDiagnostics_Corruption_CellOffsetOverflow verifies cell offset overflow detection
+// TestDiagnostics_Corruption_CellOffsetOverflow verifies cell offset overflow detection.
 func TestDiagnostics_Corruption_CellOffsetOverflow(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_cell_offset_overflow", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -185,7 +186,7 @@ func TestDiagnostics_Corruption_CellOffsetOverflow(t *testing.T) {
 // NK (Node Key) Corruptions
 // ============================================================================
 
-// TestDiagnostics_Corruption_NkSignature verifies NK signature corruption detection
+// TestDiagnostics_Corruption_NkSignature verifies NK signature corruption detection.
 func TestDiagnostics_Corruption_NkSignature(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_nk_signature", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -235,7 +236,7 @@ func TestDiagnostics_Corruption_NkSignature(t *testing.T) {
 	assert.True(t, report.HasErrors(), "Full scan should detect NK corruption")
 }
 
-// TestDiagnostics_Corruption_NkTruncated verifies truncated NK detection
+// TestDiagnostics_Corruption_NkTruncated verifies truncated NK detection.
 func TestDiagnostics_Corruption_NkTruncated(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_nk_truncated", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -265,7 +266,7 @@ func TestDiagnostics_Corruption_NkTruncated(t *testing.T) {
 	}
 }
 
-// TestDiagnostics_Corruption_NkSubkeyListInvalid verifies invalid subkey list offset detection
+// TestDiagnostics_Corruption_NkSubkeyListInvalid verifies invalid subkey list offset detection.
 func TestDiagnostics_Corruption_NkSubkeyListInvalid(t *testing.T) {
 	// Test with tolerant mode to continue past error
 	r, err := reader.Open("../../testdata/corrupted/corrupt_nk_subkey_list_invalid", hive.OpenOptions{
@@ -300,7 +301,7 @@ func TestDiagnostics_Corruption_NkSubkeyListInvalid(t *testing.T) {
 // VK (Value Key) Corruptions
 // ============================================================================
 
-// TestDiagnostics_Corruption_VkSignature verifies VK signature corruption detection
+// TestDiagnostics_Corruption_VkSignature verifies VK signature corruption detection.
 func TestDiagnostics_Corruption_VkSignature(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_vk_signature", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -340,7 +341,7 @@ func TestDiagnostics_Corruption_VkSignature(t *testing.T) {
 	}
 }
 
-// TestDiagnostics_Corruption_VkTruncated verifies truncated VK detection
+// TestDiagnostics_Corruption_VkTruncated verifies truncated VK detection.
 func TestDiagnostics_Corruption_VkTruncated(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_vk_truncated", hive.OpenOptions{
 		CollectDiagnostics: true,
@@ -369,7 +370,7 @@ func TestDiagnostics_Corruption_VkTruncated(t *testing.T) {
 	}
 }
 
-// TestDiagnostics_Corruption_ValueDataTruncated verifies value data truncation detection
+// TestDiagnostics_Corruption_ValueDataTruncated verifies value data truncation detection.
 func TestDiagnostics_Corruption_ValueDataTruncated(t *testing.T) {
 	// Test with tolerant mode
 	r, err := reader.Open("../../testdata/corrupted/corrupt_value_data_truncated", hive.OpenOptions{
@@ -427,7 +428,7 @@ func TestDiagnostics_Corruption_ValueDataTruncated(t *testing.T) {
 	}
 }
 
-// TestDiagnostics_Corruption_ValueDataOffsetInvalid verifies invalid value data offset detection
+// TestDiagnostics_Corruption_ValueDataOffsetInvalid verifies invalid value data offset detection.
 func TestDiagnostics_Corruption_ValueDataOffsetInvalid(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_value_data_offset_invalid", hive.OpenOptions{
 		Tolerant:           true,
@@ -459,7 +460,7 @@ func TestDiagnostics_Corruption_ValueDataOffsetInvalid(t *testing.T) {
 // Subkey/Value List Corruptions
 // ============================================================================
 
-// TestDiagnostics_Corruption_SubkeyListBadSig verifies subkey list signature corruption
+// TestDiagnostics_Corruption_SubkeyListBadSig verifies subkey list signature corruption.
 func TestDiagnostics_Corruption_SubkeyListBadSig(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_subkey_list_bad_sig", hive.OpenOptions{
 		Tolerant:           true,
@@ -500,7 +501,7 @@ func TestDiagnostics_Corruption_SubkeyListBadSig(t *testing.T) {
 	}
 }
 
-// TestDiagnostics_Corruption_ValueListOffset verifies invalid value list offset detection
+// TestDiagnostics_Corruption_ValueListOffset verifies invalid value list offset detection.
 func TestDiagnostics_Corruption_ValueListOffset(t *testing.T) {
 	r, err := reader.Open("../../testdata/corrupted/corrupt_value_list_offset", hive.OpenOptions{
 		Tolerant:           true,
@@ -534,7 +535,7 @@ func TestDiagnostics_Corruption_ValueListOffset(t *testing.T) {
 // Summary Test - Verify No False Positives on Healthy Files
 // ============================================================================
 
-// TestDiagnostics_Corruption_NoFalsePositives verifies healthy files have no false positives
+// TestDiagnostics_Corruption_NoFalsePositives verifies healthy files have no false positives.
 func TestDiagnostics_Corruption_NoFalsePositives(t *testing.T) {
 	testFiles := []string{
 		"../../testdata/minimal",

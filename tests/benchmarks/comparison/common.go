@@ -39,6 +39,8 @@ var BenchmarkHives = []struct {
 
 // Prevent compiler optimizations from eliminating benchmark code
 // These variables are written to by benchmarks to ensure operations aren't optimized away.
+//
+//nolint:unused // Benchmark sink variables - intentionally write-only
 var (
 	// Reader results.
 	benchGoReader    hive.Reader
@@ -77,7 +79,7 @@ var (
 	benchGoTime       time.Time
 
 	// Error results.
-	benchErr error
+	errBench error
 
 	// Counters.
 	benchInt      int

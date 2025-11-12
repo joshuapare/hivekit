@@ -1,4 +1,4 @@
-// +build hivex
+//go:build hivex
 
 package reader
 
@@ -20,18 +20,18 @@ func TestLargeValue_BindingsVsReader(t *testing.T) {
 		expected  int // expected size in bytes
 	}{
 		{
-			name:     "BootPlan",
-			hivePath: "../../testdata/suite/windows-xp-system",
-			keyPath:  []string{"ControlSet001", "Services", "RdyBoost", "Parameters"},
+			name:      "BootPlan",
+			hivePath:  "../../testdata/suite/windows-xp-system",
+			keyPath:   []string{"ControlSet001", "Services", "RdyBoost", "Parameters"},
 			valueName: "BootPlan",
-			expected: 25544,
+			expected:  25544,
 		},
 		{
-			name:     "ProductPolicy",
-			hivePath: "../../testdata/suite/windows-xp-system",
-			keyPath:  []string{"ControlSet001", "Control", "ProductOptions"},
+			name:      "ProductPolicy",
+			hivePath:  "../../testdata/suite/windows-xp-system",
+			keyPath:   []string{"ControlSet001", "Control", "ProductOptions"},
 			valueName: "ProductPolicy",
-			expected: 22224,
+			expected:  22224,
 		},
 	}
 
@@ -165,7 +165,12 @@ func TestLargeValue_BindingsVsReader(t *testing.T) {
 
 			if firstDiff >= 0 {
 				t.Logf("\n=== FIRST DIFFERENCE at byte %d ===", firstDiff)
-				t.Logf("Position: %d = %d * 4096 + %d (block boundary analysis)", firstDiff, firstDiff/4096, firstDiff%4096)
+				t.Logf(
+					"Position: %d = %d * 4096 + %d (block boundary analysis)",
+					firstDiff,
+					firstDiff/4096,
+					firstDiff%4096,
+				)
 
 				start := max(0, firstDiff-16)
 				end := min(len(hxData), firstDiff+16)

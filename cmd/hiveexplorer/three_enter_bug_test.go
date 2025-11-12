@@ -17,8 +17,9 @@ import (
 // Line 100: children loaded
 //
 // Bug: First Enter sets Expanded=true but children load async
-//      Second Enter sees Expanded=true and collapses
-//      Third Enter expands again, children finally load
+//
+//	Second Enter sees Expanded=true and collapses
+//	Third Enter expands again, children finally load
 func TestThreeEnterPressesBeforeLoad(t *testing.T) {
 	helper := NewTestHelper("test.hive")
 

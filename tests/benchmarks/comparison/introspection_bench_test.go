@@ -25,7 +25,7 @@ func BenchmarkLastModified(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				info := r.Info()
 				timestamp = info.LastWrite.Unix()
 			}
@@ -46,7 +46,7 @@ func BenchmarkLastModified(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				timestamp = h.LastModified()
 			}
 
@@ -86,10 +86,10 @@ func BenchmarkNodeNameLen(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
-				meta, err := r.StatKey(node)
-				if err != nil {
-					b.Fatalf("StatKey failed: %v", err)
+			for range b.N {
+				meta, statErr := r.StatKey(node)
+				if statErr != nil {
+					b.Fatalf("StatKey failed: %v", statErr)
 				}
 				nameLen = len(meta.Name)
 			}
@@ -117,7 +117,7 @@ func BenchmarkNodeNameLen(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				nameLen = h.NodeNameLen(node)
 			}
 
@@ -162,10 +162,10 @@ func BenchmarkValueKeyLen(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
-			meta, err := r.StatValue(value)
-			if err != nil {
-				b.Fatalf("StatValue failed: %v", err)
+		for range b.N {
+			meta, statErr := r.StatValue(value)
+			if statErr != nil {
+				b.Fatalf("StatValue failed: %v", statErr)
 			}
 			nameLen = len(meta.Name)
 		}
@@ -194,7 +194,7 @@ func BenchmarkValueKeyLen(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			nameLen = h.ValueKeyLen(value)
 		}
 
@@ -223,7 +223,7 @@ func BenchmarkNodeStructLength(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				structLen, _ = r.NodeStructSize(root)
 			}
 
@@ -244,7 +244,7 @@ func BenchmarkNodeStructLength(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				structLen = h.NodeStructLength(root)
 			}
 
@@ -283,7 +283,7 @@ func BenchmarkValueStructLength(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			structLen, _ = r.ValueStructSize(value)
 		}
 
@@ -311,7 +311,7 @@ func BenchmarkValueStructLength(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			structLen = h.ValueStructLength(value)
 		}
 
@@ -350,7 +350,7 @@ func BenchmarkValueDataCellOffset(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			offset, length, _ = r.ValueDataCellOffset(value)
 		}
 
@@ -378,7 +378,7 @@ func BenchmarkValueDataCellOffset(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			offset, length = h.ValueDataCellOffset(value)
 		}
 
@@ -407,7 +407,7 @@ func BenchmarkIntrospectionRecursive(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			nodeCount = 0
 			valueCount = 0
 
@@ -461,7 +461,7 @@ func BenchmarkIntrospectionRecursive(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			nodeCount = 0
 			valueCount = 0
 
@@ -536,7 +536,7 @@ func BenchmarkIntrospectionOverhead(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			// Get key metadata (includes name, timestamp, counts, etc.)
 			keyMeta, _ := r.StatKey(child)
 			nameLen = len(keyMeta.Name)
@@ -569,7 +569,7 @@ func BenchmarkIntrospectionOverhead(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			// Get just introspection info (no decoding)
 			nameLen = h.NodeNameLen(child)
 			structLen = h.ValueStructLength(values[0])

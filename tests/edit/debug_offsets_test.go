@@ -11,7 +11,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestDebugLargeHiveOffsets inspects the offsets in the rebuilt large hive
+// TestDebugLargeHiveOffsets inspects the offsets in the rebuilt large hive.
 func TestDebugLargeHiveOffsets(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/large")
 	if err != nil {
@@ -29,8 +29,8 @@ func TestDebugLargeHiveOffsets(t *testing.T) {
 	tx := ed.Begin()
 
 	w := &writer.MemWriter{}
-	if err := tx.Commit(w, hive.WriteOptions{}); err != nil {
-		t.Fatalf("Commit: %v", err)
+	if commitErr := tx.Commit(w, hive.WriteOptions{}); commitErr != nil {
+		t.Fatalf("Commit: %v", commitErr)
 	}
 
 	// Inspect the rebuilt hive binary structure
@@ -104,7 +104,10 @@ func TestDebugLargeHiveOffsets(t *testing.T) {
 		}
 
 		if listCellSize > 0 {
-			t.Fatalf("ERROR: Subkey list cell has positive size %d (should be negative for allocated cell)", listCellSize)
+			t.Fatalf(
+				"ERROR: Subkey list cell has positive size %d (should be negative for allocated cell)",
+				listCellSize,
+			)
 		}
 
 		listPayload := buf[subkeyListFileOff+4:]

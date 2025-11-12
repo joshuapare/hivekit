@@ -11,10 +11,11 @@ import (
 // data blocks, with this record containing a pointer to a blocklist.
 //
 // Format (from hivex source):
-//   Offset 0x00: Signature "db" (2 bytes)
-//   Offset 0x02: Number of blocks (2 bytes, uint16)
-//   Offset 0x04: Blocklist offset (4 bytes, uint32) - points to cell containing block offsets
-//   Offset 0x08: Unknown1 (4 bytes, uint32)
+//
+//	Offset 0x00: Signature "db" (2 bytes)
+//	Offset 0x02: Number of blocks (2 bytes, uint16)
+//	Offset 0x04: Blocklist offset (4 bytes, uint32) - points to cell containing block offsets
+//	Offset 0x08: Unknown1 (4 bytes, uint32)
 //
 // The blocklist offset points to another cell that contains an array of uint32 offsets,
 // each pointing to a data block cell. Data blocks should be concatenated in order
@@ -29,7 +30,12 @@ type DBRecord struct {
 // The input should be the cell payload (after the 4-byte cell size header).
 func DecodeDB(b []byte) (DBRecord, error) {
 	if len(b) < DBMinSize {
-		return DBRecord{}, fmt.Errorf("db: %w (need %d bytes, have %d)", ErrTruncated, DBMinSize, len(b))
+		return DBRecord{}, fmt.Errorf(
+			"db: %w (need %d bytes, have %d)",
+			ErrTruncated,
+			DBMinSize,
+			len(b),
+		)
 	}
 
 	// Check signature
@@ -38,8 +44,8 @@ func DecodeDB(b []byte) (DBRecord, error) {
 	}
 
 	// Read fields
-	numBlocks := buf.U16LE(b[DBNumBlocksOffset:])
-	blocklistOffset := buf.U32LE(b[DBBlocklistOffset:])
+	numBlocks := buf.U16LE(b[DBCountOffset:])
+	blocklistOffset := buf.U32LE(b[DBListOffset:])
 	unknown1 := buf.U32LE(b[DBUnknown1Offset:])
 
 	return DBRecord{

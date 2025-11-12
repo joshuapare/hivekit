@@ -2,6 +2,7 @@ package repair
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -13,8 +14,8 @@ func TestTransactionLog_AddEntry(t *testing.T) {
 	newData := []byte{0xFF, 0xFF, 0xFF, 0xFF}
 
 	d := Diagnostic{
-		Offset:  0x1000,
-		Issue:   "test issue",
+		Offset:    0x1000,
+		Issue:     "test issue",
 		Structure: "NK",
 	}
 
@@ -89,7 +90,8 @@ func TestTransactionLog_MarkApplied_Empty(t *testing.T) {
 		t.Fatal("expected error when marking applied on empty log")
 	}
 
-	if _, ok := err.(*TransactionError); !ok {
+	transactionError := &TransactionError{}
+	if !errors.As(err, &transactionError) {
 		t.Errorf("expected TransactionError, got %T", err)
 	}
 }
@@ -210,7 +212,8 @@ func TestTransactionLog_Rollback_InvalidOffset(t *testing.T) {
 		t.Fatal("expected error for invalid offset")
 	}
 
-	if _, ok := err.(*TransactionError); !ok {
+	transactionError := &TransactionError{}
+	if !errors.As(err, &transactionError) {
 		t.Errorf("expected TransactionError, got %T", err)
 	}
 }
@@ -219,8 +222,8 @@ func TestTransactionLog_Export(t *testing.T) {
 	txLog := NewTransactionLog()
 
 	d := Diagnostic{
-		Offset:  0x1000,
-		Issue:   "test issue",
+		Offset:    0x1000,
+		Issue:     "test issue",
 		Structure: "NK",
 		Repair: &RepairAction{
 			Description: "fix the issue",
@@ -293,7 +296,7 @@ func TestTransactionLog_MultipleEntries(t *testing.T) {
 	txLog := NewTransactionLog()
 
 	// Add multiple entries
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		d := Diagnostic{Offset: uint64(i * 4)}
 		txLog.AddEntry(uint64(i*4), []byte{byte(i)}, []byte{0xFF}, d, "Module")
 		if i%2 == 0 {

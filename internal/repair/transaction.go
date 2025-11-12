@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
 )
 
 // TransactionLog maintains a record of all repairs applied, enabling rollback
@@ -16,14 +15,14 @@ type TransactionLog struct {
 
 // LogEntry records a single repair operation.
 type LogEntry struct {
-	Offset      uint64          // Offset where repair was applied
-	Size        uint64          // Number of bytes modified
-	OldData     []byte          // Original data (for rollback)
-	NewData     []byte          // New data (for verification)
-	Diagnostic  Diagnostic // Diagnostic that triggered this repair
-	Module      string          // Module that applied the repair
-	Timestamp   time.Time       // When the repair was applied
-	Applied     bool            // Whether this repair was successfully applied
+	Offset     uint64     // Offset where repair was applied
+	Size       uint64     // Number of bytes modified
+	OldData    []byte     // Original data (for rollback)
+	NewData    []byte     // New data (for verification)
+	Diagnostic Diagnostic // Diagnostic that triggered this repair
+	Module     string     // Module that applied the repair
+	Timestamp  time.Time  // When the repair was applied
+	Applied    bool       // Whether this repair was successfully applied
 }
 
 // NewTransactionLog creates a new transaction log.
@@ -37,14 +36,14 @@ func NewTransactionLog() *TransactionLog {
 // This captures the original data so we can rollback if needed.
 func (tl *TransactionLog) AddEntry(offset uint64, oldData, newData []byte, d Diagnostic, module string) {
 	entry := LogEntry{
-		Offset:      offset,
-		Size:        uint64(len(oldData)),
-		OldData:     append([]byte(nil), oldData...), // Deep copy
-		NewData:     append([]byte(nil), newData...), // Deep copy
-		Diagnostic:  d,
-		Module:      module,
-		Timestamp:   time.Now(),
-		Applied:     false,
+		Offset:     offset,
+		Size:       uint64(len(oldData)),
+		OldData:    append([]byte(nil), oldData...), // Deep copy
+		NewData:    append([]byte(nil), newData...), // Deep copy
+		Diagnostic: d,
+		Module:     module,
+		Timestamp:  time.Now(),
+		Applied:    false,
 	}
 	tl.entries = append(tl.entries, entry)
 }
@@ -82,7 +81,13 @@ func (tl *TransactionLog) Rollback(data []byte) (int, error) {
 		if entry.Offset+entry.Size > uint64(len(data)) {
 			return rolled, &TransactionError{
 				Operation: "rollback",
-				Message:   fmt.Sprintf("invalid offset/size for entry %d: offset=0x%X size=%d datalen=%d", i, entry.Offset, entry.Size, len(data)),
+				Message: fmt.Sprintf(
+					"invalid offset/size for entry %d: offset=0x%X size=%d datalen=%d",
+					i,
+					entry.Offset,
+					entry.Size,
+					len(data),
+				),
 			}
 		}
 

@@ -21,7 +21,7 @@ func BenchmarkOpen(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.Open(hf.Path, hive.OpenOptions{})
 				if err != nil {
 					b.Fatalf("Open failed: %v", err)
@@ -40,7 +40,7 @@ func BenchmarkOpen(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				h, err = bindings.Open(hf.Path, 0)
 				if err != nil {
 					b.Fatalf("Open failed: %v", err)
@@ -70,7 +70,7 @@ func BenchmarkOpenBytes_Gohivex(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.OpenBytes(data, hive.OpenOptions{})
 				if err != nil {
 					b.Fatalf("OpenBytes failed: %v", err)
@@ -100,7 +100,7 @@ func BenchmarkOpenBytes_ZeroCopy(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.OpenBytes(data, hive.OpenOptions{ZeroCopy: false})
 				if err != nil {
 					b.Fatalf("OpenBytes failed: %v", err)
@@ -119,7 +119,7 @@ func BenchmarkOpenBytes_ZeroCopy(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.OpenBytes(data, hive.OpenOptions{ZeroCopy: true})
 				if err != nil {
 					b.Fatalf("OpenBytes failed: %v", err)
@@ -147,7 +147,7 @@ func BenchmarkOpenAndGetRoot(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.Open(hf.Path, hive.OpenOptions{})
 				if err != nil {
 					b.Fatalf("Open failed: %v", err)
@@ -176,7 +176,7 @@ func BenchmarkOpenAndGetRoot(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				h, err = bindings.Open(hf.Path, 0)
 				if err != nil {
 					b.Fatalf("Open failed: %v", err)
@@ -208,7 +208,7 @@ func BenchmarkOpenAndReadRootMetadata(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				r, err = reader.Open(hf.Path, hive.OpenOptions{})
 				if err != nil {
 					b.Fatalf("Open failed: %v", err)
@@ -244,7 +244,7 @@ func BenchmarkOpenAndReadRootMetadata(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				h, err = bindings.Open(hf.Path, 0)
 				if err != nil {
 					b.Fatalf("Open failed: %v", err)
@@ -273,7 +273,7 @@ func BenchmarkClose(b *testing.B) {
 		b.Run("gohivex/"+hf.Name, func(b *testing.B) {
 			// Pre-open readers (not benchmarked)
 			readers := make([]hive.Reader, b.N)
-			for i := 0; i < b.N; i++ {
+			for i := range b.N {
 				r, err := reader.Open(hf.Path, hive.OpenOptions{})
 				if err != nil {
 					b.Fatalf("Pre-open failed: %v", err)
@@ -284,7 +284,7 @@ func BenchmarkClose(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for i := range b.N {
 				readers[i].Close()
 			}
 		})
@@ -293,7 +293,7 @@ func BenchmarkClose(b *testing.B) {
 		b.Run("hivex/"+hf.Name, func(b *testing.B) {
 			// Pre-open hives (not benchmarked)
 			hives := make([]*bindings.Hive, b.N)
-			for i := 0; i < b.N; i++ {
+			for i := range b.N {
 				h, err := bindings.Open(hf.Path, 0)
 				if err != nil {
 					b.Fatalf("Pre-open failed: %v", err)
@@ -304,7 +304,7 @@ func BenchmarkClose(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for i := range b.N {
 				hives[i].Close()
 			}
 		})

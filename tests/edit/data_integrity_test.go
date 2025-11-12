@@ -41,33 +41,33 @@ func TestDataIntegrityAllRealHives(t *testing.T) {
 			tx := ed.Begin()
 
 			w := &writer.MemWriter{}
-			if err := tx.Commit(w, hive.WriteOptions{}); err != nil {
-				t.Fatalf("Commit: %v", err)
+			if commitErr := tx.Commit(w, hive.WriteOptions{}); commitErr != nil {
+				t.Fatalf("Commit: %v", commitErr)
 			}
 
 			t.Logf("Size: input=%d bytes, output=%d bytes (%.1f%% of original)",
 				len(data), len(w.Buf), float64(len(w.Buf))/float64(len(data))*100)
 
 			// Open rebuilt hive
-			r2, err := reader.OpenBytes(w.Buf, hive.OpenOptions{})
-			if err != nil {
-				t.Fatalf("OpenBytes rebuilt: %v", err)
+			r2, openErr := reader.OpenBytes(w.Buf, hive.OpenOptions{})
+			if openErr != nil {
+				t.Fatalf("OpenBytes rebuilt: %v", openErr)
 			}
 			defer r2.Close()
 
 			// Verify complete tree structure matches
-			rootID1, err := r1.Root()
-			if err != nil {
-				t.Fatalf("Failed to get original root: %v", err)
+			rootID1, rootErr := r1.Root()
+			if rootErr != nil {
+				t.Fatalf("Failed to get original root: %v", rootErr)
 			}
 
-			rootID2, err := r2.Root()
-			if err != nil {
-				t.Fatalf("Failed to get rebuilt root: %v", err)
+			rootID2, root2Err := r2.Root()
+			if root2Err != nil {
+				t.Fatalf("Failed to get rebuilt root: %v", root2Err)
 			}
 
-			if err := verifyTreeIntegrity(t, r1, r2, rootID1, rootID2, ""); err != nil {
-				t.Fatalf("Data integrity check failed: %v", err)
+			if verifyErr := verifyTreeIntegrity(t, r1, r2, rootID1, rootID2, ""); verifyErr != nil {
+				t.Fatalf("Data integrity check failed: %v", verifyErr)
 			}
 
 			t.Logf("✓ All data verified identical")
@@ -75,7 +75,7 @@ func TestDataIntegrityAllRealHives(t *testing.T) {
 	}
 }
 
-// verifyTreeIntegrity recursively verifies that two trees are identical
+// verifyTreeIntegrity recursively verifies that two trees are identical.
 func verifyTreeIntegrity(t *testing.T, r1, r2 hive.Reader, id1, id2 hive.NodeID, path string) error {
 	// Get metadata for both keys
 	meta1, err := r1.StatKey(id1)
@@ -107,8 +107,8 @@ func verifyTreeIntegrity(t *testing.T, r1, r2 hive.Reader, id1, id2 hive.NodeID,
 	}
 
 	// Verify all values match
-	if err := verifyValues(t, r1, r2, id1, id2, path); err != nil {
-		return err
+	if valErr := verifyValues(t, r1, r2, id1, id2, path); valErr != nil {
+		return valErr
 	}
 
 	// Recursively verify all subkeys
@@ -157,8 +157,8 @@ func verifyTreeIntegrity(t *testing.T, r1, r2 hive.Reader, id1, id2 hive.NodeID,
 		childPath += name
 
 		// Recursively verify child
-		if err := verifyTreeIntegrity(t, r1, r2, childID1, childID2, childPath); err != nil {
-			return err
+		if childErr := verifyTreeIntegrity(t, r1, r2, childID1, childID2, childPath); childErr != nil {
+			return childErr
 		}
 	}
 
@@ -172,7 +172,7 @@ func verifyTreeIntegrity(t *testing.T, r1, r2 hive.Reader, id1, id2 hive.NodeID,
 	return nil
 }
 
-// verifyValues verifies that all values in two keys match
+// verifyValues verifies that all values in two keys match.
 func verifyValues(t *testing.T, r1, r2 hive.Reader, id1, id2 hive.NodeID, path string) error {
 	values1, err := r1.Values(id1)
 	if err != nil && err.Error() != "no values" {
@@ -220,15 +220,15 @@ func verifyValues(t *testing.T, r1, r2 hive.Reader, id1, id2 hive.NodeID, path s
 		}
 
 		// Verify value data
-		data1, err := r1.ValueBytes(valID1, hive.ReadOptions{CopyData: true})
-		if err != nil {
-			t.Errorf("Path %s, value %q: failed to read original data: %v", path, name, err)
+		data1, readErr := r1.ValueBytes(valID1, hive.ReadOptions{CopyData: true})
+		if readErr != nil {
+			t.Errorf("Path %s, value %q: failed to read original data: %v", path, name, readErr)
 			continue
 		}
 
-		data2, err := r2.ValueBytes(valID2, hive.ReadOptions{CopyData: true})
-		if err != nil {
-			t.Errorf("Path %s, value %q: failed to read rebuilt data: %v", path, name, err)
+		data2, read2Err := r2.ValueBytes(valID2, hive.ReadOptions{CopyData: true})
+		if read2Err != nil {
+			t.Errorf("Path %s, value %q: failed to read rebuilt data: %v", path, name, read2Err)
 			continue
 		}
 
@@ -240,7 +240,7 @@ func verifyValues(t *testing.T, r1, r2 hive.Reader, id1, id2 hive.NodeID, path s
 			if len(data2) < minLen {
 				minLen = len(data2)
 			}
-			for i := 0; i < minLen; i++ {
+			for i := range minLen {
 				if data1[i] != data2[i] {
 					t.Errorf("  First difference at byte %d: 0x%02x != 0x%02x", i, data1[i], data2[i])
 					break

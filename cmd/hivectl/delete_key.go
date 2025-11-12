@@ -119,12 +119,12 @@ func runDeleteKey(args []string) error {
 	// Output as JSON if requested
 	if jsonOut {
 		result := map[string]interface{}{
-			"hive":         hivePath,
-			"path":         keyPath,
-			"subkeys":      subkeyCount,
-			"values":       valueCount,
-			"success":      true,
-			"dry_run":      deleteKeyDryRun,
+			"hive":    hivePath,
+			"path":    keyPath,
+			"subkeys": subkeyCount,
+			"values":  valueCount,
+			"success": true,
+			"dry_run": deleteKeyDryRun,
 		}
 		return printJSON(result)
 	}
