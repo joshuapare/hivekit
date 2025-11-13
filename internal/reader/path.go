@@ -40,8 +40,7 @@ func (r *reader) FindParts(parts []string) (types.NodeID, error) {
 	if err := r.ensureOpen(); err != nil {
 		return 0, err
 	}
-	// No need to normalize - caller has already split the path
-	// Just filter out empty strings if any
+	// Filter out empty strings and trim whitespace
 	segments := make([]string, 0, len(parts))
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -49,6 +48,16 @@ func (r *reader) FindParts(parts []string) (types.NodeID, error) {
 			segments = append(segments, part)
 		}
 	}
+
+	// Strip hive root prefix from first element if present
+	// This ensures consistency with Find() and allows users to pass paths like:
+	// []string{"HKEY_LOCAL_MACHINE", "SOFTWARE", "App"}
+	// []string{"HKLM", "SOFTWARE", "App"}
+	// []string{"SOFTWARE", "App"}  // All equivalent
+	if len(segments) > 0 {
+		segments = stripRootPrefixFromArray(segments)
+	}
+
 	return r.findBySegments(segments)
 }
 
@@ -177,4 +186,26 @@ func aliasMatches(rootName, seg string) bool {
 		break
 	}
 	return false
+}
+
+// stripRootPrefixFromArray removes hive root prefix from the first element of a path array.
+// This ensures FindParts behaves consistently with Find when users pass paths like:
+//   []string{"HKEY_LOCAL_MACHINE", "SOFTWARE", "App"}
+//   []string{"HKLM", "SOFTWARE", "App"}
+// Both become: []string{"SOFTWARE", "App"}
+func stripRootPrefixFromArray(parts []string) []string {
+	if len(parts) == 0 {
+		return parts
+	}
+
+	// Check if first element is a known hive root prefix (case-insensitive)
+	firstUpper := strings.ToUpper(parts[0])
+	for _, alias := range rootAliasList {
+		if firstUpper == alias {
+			// Strip the prefix
+			return parts[1:]
+		}
+	}
+
+	return parts
 }
