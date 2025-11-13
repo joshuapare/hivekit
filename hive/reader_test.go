@@ -51,6 +51,66 @@ func TestHive_Find(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestHive_FindParts(t *testing.T) {
+	hivePath := filepath.Join("..", "testdata", "large")
+	if _, err := os.Stat(hivePath); os.IsNotExist(err) {
+		t.Skip("test hive not found")
+	}
+
+	h, err := Open(hivePath)
+	require.NoError(t, err)
+	defer h.Close()
+
+	// Test FindParts on root with nil
+	node, err := h.FindParts(nil)
+	require.NoError(t, err)
+	require.NotZero(t, node)
+
+	// Test FindParts on root with empty slice
+	node2, err := h.FindParts([]string{})
+	require.NoError(t, err)
+	require.Equal(t, node, node2)
+
+	// List root subkeys to test with
+	subkeys, err := h.ListSubkeys("")
+	require.NoError(t, err)
+
+	if len(subkeys) > 0 {
+		// Test FindParts with one part - should find first subkey
+		firstKey := subkeys[0].Name
+		nodeByParts, err := h.FindParts([]string{firstKey})
+		require.NoError(t, err)
+		require.NotZero(t, nodeByParts)
+
+		// Compare with Find using backslash
+		nodeByFind, err := h.Find(firstKey)
+		require.NoError(t, err)
+		require.Equal(t, nodeByFind, nodeByParts, "FindParts and Find should return same node")
+
+		// Test with nested key if available
+		nestedKeys, err := h.ListSubkeys(firstKey)
+		if err == nil && len(nestedKeys) > 0 {
+			secondKey := nestedKeys[0].Name
+
+			// Find using parts
+			nodeByParts2, err := h.FindParts([]string{firstKey, secondKey})
+			require.NoError(t, err)
+
+			// Find using path
+			nodeByFind2, err := h.Find(firstKey + `\` + secondKey)
+			require.NoError(t, err)
+
+			require.Equal(t, nodeByFind2, nodeByParts2, "FindParts and Find should match for nested keys")
+
+			t.Logf("Successfully found nested key: %s\\%s", firstKey, secondKey)
+		}
+	}
+
+	// Test FindParts with non-existent key
+	_, err = h.FindParts([]string{"NonExistentKey", "SubKey"})
+	require.Error(t, err)
+}
+
 func TestHive_GetKey(t *testing.T) {
 	hivePath := filepath.Join("..", "testdata", "minimal")
 	if _, err := os.Stat(hivePath); os.IsNotExist(err) {

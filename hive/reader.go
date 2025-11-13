@@ -39,19 +39,50 @@ func (h *Hive) Reader() (types.Reader, error) {
 
 // Find returns the NodeID for a registry key path.
 //
-// The path is case-insensitive and can use either forward slashes or backslashes.
-// Common hive root prefixes (HKLM, HKEY_LOCAL_MACHINE, etc.) are automatically stripped.
+// Path Format:
+//   - Separator: backslash '\' or forward slash '/' (both work)
+//   - Case-insensitive: "Software" matches "SOFTWARE" or "software"
+//   - Root prefixes automatically stripped: HKLM\, HKEY_LOCAL_MACHINE\, etc.
+//   - Empty string or "\" or "/" returns the root key
+//   - Leading/trailing slashes are ignored
 //
 // Example:
 //
 //	node, err := h.Find("Software\\Microsoft\\Windows")
-//	node, err := h.Find("HKLM\\Software\\Microsoft")  // HKLM prefix stripped
+//	node, err := h.Find("Software/Microsoft/Windows")     // forward slash works too
+//	node, err := h.Find("HKLM\\Software\\Microsoft")      // HKLM prefix stripped
+//	node, err := h.Find("")                               // returns root
+//
+// For more control or when you already have path parts, use FindParts().
 func (h *Hive) Find(path string) (types.NodeID, error) {
 	r, err := h.Reader()
 	if err != nil {
 		return 0, err
 	}
 	return r.Find(path)
+}
+
+// FindParts returns the NodeID for a registry key specified as path parts.
+//
+// This is useful when you already have the key path split into components,
+// avoiding the need to join and re-parse them. The lookup is case-insensitive.
+//
+// Pass nil or an empty slice to get the root key.
+//
+// Example:
+//
+//	// Navigate to Software\Microsoft\Windows
+//	node, err := h.FindParts([]string{"Software", "Microsoft", "Windows"})
+//
+//	// Get root
+//	node, err := h.FindParts(nil)
+//	node, err := h.FindParts([]string{})
+func (h *Hive) FindParts(parts []string) (types.NodeID, error) {
+	r, err := h.Reader()
+	if err != nil {
+		return 0, err
+	}
+	return r.FindParts(parts)
 }
 
 // GetKey returns metadata for a key at the given path.

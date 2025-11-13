@@ -31,6 +31,29 @@ func (r *reader) Find(path string) (types.NodeID, error) {
 	path = strings.TrimSpace(path)
 	path = stripRootPrefix(path)
 	segments := normalizePath(path)
+	return r.findBySegments(segments)
+}
+
+// FindParts locates a key using pre-split path parts (case-insensitive).
+// This avoids the overhead of parsing and normalizing a path string.
+func (r *reader) FindParts(parts []string) (types.NodeID, error) {
+	if err := r.ensureOpen(); err != nil {
+		return 0, err
+	}
+	// No need to normalize - caller has already split the path
+	// Just filter out empty strings if any
+	segments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			segments = append(segments, part)
+		}
+	}
+	return r.findBySegments(segments)
+}
+
+// findBySegments is the common implementation for Find and FindParts.
+func (r *reader) findBySegments(segments []string) (types.NodeID, error) {
 	current := types.NodeID(r.head.RootCellOffset)
 	if len(segments) == 0 {
 		return current, nil

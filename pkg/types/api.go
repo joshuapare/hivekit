@@ -285,6 +285,10 @@ type Reader interface {
 	// Path syntax mirrors Windows-style roots (e.g., "HKLM\\Software\\Vendor").
 	Find(path string) (NodeID, error)
 
+	// FindParts locates a key by pre-split path components (case-insensitive).
+	// Useful when you already have path parts to avoid join+parse overhead.
+	FindParts(parts []string) (NodeID, error)
+
 	// Walk performs pre-order traversal starting at n. Returning a non-nil error
 	// aborts the traversal; return a sentinel (implementation-defined) to skip children.
 	Walk(n NodeID, fn func(NodeID) error) error
