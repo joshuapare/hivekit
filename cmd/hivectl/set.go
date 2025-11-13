@@ -11,7 +11,6 @@ var (
 	setType      string
 	setCreateKey bool
 	setBackup    bool
-	setDryRun    bool
 	setDefrag    bool
 )
 
@@ -20,7 +19,6 @@ func init() {
 	cmd.Flags().StringVar(&setType, "type", "sz", "Value type (sz, dword, qword, binary, expand_sz)")
 	cmd.Flags().BoolVar(&setCreateKey, "create-key", false, "Create key if it doesn't exist")
 	cmd.Flags().BoolVar(&setBackup, "backup", true, "Create backup")
-	cmd.Flags().BoolVar(&setDryRun, "dry-run", false, "Validate without applying")
 	cmd.Flags().BoolVar(&setDefrag, "defrag", false, "Defragment after operation")
 	rootCmd.AddCommand(cmd)
 }
@@ -62,7 +60,6 @@ func runSet(args []string) error {
 	opts := &hive.OperationOptions{
 		CreateKey:    setCreateKey,
 		CreateBackup: setBackup,
-		DryRun:       setDryRun,
 		Defragment:   setDefrag,
 	}
 
@@ -79,25 +76,20 @@ func runSet(args []string) error {
 			"name":    valueName,
 			"type":    valueType.String(),
 			"success": true,
-			"dry_run": setDryRun,
 		}
 		return printJSON(result)
 	}
 
 	// Text output
-	if setDryRun {
-		printInfo("\n✓ Validation successful (dry-run mode, no changes made)\n")
-	} else {
-		printInfo("\nSetting value in %s:\n", hivePath)
-		printInfo("  Path: %s\n", keyPath)
-		printInfo("  Name: %s\n", valueName)
-		printInfo("  Type: %s\n", valueType.String())
-		printInfo("  Value: %s\n", valueStr)
-		printInfo("\n✓ Value set successfully\n")
+	printInfo("\nSetting value in %s:\n", hivePath)
+	printInfo("  Path: %s\n", keyPath)
+	printInfo("  Name: %s\n", valueName)
+	printInfo("  Type: %s\n", valueType.String())
+	printInfo("  Value: %s\n", valueStr)
+	printInfo("\n✓ Value set successfully\n")
 
-		if setBackup {
-			printInfo("Backup created: %s.bak\n", hivePath)
-		}
+	if setBackup {
+		printInfo("Backup created: %s.bak\n", hivePath)
 	}
 
 	return nil

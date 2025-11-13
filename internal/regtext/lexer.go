@@ -47,15 +47,6 @@ func utf16LEToBytes(data []byte) []byte {
 	return []byte(string(utf16.Decode(words)))
 }
 
-// Keep old function for backward compatibility if needed.
-func decodeInput(data []byte, enc string) (string, error) {
-	result, err := decodeInputToBytes(data, enc)
-	if err != nil {
-		return "", err
-	}
-	return string(result), nil
-}
-
 // encodeUTF16LE encodes a string to UTF-16LE (Phase 2: optimized single-pass).
 func encodeUTF16LE(s string, withBOM bool) []byte {
 	// Single conversion to runes, then encode all at once

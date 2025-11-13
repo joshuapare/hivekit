@@ -34,6 +34,7 @@ func TestPrinter_PrintKey_Text(t *testing.T) {
 	opts := DefaultOptions()
 	opts.Format = FormatText
 	opts.ShowValues = true
+	opts.PrintMetadata = true // Enable metadata output
 
 	p := New(r, &buf, opts)
 	err := p.PrintKey("")
@@ -55,6 +56,7 @@ func TestPrinter_PrintKey_JSON(t *testing.T) {
 	opts := DefaultOptions()
 	opts.Format = FormatJSON
 	opts.ShowValues = true
+	opts.PrintMetadata = true // Enable metadata output
 
 	p := New(r, &buf, opts)
 	err := p.PrintKey("")
@@ -96,13 +98,15 @@ func TestPrinter_PrintKey_Reg(t *testing.T) {
 }
 
 func TestPrinter_PrintTree_Text(t *testing.T) {
-	r := openTestHive(t, "minimal")
+	// Use "large" hive which has subkeys (minimal hive has no subkeys)
+	r := openTestHive(t, "large")
 
 	var buf bytes.Buffer
 	opts := DefaultOptions()
 	opts.Format = FormatText
 	opts.ShowValues = true
-	opts.MaxDepth = 2 // Limit depth for testing
+	opts.PrintMetadata = true // Enable metadata output
+	opts.MaxDepth = 2          // Limit depth for testing
 
 	p := New(r, &buf, opts)
 	err := p.PrintTree("")
@@ -111,7 +115,7 @@ func TestPrinter_PrintTree_Text(t *testing.T) {
 	output := buf.String()
 	t.Logf("Tree output (truncated):\n%s", output[:min(len(output), 500)])
 
-	// Should contain at least the root key
+	// Should contain at least one key
 	require.Greater(t, len(output), 0)
 }
 
@@ -122,6 +126,7 @@ func TestPrinter_PrintTree_JSON(t *testing.T) {
 	opts := DefaultOptions()
 	opts.Format = FormatJSON
 	opts.ShowValues = true
+	opts.PrintMetadata = true // Enable metadata output
 	opts.MaxDepth = 2
 
 	p := New(r, &buf, opts)

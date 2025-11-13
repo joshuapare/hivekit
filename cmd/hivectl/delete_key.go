@@ -14,7 +14,6 @@ var (
 	deleteKeyRecursive bool
 	deleteKeyForce     bool
 	deleteKeyBackup    bool
-	deleteKeyDryRun    bool
 	deleteKeyDefrag    bool
 )
 
@@ -23,7 +22,6 @@ func init() {
 	cmd.Flags().BoolVarP(&deleteKeyRecursive, "recursive", "r", false, "Delete subkeys too (required if has subkeys)")
 	cmd.Flags().BoolVarP(&deleteKeyForce, "force", "f", false, "Don't prompt for confirmation")
 	cmd.Flags().BoolVar(&deleteKeyBackup, "backup", true, "Create backup")
-	cmd.Flags().BoolVar(&deleteKeyDryRun, "dry-run", false, "Show what would be deleted")
 	cmd.Flags().BoolVar(&deleteKeyDefrag, "defrag", false, "Defragment after operation")
 	rootCmd.AddCommand(cmd)
 }
@@ -36,8 +34,7 @@ func newDeleteKeyCmd() *cobra.Command {
 
 Example:
   hivectl delete-key system.hive "Software\\OldApp"
-  hivectl delete-key system.hive "Software\\OldApp" --recursive --force
-  hivectl delete-key system.hive "Software\\OldApp" --dry-run`,
+  hivectl delete-key system.hive "Software\\OldApp" --recursive --force`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDeleteKey(args)
@@ -73,12 +70,12 @@ func runDeleteKey(args []string) error {
 	}
 
 	// Check if key has subkeys and recursive flag
-	if subkeyCount > 0 && !deleteKeyRecursive && !deleteKeyDryRun {
+	if subkeyCount > 0 && !deleteKeyRecursive {
 		return fmt.Errorf("key has %d subkeys; use --recursive to delete them", subkeyCount)
 	}
 
-	// Confirm deletion (unless forced or dry-run)
-	if !deleteKeyForce && !deleteKeyDryRun && !quiet {
+	// Confirm deletion (unless forced)
+	if !deleteKeyForce && !quiet {
 		printInfo("\nDeleting key from %s:\n", hivePath)
 		printInfo("  Path: %s\n", keyPath)
 		if subkeyCount > 0 {
@@ -107,7 +104,6 @@ func runDeleteKey(args []string) error {
 	// Prepare options
 	opts := &hive.OperationOptions{
 		CreateBackup: deleteKeyBackup,
-		DryRun:       deleteKeyDryRun,
 		Defragment:   deleteKeyDefrag,
 	}
 
@@ -124,27 +120,14 @@ func runDeleteKey(args []string) error {
 			"subkeys": subkeyCount,
 			"values":  valueCount,
 			"success": true,
-			"dry_run": deleteKeyDryRun,
 		}
 		return printJSON(result)
 	}
 
 	// Text output
-	if deleteKeyDryRun {
-		printInfo("\n✓ Would delete:\n")
-		printInfo("  Key: %s\n", keyPath)
-		if subkeyCount > 0 {
-			printInfo("  Subkeys: %d\n", subkeyCount)
-		}
-		if valueCount > 0 {
-			printInfo("  Values: %d\n", valueCount)
-		}
-		printInfo("\n(dry-run mode, no changes made)\n")
-	} else {
-		printInfo("\n✓ Key deleted successfully\n")
-		if deleteKeyBackup {
-			printInfo("Backup created: %s.bak\n", hivePath)
-		}
+	printInfo("\n✓ Key deleted successfully\n")
+	if deleteKeyBackup {
+		printInfo("Backup created: %s.bak\n", hivePath)
 	}
 
 	return nil

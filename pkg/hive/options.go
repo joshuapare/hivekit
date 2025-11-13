@@ -7,55 +7,33 @@ import (
 
 // MergeOptions controls merge behavior.
 type MergeOptions struct {
-	// Backend specifies which merge implementation to use.
-	// MergeBackendNew (default): Fast mmap-based merge (4-119x faster)
-	// MergeBackendOld: Legacy full-rebuild merge (for compatibility)
-	// If empty, defaults to MergeBackendNew.
-	Backend MergeBackend
-
-	// Limits defines registry constraints to enforce during merge.
-	// If nil, DefaultLimits() is used automatically.
+	// Limits defines registry constraints for validation.
+	// Used by ValidateHive() to check registry constraints.
+	// Note: Not yet enforced during merge operations (future enhancement).
+	// If nil, DefaultLimits() is used by validation functions.
 	Limits *Limits
-
-	// OnProgress is called after each operation is applied.
-	// Parameters are (current, total) operation counts.
-	// If nil, no progress reporting occurs.
-	OnProgress func(current, total int)
-
-	// OnError is called when an operation fails.
-	// Return true to continue processing remaining operations.
-	// Return false to abort immediately.
-	// If nil, the first error aborts the entire merge.
-	OnError func(op EditOp, err error) bool
 
 	// Defragment compacts the hive after merge, improving locality
 	// and reducing file size. Adds ~10-20% overhead but recommended
 	// for hives that undergo many modifications.
 	Defragment bool
 
-	// DryRun validates all operations without applying them.
-	// Useful for testing .reg files before committing changes.
-	// No modifications are made to the hive when true.
-	DryRun bool
-
-	// CreateBackup creates a .bak file before modifying the
+	// CreateBackup creates a .bak file before modifying the hive.
 	// The backup is created at <hivePath>.bak.
 	CreateBackup bool
 }
 
 // OperationOptions controls individual high-level operation behavior.
 type OperationOptions struct {
-	// Limits defines registry constraints to enforce.
-	// If nil, DefaultLimits() is used automatically.
+	// Limits defines registry constraints for validation.
+	// Used by ValidateHive() to check registry constraints.
+	// Note: Not yet enforced during write operations (future enhancement).
+	// If nil, DefaultLimits() is used by validation functions.
 	Limits *Limits
 
 	// Defragment compacts the hive after the operation.
 	// Adds overhead but reduces file size.
 	Defragment bool
-
-	// DryRun validates the operation without applying it.
-	// No modifications are made to the hive when true.
-	DryRun bool
 
 	// CreateBackup creates a .bak file before modifying the hive.
 	// The backup is created at <hivePath>.bak.

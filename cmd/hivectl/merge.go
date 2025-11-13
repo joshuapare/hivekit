@@ -8,24 +8,16 @@ import (
 )
 
 var (
-	mergeBackup   bool
-	mergeDryRun   bool
-	mergeDefrag   bool
-	mergeProgress bool
-	mergeLimits   string
-	mergeContinue bool
-	mergeBackend  string
+	mergeBackup bool
+	mergeDefrag bool
+	mergeLimits string
 )
 
 func init() {
 	cmd := newMergeCmd()
 	cmd.Flags().BoolVarP(&mergeBackup, "backup", "b", true, "Create backup before merging")
-	cmd.Flags().BoolVarP(&mergeDryRun, "dry-run", "n", false, "Validate without applying changes")
 	cmd.Flags().BoolVar(&mergeDefrag, "defrag", false, "Defragment after merge")
-	cmd.Flags().BoolVar(&mergeProgress, "progress", false, "Show progress during merge")
 	cmd.Flags().StringVar(&mergeLimits, "limits", "default", "Limits preset (default, strict, relaxed)")
-	cmd.Flags().BoolVar(&mergeContinue, "continue", false, "Continue on errors")
-	cmd.Flags().StringVar(&mergeBackend, "backend", "new", "Merge backend (new: fast mmap, old: legacy rebuild)")
 	rootCmd.AddCommand(cmd)
 }
 
@@ -41,7 +33,6 @@ By default, a backup is created before merging.
 Example:
   hivectl merge system.hive changes.reg
   hivectl merge system.hive base.reg patch1.reg patch2.reg
-  hivectl merge system.hive changes.reg --dry-run
   hivectl merge system.hive changes.reg --limits strict`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -76,24 +67,9 @@ func runMerge(args []string) error {
 
 	// Prepare options
 	opts := &hive.MergeOptions{
-		Backend:      hive.MergeBackend(mergeBackend),
 		Limits:       limits,
-		DryRun:       mergeDryRun,
 		CreateBackup: mergeBackup,
 		Defragment:   mergeDefrag,
-	}
-
-	if mergeProgress {
-		opts.OnProgress = func(current, total int) {
-			printVerbose("Progress: %d/%d operations\n", current, total)
-		}
-	}
-
-	if mergeContinue {
-		opts.OnError = func(op hive.EditOp, err error) bool {
-			printError("Error applying operation: %v (continuing)\n", err)
-			return true // Continue on error
-		}
 	}
 
 	printInfo("\nMerging into %s:\n", hivePath)
@@ -114,7 +90,6 @@ func runMerge(args []string) error {
 		result := map[string]interface{}{
 			"hive":       hivePath,
 			"reg_files":  regFiles,
-			"dry_run":    mergeDryRun,
 			"backup":     mergeBackup,
 			"defragment": mergeDefrag,
 			"success":    true,
@@ -123,14 +98,10 @@ func runMerge(args []string) error {
 	}
 
 	// Text output
-	if mergeDryRun {
-		printInfo("\n✓ Dry run complete (no changes applied)\n")
-	} else {
-		if mergeBackup {
-			printInfo("\nBackup: %s.bak\n", hivePath)
-		}
-		printInfo("✓ Merge complete\n")
+	if mergeBackup {
+		printInfo("\nBackup: %s.bak\n", hivePath)
 	}
+	printInfo("✓ Merge complete\n")
 
 	return nil
 }

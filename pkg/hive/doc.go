@@ -94,21 +94,19 @@ Test changes without applying them:
 
 # Advanced Usage
 
-For advanced users who need fine-grained control, use the low-level API:
+For advanced users who need fine-grained control over merge operations:
 
 	import (
-	    "github.com/joshuapare/hivekit/internal/reader"
-	    "github.com/joshuapare/hivekit/internal/edit"
-	    "github.com/joshuapare/hivekit/pkg/types"
+	    "github.com/joshuapare/hivekit/hive/merge"
 	)
 
-	r, _ := reader.Open("system.hive", OpenOptions{ZeroCopy: true})
-	defer r.Close()
+	// Create a merge plan with multiple operations
+	plan := merge.NewPlan()
+	plan.AddEnsureKey([]string{"Software", "MyApp"})
+	plan.AddSetValue([]string{"Software", "MyApp"}, "Version", types.REG_SZ, data)
 
-	ed := edit.NewEditor(r)
-	tx := ed.Begin()
-	tx.CreateKey("Software\\MyApp", CreateKeyOptions{})
-	// ... fine-grained operations
+	// Apply the plan
+	applied, err := merge.MergePlan("system.hive", plan, nil)
 
 # Performance
 

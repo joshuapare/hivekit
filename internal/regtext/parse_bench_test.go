@@ -523,59 +523,6 @@ func BenchmarkEncodeUTF16LE(b *testing.B) {
 	}
 }
 
-// BenchmarkDecodeInput benchmarks input encoding detection and decoding.
-func BenchmarkDecodeInput(b *testing.B) {
-	testCases := []struct {
-		name  string
-		input []byte
-		enc   string
-	}{
-		{"UTF8_Small", []byte("Windows Registry Editor Version 5.00\n"), ""},
-		{"UTF8_WithBOM", append(UTF8BOM, []byte("Windows Registry Editor Version 5.00\n")...), ""},
-		{"UTF16LE", encodeUTF16LE("Windows Registry Editor Version 5.00\n", true), ""},
-	}
-
-	for _, tc := range testCases {
-		b.Run(tc.name, func(b *testing.B) {
-			b.SetBytes(int64(len(tc.input)))
-			for range b.N {
-				_, err := decodeInput(tc.input, tc.enc)
-				if err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-}
-
-// BenchmarkParseValueLine benchmarks the value line parsing function.
-func BenchmarkParseValueLine(b *testing.B) {
-	testCases := []struct {
-		name string
-		line string
-	}{
-		{"String", `"ValueName"="Some string value"`},
-		{"DWORD", `"ValueName"=dword:0000002a`},
-		{"Binary", `"ValueName"=hex:01,02,03,04,05,06,07,08`},
-		{"ExpandSZ", `"ValueName"=hex(2):50,00,61,00,74,00,68,00,00,00`},
-		{"MultiSZ", `"ValueName"=hex(7):41,00,42,00,00,00,43,00,44,00,00,00,00,00`},
-		{"Default", `@="Default Value"`},
-		{"Delete", `"ValueName"=-`},
-	}
-
-	path := "\\TestKey\\SubKey"
-	for _, tc := range testCases {
-		b.Run(tc.name, func(b *testing.B) {
-			for range b.N {
-				_, err := parseValueLine(path, tc.line)
-				if err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-}
-
 // ============================================================================
 // Helper Functions
 // ============================================================================

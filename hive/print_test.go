@@ -51,6 +51,7 @@ func TestHive_PrintKey_JSON(t *testing.T) {
 	opts := printer.DefaultOptions()
 	opts.Format = printer.FormatJSON
 	opts.ShowValues = true
+	opts.PrintMetadata = true // Enable full JSON structure
 
 	err = h.PrintKey(&buf, "", opts)
 	require.NoError(t, err)
@@ -96,7 +97,8 @@ func TestHive_PrintValue(t *testing.T) {
 }
 
 func TestHive_PrintTree(t *testing.T) {
-	hivePath := filepath.Join("..", "testdata", "minimal")
+	// Use "large" hive which has subkeys (minimal hive has no subkeys)
+	hivePath := filepath.Join("..", "testdata", "large")
 	if _, err := os.Stat(hivePath); os.IsNotExist(err) {
 		t.Skip("test hive not found")
 	}
@@ -120,7 +122,8 @@ func TestHive_PrintTree(t *testing.T) {
 }
 
 func TestHive_PrintTree_RegFormat(t *testing.T) {
-	hivePath := filepath.Join("..", "testdata", "minimal")
+	// Use "large" hive which has subkeys (minimal hive has no subkeys)
+	hivePath := filepath.Join("..", "testdata", "large")
 	if _, err := os.Stat(hivePath); os.IsNotExist(err) {
 		t.Skip("test hive not found")
 	}
@@ -151,7 +154,8 @@ func TestHive_PrintTree_RegFormat(t *testing.T) {
 }
 
 func TestHive_PrintTree_JSONFormat(t *testing.T) {
-	hivePath := filepath.Join("..", "testdata", "minimal")
+	// Use "large" hive which has subkeys (minimal hive has no subkeys)
+	hivePath := filepath.Join("..", "testdata", "large")
 	if _, err := os.Stat(hivePath); os.IsNotExist(err) {
 		t.Skip("test hive not found")
 	}
@@ -164,6 +168,7 @@ func TestHive_PrintTree_JSONFormat(t *testing.T) {
 	opts := printer.DefaultOptions()
 	opts.Format = printer.FormatJSON
 	opts.ShowValues = true
+	opts.PrintMetadata = true // Enable full JSON structure
 	opts.MaxDepth = 2
 
 	err = h.PrintTree(&buf, "", opts)
@@ -237,6 +242,7 @@ func TestHive_Print_Integration(t *testing.T) {
 		opts := printer.DefaultOptions()
 		opts.Format = printer.FormatJSON
 		opts.ShowValues = true
+		opts.PrintMetadata = true // Enable full JSON structure
 		opts.MaxDepth = 1
 
 		err = h.PrintTree(&buf, "", opts)

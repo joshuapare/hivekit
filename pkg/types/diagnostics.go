@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -199,6 +200,55 @@ func (r *DiagnosticReport) GetByMaxRisk(maxRisk RiskLevel) []Diagnostic {
 // Output Formatters
 // -----------------------------------------------------------------------------
 
+// Helper functions for efficient formatting without allocations
+
+// formatHex8 formats a uint64 as 8-digit uppercase hex string
+func formatHex8(val uint64) string {
+	const hexChars = "0123456789ABCDEF"
+	var buf [8]byte
+	for i := 7; i >= 0; i-- {
+		buf[i] = hexChars[val&0xF]
+		val >>= 4
+	}
+	return string(buf[:])
+}
+
+// writeInt writes an integer to the builder
+func writeInt(b *strings.Builder, val int) {
+	b.WriteString(strconv.Itoa(val))
+}
+
+// writeInt64 writes an int64 to the builder
+func writeInt64(b *strings.Builder, val int64) {
+	b.WriteString(strconv.FormatInt(val, 10))
+}
+
+// formatInterface formats an interface{} value as a string
+// This is a cold path (diagnostics/errors only), so fmt.Sprint is acceptable
+func formatInterface(v interface{}) string {
+	switch val := v.(type) {
+	case string:
+		return val
+	case int:
+		return strconv.Itoa(val)
+	case int64:
+		return strconv.FormatInt(val, 10)
+	case uint64:
+		return strconv.FormatUint(val, 10)
+	case uint32:
+		return strconv.FormatUint(uint64(val), 10)
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	default:
+		// For unknown types, use fmt.Sprint
+		// This is acceptable since it's a cold path (diagnostics only)
+		return fmt.Sprint(v)
+	}
+}
+
 // FormatJSON returns the report as formatted JSON (2-space indentation).
 func (r *DiagnosticReport) FormatJSON() (string, error) {
 	data, err := json.MarshalIndent(r, "", "  ")
@@ -219,22 +269,40 @@ func (r *DiagnosticReport) FormatText() string {
 
 	// Metadata
 	if r.FilePath != "" {
-		b.WriteString(fmt.Sprintf("File:      %s\n", r.FilePath))
+		b.WriteString("File:      ")
+		b.WriteString(r.FilePath)
+		b.WriteByte('\n')
 	}
-	b.WriteString(fmt.Sprintf("Size:      %d bytes\n", r.FileSize))
-	b.WriteString(fmt.Sprintf("Scan time: %v\n\n", r.ScanTime))
+	b.WriteString("Size:      ")
+	writeInt64(&b, r.FileSize)
+	b.WriteString(" bytes\n")
+	b.WriteString("Scan time: ")
+	b.WriteString(r.ScanTime.String())
+	b.WriteString("\n\n")
 
 	// Summary
 	b.WriteString("SUMMARY\n")
 	b.WriteString(strings.Repeat("-", 79) + "\n")
-	b.WriteString(fmt.Sprintf("  Critical: %d\n", r.Summary.Critical))
-	b.WriteString(fmt.Sprintf("  Errors:   %d\n", r.Summary.Errors))
-	b.WriteString(fmt.Sprintf("  Warnings: %d\n", r.Summary.Warnings))
-	b.WriteString(fmt.Sprintf("  Info:     %d\n\n", r.Summary.Info))
+	b.WriteString("  Critical: ")
+	writeInt(&b, r.Summary.Critical)
+	b.WriteByte('\n')
+	b.WriteString("  Errors:   ")
+	writeInt(&b, r.Summary.Errors)
+	b.WriteByte('\n')
+	b.WriteString("  Warnings: ")
+	writeInt(&b, r.Summary.Warnings)
+	b.WriteByte('\n')
+	b.WriteString("  Info:     ")
+	writeInt(&b, r.Summary.Info)
+	b.WriteString("\n\n")
 
 	if r.Summary.Repairable > 0 {
-		b.WriteString(fmt.Sprintf("  Repairable:      %d\n", r.Summary.Repairable))
-		b.WriteString(fmt.Sprintf("  Auto-repairable: %d\n\n", r.Summary.AutoRepairable))
+		b.WriteString("  Repairable:      ")
+		writeInt(&b, r.Summary.Repairable)
+		b.WriteByte('\n')
+		b.WriteString("  Auto-repairable: ")
+		writeInt(&b, r.Summary.AutoRepairable)
+		b.WriteString("\n\n")
 	}
 
 	// If no issues, report success
@@ -253,35 +321,62 @@ func (r *DiagnosticReport) FormatText() string {
 			continue
 		}
 
-		b.WriteString(fmt.Sprintf("%s (%d)\n", severity, len(diags)))
+		b.WriteString(severity.String())
+		b.WriteString(" (")
+		writeInt(&b, len(diags))
+		b.WriteString(")\n")
 		b.WriteString(strings.Repeat("~", 79) + "\n")
 
 		for i, d := range diags {
-			b.WriteString(fmt.Sprintf("\n%d. [%s/%s] at offset 0x%X\n", i+1, d.Structure, d.Category, d.Offset))
-			b.WriteString(fmt.Sprintf("   %s\n", d.Issue))
+			b.WriteString("\n")
+			writeInt(&b, i+1)
+			b.WriteString(". [")
+			b.WriteString(d.Structure)
+			b.WriteByte('/')
+			b.WriteString(d.Category.String())
+			b.WriteString("] at offset 0x")
+			b.WriteString(formatHex8(d.Offset))
+			b.WriteByte('\n')
+			b.WriteString("   ")
+			b.WriteString(d.Issue)
+			b.WriteByte('\n')
 
 			if d.Expected != nil || d.Actual != nil {
 				if d.Expected != nil {
-					b.WriteString(fmt.Sprintf("   Expected: %v\n", d.Expected))
+					b.WriteString("   Expected: ")
+					// Use Sprintf for interface{} values - unavoidable
+					b.WriteString(formatInterface(d.Expected))
+					b.WriteByte('\n')
 				}
 				if d.Actual != nil {
-					b.WriteString(fmt.Sprintf("   Actual:   %v\n", d.Actual))
+					b.WriteString("   Actual:   ")
+					b.WriteString(formatInterface(d.Actual))
+					b.WriteByte('\n')
 				}
 			}
 
 			if d.Context != nil {
 				if d.Context.KeyPath != "" {
-					b.WriteString(fmt.Sprintf("   Path:     %s\n", d.Context.KeyPath))
+					b.WriteString("   Path:     ")
+					b.WriteString(d.Context.KeyPath)
+					b.WriteByte('\n')
 				}
 				if d.Context.ValueName != "" {
-					b.WriteString(fmt.Sprintf("   Value:    %s\n", d.Context.ValueName))
+					b.WriteString("   Value:    ")
+					b.WriteString(d.Context.ValueName)
+					b.WriteByte('\n')
 				}
 			}
 
 			if d.Repair != nil {
-				b.WriteString(fmt.Sprintf("   Repair:   %s\n", d.Repair.Description))
-				b.WriteString(fmt.Sprintf("   Risk:     %s (confidence: %.0f%%)\n",
-					d.Repair.Risk, d.Repair.Confidence*100))
+				b.WriteString("   Repair:   ")
+				b.WriteString(d.Repair.Description)
+				b.WriteByte('\n')
+				b.WriteString("   Risk:     ")
+				b.WriteString(d.Repair.Risk.String())
+				b.WriteString(" (confidence: ")
+				writeInt(&b, int(d.Repair.Confidence*100))
+				b.WriteString("%)\n")
 				if d.Repair.AutoApply {
 					b.WriteString("   Auto-apply: YES\n")
 				}
@@ -298,8 +393,17 @@ func (r *DiagnosticReport) FormatTextCompact() string {
 	var b strings.Builder
 
 	for _, d := range r.ByOffset {
-		b.WriteString(fmt.Sprintf("0x%08X [%s/%s/%s] %s\n",
-			d.Offset, d.Severity, d.Structure, d.Category, d.Issue))
+		b.WriteString("0x")
+		b.WriteString(formatHex8(d.Offset))
+		b.WriteString(" [")
+		b.WriteString(d.Severity.String())
+		b.WriteByte('/')
+		b.WriteString(d.Structure)
+		b.WriteByte('/')
+		b.WriteString(d.Category.String())
+		b.WriteString("] ")
+		b.WriteString(d.Issue)
+		b.WriteByte('\n')
 	}
 
 	if len(r.Diagnostics) == 0 {
@@ -319,8 +423,15 @@ func (r *DiagnosticReport) FormatHexAnnotations() string {
 
 	for _, d := range r.ByOffset {
 		msg := strings.ReplaceAll(d.Issue, ",", ";") // Escape commas
-		b.WriteString(fmt.Sprintf("0x%08X,%s,%s,%s\n",
-			d.Offset, d.Severity, d.Structure, msg))
+		b.WriteString("0x")
+		b.WriteString(formatHex8(d.Offset))
+		b.WriteByte(',')
+		b.WriteString(d.Severity.String())
+		b.WriteByte(',')
+		b.WriteString(d.Structure)
+		b.WriteByte(',')
+		b.WriteString(msg)
+		b.WriteByte('\n')
 	}
 
 	return b.String()

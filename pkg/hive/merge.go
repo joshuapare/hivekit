@@ -1,25 +1,10 @@
 package hive
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 
 	"github.com/joshuapare/hivekit/hive/merge"
-	"github.com/joshuapare/hivekit/internal/edit"
-	"github.com/joshuapare/hivekit/internal/reader"
-	"github.com/joshuapare/hivekit/internal/regtext"
-	"github.com/joshuapare/hivekit/pkg/types"
-)
-
-// MergeBackend specifies which merge implementation to use.
-type MergeBackend string
-
-const (
-	// MergeBackendNew uses the new fast mmap-based merge (default, 4-119x faster).
-	MergeBackendNew MergeBackend = "new"
-	// MergeBackendOld uses the legacy full-rebuild merge (for compatibility testing).
-	MergeBackendOld MergeBackend = "old"
 )
 
 // MergeRegFile merges a .reg file into a registry
@@ -105,20 +90,8 @@ func MergeRegFiles(hivePath string, regPaths []string, opts *MergeOptions) error
 
 	total := len(regPaths)
 	for i, regPath := range regPaths {
-		// Report progress for file-level operations
-		if opts != nil && opts.OnProgress != nil {
-			opts.OnProgress(i+1, total)
-		}
-
-		// Create a copy of opts without progress callback for individual merges
-		// (to avoid double progress reporting)
-		fileOpts := &MergeOptions{}
-		if opts != nil {
-			*fileOpts = *opts
-			fileOpts.OnProgress = nil // Disable operation-level progress
-		}
-
-		if err := MergeRegFile(hivePath, regPath, fileOpts); err != nil {
+		// Merge each file in sequence
+		if err := MergeRegFile(hivePath, regPath, opts); err != nil {
 			return fmt.Errorf("failed to merge %s (file %d/%d): %w", regPath, i+1, total, err)
 		}
 	}
@@ -126,30 +99,12 @@ func MergeRegFiles(hivePath string, regPaths []string, opts *MergeOptions) error
 	return nil
 }
 
-// mergeRegBytes routes to the appropriate backend implementation.
+// mergeRegBytes merges .reg file data into a hive using the mmap-based implementation.
 func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
-	// Set default backend to new
+	// Apply defaults
 	if opts == nil {
 		opts = &MergeOptions{}
 	}
-	if opts.Backend == "" {
-		opts.Backend = MergeBackendNew
-	}
-
-	// Route to backend
-	switch opts.Backend {
-	case MergeBackendNew:
-		return mergeRegBytesNew(hivePath, regData, opts)
-	case MergeBackendOld:
-		return mergeRegBytesOld(hivePath, regData, opts)
-	default:
-		return fmt.Errorf("unknown merge backend: %s", opts.Backend)
-	}
-}
-
-// mergeRegBytesNew uses the new fast mmap-based implementation with query optimization.
-func mergeRegBytesNew(hivePath string, regData []byte, opts *MergeOptions) error {
-	// TODO: Add support for DryRun, OnProgress, OnError callbacks
 
 	// Create backup if requested
 	if opts.CreateBackup {
@@ -173,115 +128,4 @@ func mergeRegBytesNew(hivePath string, regData []byte, opts *MergeOptions) error
 	// Apply optimized plan
 	_, err = merge.MergePlan(hivePath, plan, nil)
 	return err
-}
-
-// mergeRegBytesOld uses the legacy full-rebuild implementation.
-func mergeRegBytesOld(hivePath string, regData []byte, opts *MergeOptions) error {
-	// Apply defaults
-	if opts == nil {
-		opts = &MergeOptions{}
-	}
-	if opts.Limits == nil {
-		limits := DefaultLimits()
-		opts.Limits = &limits
-	}
-
-	// Create backup if requested
-	if opts.CreateBackup {
-		backupPath := hivePath + ".bak"
-		if err := copyFile(hivePath, backupPath); err != nil {
-			return fmt.Errorf("failed to create backup at %s: %w", backupPath, err)
-		}
-	}
-
-	// Open hive
-	hiveData, err := os.ReadFile(hivePath)
-	if err != nil {
-		return fmt.Errorf("failed to read hive %s: %w", hivePath, err)
-	}
-
-	r, err := reader.OpenBytes(hiveData, OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open hive %s: %w", hivePath, err)
-	}
-	defer r.Close()
-
-	// Parse .reg file
-	codec := regtext.NewCodec()
-	ops, err := codec.ParseReg(regData, RegParseOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to parse .reg data: %w", err)
-	}
-
-	// Handle empty operation list
-	if len(ops) == 0 {
-		// Nothing to do, but not an error
-		return nil
-	}
-
-	// Start transaction with limits
-	ed := edit.NewEditor(r)
-	tx := ed.BeginWithLimits(*opts.Limits)
-
-	// Apply operations
-	total := len(ops)
-	for i, op := range ops {
-		// Progress callback
-		if opts.OnProgress != nil {
-			opts.OnProgress(i+1, total)
-		}
-
-		// Apply operation
-		if applyErr := applyOperation(tx, op); applyErr != nil {
-			// Error callback
-			if opts.OnError != nil {
-				if !opts.OnError(op, applyErr) {
-					// User requested abort
-					if rbErr := tx.Rollback(); rbErr != nil {
-						return fmt.Errorf(
-							"operation aborted at %d/%d: %w (rollback error: %w)",
-							i+1,
-							total,
-							applyErr,
-							rbErr,
-						)
-					}
-					return fmt.Errorf("operation aborted at %d/%d: %w", i+1, total, applyErr)
-				}
-				// User requested continue - skip this operation
-				continue
-			}
-			// No error handler - abort on first error
-			if rbErr := tx.Rollback(); rbErr != nil {
-				return fmt.Errorf("operation %d/%d failed: %w (rollback error: %w)", i+1, total, applyErr, rbErr)
-			}
-			return fmt.Errorf("operation %d/%d failed: %w", i+1, total, applyErr)
-		}
-	}
-
-	// Dry run? Don't commit
-	if opts.DryRun {
-		return tx.Rollback()
-	}
-
-	// Commit to buffer
-	buf := &bytes.Buffer{}
-	writeOpts := types.WriteOptions{Repack: opts.Defragment}
-	if commitErr := tx.Commit(&bufWriter{buf}, writeOpts); commitErr != nil {
-		return fmt.Errorf("failed to commit changes to %s: %w", hivePath, commitErr)
-	}
-
-	// Write to file atomically (write to temp, then rename)
-	tempPath := hivePath + ".tmp"
-	if writeErr := os.WriteFile(tempPath, buf.Bytes(), 0644); writeErr != nil {
-		return fmt.Errorf("failed to write temporary file %s: %w", tempPath, writeErr)
-	}
-
-	if renameErr := os.Rename(tempPath, hivePath); renameErr != nil {
-		// Clean up temp file on error
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive %s: %w", hivePath, renameErr)
-	}
-
-	return nil
 }

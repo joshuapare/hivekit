@@ -13,7 +13,6 @@ import (
 var (
 	deleteValueForce  bool
 	deleteValueBackup bool
-	deleteValueDryRun bool
 	deleteValueDefrag bool
 )
 
@@ -21,7 +20,6 @@ func init() {
 	cmd := newDeleteValueCmd()
 	cmd.Flags().BoolVarP(&deleteValueForce, "force", "f", false, "Don't prompt for confirmation")
 	cmd.Flags().BoolVar(&deleteValueBackup, "backup", true, "Create backup")
-	cmd.Flags().BoolVar(&deleteValueDryRun, "dry-run", false, "Show what would be deleted")
 	cmd.Flags().BoolVar(&deleteValueDefrag, "defrag", false, "Defragment after operation")
 	rootCmd.AddCommand(cmd)
 }
@@ -34,8 +32,7 @@ func newDeleteValueCmd() *cobra.Command {
 
 Example:
   hivectl delete-value system.hive "Software\\MyApp" "OldSetting"
-  hivectl delete-value system.hive "Software\\MyApp" "Debug" --force
-  hivectl delete-value system.hive "Software\\MyApp" "Test" --dry-run`,
+  hivectl delete-value system.hive "Software\\MyApp" "Debug" --force`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDeleteValue(args)
@@ -57,8 +54,8 @@ func runDeleteValue(args []string) error {
 		return fmt.Errorf("failed to get value info: %w", err)
 	}
 
-	// Confirm deletion (unless forced or dry-run)
-	if !deleteValueForce && !deleteValueDryRun && !quiet {
+	// Confirm deletion (unless forced)
+	if !deleteValueForce && !quiet {
 		printInfo("\nDeleting value from %s:\n", hivePath)
 		printInfo("  Path: %s\n", keyPath)
 		printInfo("  Name: %s\n", valueName)
@@ -80,7 +77,6 @@ func runDeleteValue(args []string) error {
 	// Prepare options
 	opts := &hive.OperationOptions{
 		CreateBackup: deleteValueBackup,
-		DryRun:       deleteValueDryRun,
 		Defragment:   deleteValueDefrag,
 	}
 
@@ -97,23 +93,14 @@ func runDeleteValue(args []string) error {
 			"name":    valueName,
 			"type":    value.Type,
 			"success": true,
-			"dry_run": deleteValueDryRun,
 		}
 		return printJSON(result)
 	}
 
 	// Text output
-	if deleteValueDryRun {
-		printInfo("\n✓ Would delete:\n")
-		printInfo("  Value: %s\n", valueName)
-		printInfo("  Type: %s\n", value.Type)
-		printInfo("  Size: %d bytes\n", value.Size)
-		printInfo("\n(dry-run mode, no changes made)\n")
-	} else {
-		printInfo("\n✓ Value deleted successfully\n")
-		if deleteValueBackup {
-			printInfo("Backup created: %s.bak\n", hivePath)
-		}
+	printInfo("\n✓ Value deleted successfully\n")
+	if deleteValueBackup {
+		printInfo("Backup created: %s.bak\n", hivePath)
 	}
 
 	return nil

@@ -3,7 +3,7 @@ package printer
 import (
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"strconv"
 
 	"github.com/joshuapare/hivekit/pkg/types"
 )
@@ -42,7 +42,10 @@ func (p *Printer) printKeyJSON(node types.NodeID, _ string, _ int) error {
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(p.writer, "%s\n", data)
+		if _, err := p.writer.Write(data); err != nil {
+			return err
+		}
+		_, err = p.writer.Write([]byte{'\n'})
 		return err
 	}
 
@@ -99,7 +102,10 @@ func (p *Printer) printKeyJSON(node types.NodeID, _ string, _ int) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(p.writer, "%s\n", data)
+	if _, err := p.writer.Write(data); err != nil {
+		return err
+	}
+	_, err = p.writer.Write([]byte{'\n'})
 	return err
 }
 
@@ -139,7 +145,10 @@ func (p *Printer) printValueJSON(valID types.ValueID, _ int) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(p.writer, "%s\n", data)
+	if _, err := p.writer.Write(data); err != nil {
+		return err
+	}
+	_, err = p.writer.Write([]byte{'\n'})
 	return err
 }
 
@@ -237,7 +246,10 @@ func (p *Printer) printTreeJSON(node types.NodeID, path string, depth int) error
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(p.writer, "%s\n", data)
+	if _, err := p.writer.Write(data); err != nil {
+		return err
+	}
+	_, err = p.writer.Write([]byte{'\n'})
 	return err
 }
 
@@ -356,7 +368,10 @@ func (p *Printer) printTreeJSONNamesOnly(node types.NodeID, depth int) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(p.writer, "%s\n", data)
+	if _, err := p.writer.Write(data); err != nil {
+		return err
+	}
+	_, err = p.writer.Write([]byte{'\n'})
 	return err
 }
 
@@ -406,7 +421,7 @@ func (p *Printer) decodeValueJSON(valID types.ValueID, meta types.ValueMeta) (an
 		}
 		hexStr := hex.EncodeToString(data[:displayLen])
 		if len(data) > maxBytes {
-			hexStr += fmt.Sprintf(" (truncated, %d total bytes)", len(data))
+			hexStr += " (truncated, " + strconv.Itoa(len(data)) + " total bytes)"
 		}
 		return hexStr, nil
 
@@ -415,6 +430,6 @@ func (p *Printer) decodeValueJSON(valID types.ValueID, meta types.ValueMeta) (an
 		if err != nil {
 			return nil, err
 		}
-		return fmt.Sprintf("<%d bytes>", len(data)), nil
+		return "<" + strconv.Itoa(len(data)) + " bytes>", nil
 	}
 }

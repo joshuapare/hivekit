@@ -184,7 +184,30 @@ func getBaseHive(b *testing.B) string {
 	return hivePath
 }
 
-// Note: createTempCopy() is already defined in comparison_bench_test.go
+// createTempCopy creates a temporary copy of a hive file for benchmarking.
+func createTempCopy(b *testing.B, srcPath string) string {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		b.Fatalf("Failed to read source hive: %v", err)
+	}
+
+	tempFile, createErr := os.CreateTemp("", "bench-*.hive")
+	if createErr != nil {
+		b.Fatalf("Failed to create temp file: %v", createErr)
+	}
+	tempPath := tempFile.Name()
+	tempFile.Close()
+
+	if writeErr := os.WriteFile(tempPath, data, 0644); writeErr != nil {
+		b.Fatalf("Failed to write temp hive: %v", writeErr)
+	}
+
+	b.Cleanup(func() {
+		os.Remove(tempPath)
+	})
+
+	return tempPath
+}
 
 // Test data generators
 

@@ -33,13 +33,9 @@ func ExampleMergeRegFile() {
 	}
 }
 
-// ExampleMergeRegFile_withProgress demonstrates progress reporting.
-func ExampleMergeRegFile_withProgress() {
+// ExampleMergeRegFile_withOptions demonstrates merge with options.
+func ExampleMergeRegFile_withOptions() {
 	opts := &hive.MergeOptions{
-		OnProgress: func(current, total int) {
-			pct := (current * 100) / total
-			fmt.Printf("\rProgress: %d%% (%d/%d)", pct, current, total)
-		},
 		Defragment:   true,
 		CreateBackup: true,
 	}
@@ -49,27 +45,7 @@ func ExampleMergeRegFile_withProgress() {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Println("\nDone!")
-}
-
-// ExampleMergeRegFile_dryRun demonstrates validation without applying changes.
-func ExampleMergeRegFile_dryRun() {
-	opts := &hive.MergeOptions{
-		DryRun: true,
-		Limits: func() *hive.Limits {
-			l := hive.StrictLimits()
-			return &l
-		}(),
-	}
-
-	err := hive.MergeRegFile("system.hive", "risky-changes.reg", opts)
-	if err != nil {
-		fmt.Printf("Validation failed: %v\n", err)
-		fmt.Println("Changes would violate registry limits - not applying!")
-		return
-	}
-
-	fmt.Println("Validation passed - safe to apply")
+	fmt.Println("Merge complete with defragmentation and backup")
 }
 
 // ExampleMergeRegFiles demonstrates batch merging.
@@ -80,17 +56,12 @@ func ExampleMergeRegFiles() {
 		"patch2.reg",
 	}
 
-	opts := &hive.MergeOptions{
-		OnProgress: func(current, total int) {
-			fmt.Printf("Merging file %d/%d\n", current, total)
-		},
-	}
-
-	err := hive.MergeRegFiles("system.hive", regFiles, opts)
+	err := hive.MergeRegFiles("system.hive", regFiles, nil)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
+	fmt.Println("All files merged successfully")
 }
 
 // ExampleExportReg demonstrates exporting a hive to .reg format.
