@@ -585,9 +585,20 @@ var builderReaderTestCases = []builderReaderTestCase{
 			return b.SetMultiString([]string{"Test"}, "Tags", []string{"A", "B"})
 		},
 		verifyFn: func(t *testing.T, h *hive.Hive) {
+			// Verify Find works first
+			node, err := h.Find("Test")
+			require.NoError(t, err, "Find should locate the key")
+			require.NotZero(t, node)
+
+			// Verify FindParts works
+			node2, err := h.FindParts([]string{"Test"})
+			require.NoError(t, err, "FindParts should locate the key")
+			require.Equal(t, node, node2)
+
+			// Now test ListValues
 			values, err := h.ListValues("Test")
-			require.NoError(t, err)
-			require.Equal(t, 5, len(values))
+			require.NoError(t, err, "ListValues should work")
+			require.Equal(t, 5, len(values), "Should have 5 values")
 
 			// Extract names and types
 			nameTypeMap := make(map[string]types.RegType)
@@ -600,6 +611,108 @@ var builderReaderTestCases = []builderReaderTestCase{
 			require.Equal(t, types.REG_QWORD, nameTypeMap["ID"])
 			require.Equal(t, types.REG_BINARY, nameTypeMap["Data"])
 			require.Equal(t, types.REG_MULTI_SZ, nameTypeMap["Tags"])
+
+			// Test case insensitivity - ListValues uses Find internally which is case-insensitive
+			valuesUpper, err := h.ListValues("TEST")
+			require.NoError(t, err, "ListValues should be case-insensitive")
+			require.Equal(t, 5, len(valuesUpper), "Should return same values regardless of case")
+
+			valuesLower, err := h.ListValues("test")
+			require.NoError(t, err, "ListValues should be case-insensitive")
+			require.Equal(t, 5, len(valuesLower), "Should return same values regardless of case")
+		},
+	},
+	{
+		name:        "listvalues_nested_keys",
+		description: "Verify ListValues works with deeply nested keys",
+		buildFn: func(t *testing.T, b *Builder) error {
+			// Create nested structure: Software\Company\Product\Version
+			// with values at each level
+			if err := b.SetString([]string{"Software"}, "RootValue", "Root"); err != nil {
+				return err
+			}
+			if err := b.SetString([]string{"Software", "Company"}, "CompanyName", "Acme Corp"); err != nil {
+				return err
+			}
+			if err := b.SetDWORD([]string{"Software", "Company"}, "Founded", 1990); err != nil {
+				return err
+			}
+			if err := b.SetString([]string{"Software", "Company", "Product"}, "ProductName", "Widget"); err != nil {
+				return err
+			}
+			if err := b.SetQWORD([]string{"Software", "Company", "Product"}, "SKU", 123456789); err != nil {
+				return err
+			}
+			if err := b.SetString([]string{"Software", "Company", "Product", "Version"}, "Number", "1.0.0"); err != nil {
+				return err
+			}
+			if err := b.SetDWORD([]string{"Software", "Company", "Product", "Version"}, "Build", 42); err != nil {
+				return err
+			}
+			return b.SetBinary([]string{"Software", "Company", "Product", "Version"}, "Hash", []byte{0xAA, 0xBB, 0xCC})
+		},
+		verifyFn: func(t *testing.T, h *hive.Hive) {
+			// Test ListValues at each level using different path formats
+
+			// Level 1: Software (backslash)
+			node1, err := h.Find("Software")
+			require.NoError(t, err, "Should find Software key")
+			require.NotZero(t, node1)
+
+			values1, err := h.ListValues("Software")
+			require.NoError(t, err, "ListValues should work on Software")
+			require.Equal(t, 1, len(values1), "Software should have 1 value")
+			require.Equal(t, "RootValue", values1[0].Name)
+
+			// Level 2: Software\Company (backslash)
+			node2, err := h.Find("Software\\Company")
+			require.NoError(t, err, "Should find Software\\Company key")
+			require.NotZero(t, node2)
+
+			values2, err := h.ListValues("Software\\Company")
+			require.NoError(t, err, "ListValues should work on nested path")
+			require.Equal(t, 2, len(values2), "Software\\Company should have 2 values")
+
+			// Level 3: Software\Company\Product (forward slash)
+			node3, err := h.Find("Software/Company/Product")
+			require.NoError(t, err, "Should find with forward slashes")
+			require.NotZero(t, node3)
+
+			values3, err := h.ListValues("Software/Company/Product")
+			require.NoError(t, err, "ListValues should work with forward slashes")
+			require.Equal(t, 2, len(values3), "Software/Company/Product should have 2 values")
+
+			// Level 4: Deep nested (mixed case + FindParts verification)
+			node4, err := h.FindParts([]string{"Software", "Company", "Product", "Version"})
+			require.NoError(t, err, "FindParts should work on deep path")
+			require.NotZero(t, node4)
+
+			// Test with uppercase to verify case insensitivity
+			values4, err := h.ListValues("SOFTWARE\\COMPANY\\PRODUCT\\VERSION")
+			require.NoError(t, err, "ListValues should be case-insensitive on nested paths")
+			require.Equal(t, 3, len(values4), "Deep nested key should have 3 values")
+
+			// Verify the actual values
+			valueMap := make(map[string]types.RegType)
+			for _, val := range values4 {
+				valueMap[val.Name] = val.Type
+			}
+			require.Equal(t, types.REG_SZ, valueMap["Number"])
+			require.Equal(t, types.REG_DWORD, valueMap["Build"])
+			require.Equal(t, types.REG_BINARY, valueMap["Hash"])
+
+			// Verify we can read the actual values
+			verStr, err := h.GetString("Software\\Company\\Product\\Version", "Number")
+			require.NoError(t, err)
+			require.Equal(t, "1.0.0", verStr)
+
+			verDword, err := h.GetDWORD("Software\\Company\\Product\\Version", "Build")
+			require.NoError(t, err)
+			require.Equal(t, uint32(42), verDword)
+
+			_, verBin, err := h.GetValue("Software\\Company\\Product\\Version", "Hash")
+			require.NoError(t, err)
+			require.Equal(t, []byte{0xAA, 0xBB, 0xCC}, verBin)
 		},
 	},
 	{

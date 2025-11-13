@@ -99,10 +99,20 @@ type Options struct {
 	SlackPct int
 
 	// StripHiveRootPrefixes controls whether to automatically strip common hive
-	// root prefixes (HKEY_LOCAL_MACHINE\, HKLM\, etc.) from registry paths.
-	// When true, paths like "HKLM\Software\MyApp" become ["Software", "MyApp"].
-	// When false, the full path is preserved.
-	// Default: true (maintains backward compatibility)
+	// root prefixes (HKEY_LOCAL_MACHINE\, HKLM\, etc.) from string-based paths.
+	//
+	// IMPORTANT: This option is DEPRECATED and only affects string-based methods
+	// like SetValueFromString(). Path arrays passed to SetValue(), SetString(),
+	// EnsureKey(), etc. are ALWAYS normalized to strip hive root prefixes.
+	//
+	// This ensures consistency with the reader, which always strips prefixes when
+	// searching. Without this normalization, keys created with prefix literals
+	// (e.g., []string{"HKLM", "SOFTWARE", "App"}) would be unreachable.
+	//
+	// Recommended: Leave as true (default). Setting to false is not recommended
+	// and may be removed in a future version.
+	//
+	// Default: true
 	StripHiveRootPrefixes bool
 }
 

@@ -40,6 +40,40 @@ func EncodeDWORDBigEndianHelper(v uint32) []byte {
 	return encodeDWORDBigEndian(v)
 }
 
+// JoinPath converts a path array into a registry path string with backslash separators.
+//
+// This is the inverse of SplitPath and provides a canonical way to build path strings
+// from components without worrying about separator formatting.
+//
+// Empty strings in the parts array are filtered out. Returns empty string for nil or empty input.
+//
+// Examples:
+//
+//	[]string{"Software", "MyApp"} -> "Software\\MyApp"
+//	[]string{"Software", "Company", "Product"} -> "Software\\Company\\Product"
+//	[]string{"Software", "", "MyApp"} -> "Software\\MyApp" (empty parts filtered)
+//	[]string{} -> ""
+//	nil -> ""
+func JoinPath(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+
+	// Filter out empty parts
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			filtered = append(filtered, part)
+		}
+	}
+
+	if len(filtered) == 0 {
+		return ""
+	}
+
+	return strings.Join(filtered, "\\")
+}
+
 // SplitPath converts a registry path string with backslash separators into a path array.
 //
 // It strips common hive root prefixes (HKEY_LOCAL_MACHINE, HKLM, etc.) and splits

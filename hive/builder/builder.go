@@ -121,6 +121,15 @@ func New(path string, opts *Options) (*Builder, error) {
 // This is the generic setter used by all type-specific helpers. Use this when
 // you have pre-encoded data or need to set a custom value type.
 //
+// Path Normalization:
+// The path array is automatically normalized to strip hive root prefixes.
+// These are all equivalent:
+//   - []string{"SOFTWARE", "MyApp"}
+//   - []string{"HKEY_LOCAL_MACHINE", "SOFTWARE", "MyApp"}
+//   - []string{"HKLM", "SOFTWARE", "MyApp"}
+//
+// This ensures compatibility with the reader, which always strips these prefixes.
+//
 // Parameters:
 //   - path: Full path to parent key (e.g., []string{"Software", "MyApp"})
 //   - name: Value name (empty string "" for default value)
@@ -136,6 +145,16 @@ func (b *Builder) SetValue(path []string, name string, typ uint32, data []byte) 
 
 	if len(path) == 0 {
 		return errors.New("path cannot be empty")
+	}
+
+	// Normalize path array: strip hive root prefix from first element if present.
+	// This ensures consistent behavior regardless of whether users include
+	// HKEY_LOCAL_MACHINE, HKLM, etc. in their path arrays.
+	// The reader always strips these prefixes, so we must too.
+	path = normalizePathArray(path)
+
+	if len(path) == 0 {
+		return errors.New("path cannot be empty after normalization")
 	}
 
 	// Create operation
@@ -248,6 +267,13 @@ func (b *Builder) EnsureKey(path []string) error {
 		return errors.New("path cannot be empty")
 	}
 
+	// Normalize path array to strip hive root prefixes
+	path = normalizePathArray(path)
+
+	if len(path) == 0 {
+		return errors.New("path cannot be empty after normalization")
+	}
+
 	// Create operation
 	op := merge.Op{
 		Type:    merge.OpEnsureKey,
@@ -280,6 +306,13 @@ func (b *Builder) DeleteKey(path []string) error {
 		return errors.New("path cannot be empty")
 	}
 
+	// Normalize path array to strip hive root prefixes
+	path = normalizePathArray(path)
+
+	if len(path) == 0 {
+		return errors.New("path cannot be empty after normalization")
+	}
+
 	// Create operation
 	op := merge.Op{
 		Type:    merge.OpDeleteKey,
@@ -307,6 +340,13 @@ func (b *Builder) DeleteValue(path []string, name string) error {
 
 	if len(path) == 0 {
 		return errors.New("path cannot be empty")
+	}
+
+	// Normalize path array to strip hive root prefixes
+	path = normalizePathArray(path)
+
+	if len(path) == 0 {
+		return errors.New("path cannot be empty after normalization")
 	}
 
 	// Create operation
@@ -477,4 +517,40 @@ func (b *Builder) splitPath(path string) []string {
 	}
 
 	return result
+}
+
+// normalizePathArray removes hive root prefixes from path arrays.
+// This ensures consistent behavior with the reader, which always strips these prefixes.
+//
+// If the first element is a hive root prefix (HKEY_LOCAL_MACHINE, HKLM, etc.),
+// it's removed from the array.
+//
+// Examples:
+//
+//	["HKEY_LOCAL_MACHINE", "SOFTWARE", "App"] -> ["SOFTWARE", "App"]
+//	["HKLM", "SOFTWARE", "App"] -> ["SOFTWARE", "App"]
+//	["SOFTWARE", "App"] -> ["SOFTWARE", "App"] (unchanged)
+func normalizePathArray(path []string) []string {
+	if len(path) == 0 {
+		return path
+	}
+
+	// Check if first element is a known hive root prefix (case-insensitive)
+	firstUpper := strings.ToUpper(path[0])
+	hiveRoots := []string{
+		"HKEY_LOCAL_MACHINE", "HKLM",
+		"HKEY_CURRENT_USER", "HKCU",
+		"HKEY_CLASSES_ROOT", "HKCR",
+		"HKEY_USERS", "HKU",
+		"HKEY_CURRENT_CONFIG", "HKCC",
+	}
+
+	for _, root := range hiveRoots {
+		if firstUpper == root {
+			// Strip the prefix
+			return path[1:]
+		}
+	}
+
+	return path
 }
