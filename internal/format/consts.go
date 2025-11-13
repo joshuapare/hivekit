@@ -220,9 +220,18 @@ const (
 	NKClassLenLen        = NKNameOffset - NKClassLenOffset    // 0x02
 )
 
-// flags.
+// NK record flags.
 const (
-	NKFlagCompressedName = 0x20 // KEY_COMP_NAME :contentReference[oaicite:3]{index=3}
+	NKFlagVolatile         = 0x0001 // KEY_VOLATILE - key is volatile (not persisted to disk)
+	NKFlagHiveExit         = 0x0002 // KEY_HIVE_EXIT - mount point of another hive
+	NKFlagHiveEntry        = 0x0004 // KEY_HIVE_ENTRY - root key for this hive
+	NKFlagNoDelete         = 0x0008 // KEY_NO_DELETE - key cannot be deleted
+	NKFlagSymLink          = 0x0010 // KEY_SYM_LINK - key is a symbolic link
+	NKFlagCompressedName   = 0x0020 // KEY_COMP_NAME - key name is ASCII/extended ASCII
+	NKFlagPredefinedHandle = 0x0040 // KEY_PREDEF_HANDLE - predefined handle (handle in key values field)
+	NKFlagVirtMirrored     = 0x0080 // KEY_VIRT_MIRRORED - virtualization flag (Windows Vista+)
+	NKFlagVirtTarget       = 0x0100 // KEY_VIRT_TARGET - virtualization flag (Windows Vista+)
+	NKFlagVirtualStore     = 0x0200 // KEY_VIRTUAL_STORE - virtualization flag (Windows Vista+)
 )
 
 // "header" is really "offset where name starts".

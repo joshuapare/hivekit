@@ -519,6 +519,21 @@ func (b *Builder) splitPath(path string) []string {
 	return result
 }
 
+// hiveRootPrefixes is the list of known registry hive root prefixes that should
+// be automatically stripped from path arrays.
+var hiveRootPrefixes = map[string]struct{}{
+	"HKEY_LOCAL_MACHINE":  {},
+	"HKLM":                {},
+	"HKEY_CURRENT_USER":   {},
+	"HKCU":                {},
+	"HKEY_CLASSES_ROOT":   {},
+	"HKCR":                {},
+	"HKEY_USERS":          {},
+	"HKU":                 {},
+	"HKEY_CURRENT_CONFIG": {},
+	"HKCC":                {},
+}
+
 // normalizePathArray removes hive root prefixes from path arrays.
 // This ensures consistent behavior with the reader, which always strips these prefixes.
 //
@@ -536,20 +551,10 @@ func normalizePathArray(path []string) []string {
 	}
 
 	// Check if first element is a known hive root prefix (case-insensitive)
+	// Use map for O(1) lookup instead of iterating a slice
 	firstUpper := strings.ToUpper(path[0])
-	hiveRoots := []string{
-		"HKEY_LOCAL_MACHINE", "HKLM",
-		"HKEY_CURRENT_USER", "HKCU",
-		"HKEY_CLASSES_ROOT", "HKCR",
-		"HKEY_USERS", "HKU",
-		"HKEY_CURRENT_CONFIG", "HKCC",
-	}
-
-	for _, root := range hiveRoots {
-		if firstUpper == root {
-			// Strip the prefix
-			return path[1:]
-		}
+	if _, isPrefix := hiveRootPrefixes[firstUpper]; isPrefix {
+		return path[1:]
 	}
 
 	return path

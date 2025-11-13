@@ -114,18 +114,18 @@ func TestRegType_String(t *testing.T) {
 		},
 		{
 			name:     "Type 8 (REG_RESOURCE_LIST)",
-			regType:  RegType(8),
-			expected: "UNKNOWN_TYPE_8", // Not in our constants, but valid Windows type
+			regType:  REG_RESOURCE_LIST,
+			expected: "REG_RESOURCE_LIST",
 		},
 		{
 			name:     "Type 9 (REG_FULL_RESOURCE_DESCRIPTOR)",
-			regType:  RegType(9),
-			expected: "UNKNOWN_TYPE_9", // Not in our constants, but valid Windows type
+			regType:  REG_FULL_RESOURCE_DESCRIPTOR,
+			expected: "REG_FULL_RESOURCE_DESCRIPTOR",
 		},
 		{
 			name:     "Type 10 (REG_RESOURCE_REQUIREMENTS_LIST)",
-			regType:  RegType(10),
-			expected: "UNKNOWN_TYPE_10", // Not in our constants, but valid Windows type
+			regType:  REG_RESOURCE_REQUIREMENTS_LIST,
+			expected: "REG_RESOURCE_REQUIREMENTS_LIST",
 		},
 	}
 

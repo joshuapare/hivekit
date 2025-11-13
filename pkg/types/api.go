@@ -73,16 +73,20 @@ type (
 type RegType uint32
 
 const (
-	REG_NONE      RegType = 0
-	REG_SZ        RegType = 1
-	REG_EXPAND_SZ RegType = 2
-	REG_BINARY    RegType = 3
-	REG_DWORD     RegType = 4
-	REG_DWORD_LE  RegType = 4 // alias for clarity
-	REG_DWORD_BE  RegType = 5
-	REG_LINK      RegType = 6
-	REG_MULTI_SZ  RegType = 7
-	REG_QWORD     RegType = 11
+	REG_NONE                       RegType = 0
+	REG_SZ                         RegType = 1
+	REG_EXPAND_SZ                  RegType = 2
+	REG_BINARY                     RegType = 3
+	REG_DWORD                      RegType = 4
+	REG_DWORD_LE                   RegType = 4  // alias for clarity
+	REG_DWORD_BE                   RegType = 5
+	REG_LINK                       RegType = 6
+	REG_MULTI_SZ                   RegType = 7
+	REG_RESOURCE_LIST              RegType = 8  // Device driver resource list
+	REG_FULL_RESOURCE_DESCRIPTOR   RegType = 9  // Hardware resource descriptor
+	REG_RESOURCE_REQUIREMENTS_LIST RegType = 10 // Hardware resource requirements list
+	REG_QWORD                      RegType = 11
+	REG_QWORD_LE                   RegType = 11 // alias for clarity
 )
 
 // String implements the Stringer interface for RegType.
@@ -104,6 +108,12 @@ func (t RegType) String() string {
 		return "REG_LINK"
 	case REG_MULTI_SZ:
 		return "REG_MULTI_SZ"
+	case REG_RESOURCE_LIST:
+		return "REG_RESOURCE_LIST"
+	case REG_FULL_RESOURCE_DESCRIPTOR:
+		return "REG_FULL_RESOURCE_DESCRIPTOR"
+	case REG_RESOURCE_REQUIREMENTS_LIST:
+		return "REG_RESOURCE_REQUIREMENTS_LIST"
 	case REG_QWORD:
 		return "REG_QWORD"
 	default:
