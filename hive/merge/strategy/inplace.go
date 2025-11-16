@@ -55,8 +55,9 @@ func NewInPlace(
 //
 // Returns the final NK reference and the count of keys created.
 func (ip *InPlace) EnsureKey(path []string) (uint32, int, error) {
+	// Empty path refers to root key (always exists)
 	if len(path) == 0 {
-		return 0, 0, errors.New("EnsureKey: empty key path")
+		return ip.rootRef, 0, nil
 	}
 
 	// Delegate to KeyEditor - it handles precise dirty tracking
@@ -78,14 +79,18 @@ func (ip *InPlace) EnsureKey(path []string) (uint32, int, error) {
 //   - Value data (inline or external)
 //   - DB/BL/RD structures (for large values > 16KB)
 func (ip *InPlace) SetValue(path []string, name string, typ uint32, data []byte) error {
-	if len(path) == 0 {
-		return errors.New("SetValue: empty key path")
-	}
+	var keyRef uint32
+	var err error
 
-	// Ensure parent key exists
-	keyRef, _, err := ip.keyEditor.EnsureKeyPath(ip.rootRef, path)
-	if err != nil {
-		return fmt.Errorf("EnsureKeyPath for SetValue: %w", err)
+	// Empty path refers to root key
+	if len(path) == 0 {
+		keyRef = ip.rootRef
+	} else {
+		// Ensure parent key exists
+		keyRef, _, err = ip.keyEditor.EnsureKeyPath(ip.rootRef, path)
+		if err != nil {
+			return fmt.Errorf("EnsureKeyPath for SetValue: %w", err)
+		}
 	}
 
 	// Set the value - ValueEditor handles precise dirty tracking
@@ -108,14 +113,18 @@ func (ip *InPlace) SetValue(path []string, name string, typ uint32, data []byte)
 //
 // If the value doesn't exist, this is a no-op (idempotent).
 func (ip *InPlace) DeleteValue(path []string, name string) error {
-	if len(path) == 0 {
-		return errors.New("DeleteValue: empty key path")
-	}
+	var keyRef uint32
+	var err error
 
-	// Ensure parent key exists (idempotent if it doesn't)
-	keyRef, _, err := ip.keyEditor.EnsureKeyPath(ip.rootRef, path)
-	if err != nil {
-		return fmt.Errorf("EnsureKeyPath for DeleteValue: %w", err)
+	// Empty path refers to root key
+	if len(path) == 0 {
+		keyRef = ip.rootRef
+	} else {
+		// Ensure parent key exists (idempotent if it doesn't)
+		keyRef, _, err = ip.keyEditor.EnsureKeyPath(ip.rootRef, path)
+		if err != nil {
+			return fmt.Errorf("EnsureKeyPath for DeleteValue: %w", err)
+		}
 	}
 
 	// Delete the value - ValueEditor handles precise dirty tracking

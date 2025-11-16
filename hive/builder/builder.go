@@ -143,19 +143,12 @@ func (b *Builder) SetValue(path []string, name string, typ uint32, data []byte) 
 		return errors.New("builder is closed")
 	}
 
-	if len(path) == 0 {
-		return errors.New("path cannot be empty")
-	}
-
 	// Normalize path array: strip hive root prefix from first element if present.
 	// This ensures consistent behavior regardless of whether users include
 	// HKEY_LOCAL_MACHINE, HKLM, etc. in their path arrays.
 	// The reader always strips these prefixes, so we must too.
+	// Note: Empty path ([]string{}) is now allowed for root key operations.
 	path = normalizePathArray(path)
-
-	if len(path) == 0 {
-		return errors.New("path cannot be empty after normalization")
-	}
 
 	// Create operation
 	op := merge.Op{
@@ -263,16 +256,9 @@ func (b *Builder) EnsureKey(path []string) error {
 		return errors.New("builder is closed")
 	}
 
-	if len(path) == 0 {
-		return errors.New("path cannot be empty")
-	}
-
 	// Normalize path array to strip hive root prefixes
+	// Note: Empty path ([]string{}) is now allowed for root key operations.
 	path = normalizePathArray(path)
-
-	if len(path) == 0 {
-		return errors.New("path cannot be empty after normalization")
-	}
 
 	// Create operation
 	op := merge.Op{
@@ -302,16 +288,9 @@ func (b *Builder) DeleteKey(path []string) error {
 		return errors.New("builder is closed")
 	}
 
-	if len(path) == 0 {
-		return errors.New("path cannot be empty")
-	}
-
 	// Normalize path array to strip hive root prefixes
+	// Note: Empty path ([]string{}) is now allowed for root key operations.
 	path = normalizePathArray(path)
-
-	if len(path) == 0 {
-		return errors.New("path cannot be empty after normalization")
-	}
 
 	// Create operation
 	op := merge.Op{
@@ -338,16 +317,9 @@ func (b *Builder) DeleteValue(path []string, name string) error {
 		return errors.New("builder is closed")
 	}
 
-	if len(path) == 0 {
-		return errors.New("path cannot be empty")
-	}
-
 	// Normalize path array to strip hive root prefixes
+	// Note: Empty path ([]string{}) is now allowed for root key operations.
 	path = normalizePathArray(path)
-
-	if len(path) == 0 {
-		return errors.New("path cannot be empty after normalization")
-	}
 
 	// Create operation
 	op := merge.Op{

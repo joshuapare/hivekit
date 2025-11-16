@@ -53,8 +53,9 @@ func NewAppend(
 // If the key already exists, returns the existing ref.
 // Returns the final NK reference and the count of keys created.
 func (ap *Append) EnsureKey(path []string) (uint32, int, error) {
+	// Empty path refers to root key (always exists)
 	if len(path) == 0 {
-		return 0, 0, errors.New("EnsureKey: empty key path")
+		return ap.rootRef, 0, nil
 	}
 
 	// Delegate to KeyEditor
@@ -78,14 +79,18 @@ func (ap *Append) EnsureKey(path []string) (uint32, int, error) {
 //
 // Note: The editor's Free() calls are skipped by temporarily swapping the allocator.
 func (ap *Append) SetValue(path []string, name string, typ uint32, data []byte) error {
-	if len(path) == 0 {
-		return errors.New("SetValue: empty key path")
-	}
+	var keyRef uint32
+	var err error
 
-	// Ensure parent key exists
-	keyRef, _, err := ap.keyEditor.EnsureKeyPath(ap.rootRef, path)
-	if err != nil {
-		return fmt.Errorf("EnsureKeyPath for SetValue: %w", err)
+	// Empty path refers to root key
+	if len(path) == 0 {
+		keyRef = ap.rootRef
+	} else {
+		// Ensure parent key exists
+		keyRef, _, err = ap.keyEditor.EnsureKeyPath(ap.rootRef, path)
+		if err != nil {
+			return fmt.Errorf("EnsureKeyPath for SetValue: %w", err)
+		}
 	}
 
 	// Set the value
@@ -110,14 +115,18 @@ func (ap *Append) SetValue(path []string, name string, typ uint32, data []byte) 
 //
 // Note: The editor will attempt to call Free(), but those cells remain allocated.
 func (ap *Append) DeleteValue(path []string, name string) error {
-	if len(path) == 0 {
-		return errors.New("DeleteValue: empty key path")
-	}
+	var keyRef uint32
+	var err error
 
-	// Ensure parent key exists (idempotent if it doesn't)
-	keyRef, _, err := ap.keyEditor.EnsureKeyPath(ap.rootRef, path)
-	if err != nil {
-		return fmt.Errorf("EnsureKeyPath for DeleteValue: %w", err)
+	// Empty path refers to root key
+	if len(path) == 0 {
+		keyRef = ap.rootRef
+	} else {
+		// Ensure parent key exists (idempotent if it doesn't)
+		keyRef, _, err = ap.keyEditor.EnsureKeyPath(ap.rootRef, path)
+		if err != nil {
+			return fmt.Errorf("EnsureKeyPath for DeleteValue: %w", err)
+		}
 	}
 
 	// Delete the value (idempotent if it doesn't exist)

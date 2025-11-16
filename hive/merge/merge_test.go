@@ -558,31 +558,31 @@ func Test_Executor_ErrorHandling(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name: "Empty key path for EnsureKey",
+			name: "Empty key path for EnsureKey (root - allowed)",
 			plan: &Plan{
 				Ops: []Op{
 					{Type: OpEnsureKey, KeyPath: []string{}},
 				},
 			},
-			expectError: true,
+			expectError: false, // Empty path now allowed for root key
 		},
 		{
-			name: "Empty key path for SetValue",
+			name: "Empty key path for SetValue (root - allowed)",
 			plan: &Plan{
 				Ops: []Op{
 					{Type: OpSetValue, KeyPath: []string{}, ValueName: "Test", ValueType: 1, Data: []byte{0x00}},
 				},
 			},
-			expectError: true,
+			expectError: false, // Empty path now allowed for root key values
 		},
 		{
-			name: "Empty key path for DeleteKey",
+			name: "Empty key path for DeleteKey (root - not allowed)",
 			plan: &Plan{
 				Ops: []Op{
 					{Type: OpDeleteKey, KeyPath: []string{}},
 				},
 			},
-			expectError: true,
+			expectError: true, // Still can't delete root
 		},
 	}
 
@@ -702,7 +702,7 @@ func Test_ParseJSONPatch_AllValueTypes(t *testing.T) {
 	}
 }
 
-// Test_ParseJSONPatch_EmptyKeyPath tests error handling for empty key paths.
+// Test_ParseJSONPatch_EmptyKeyPath tests that empty key paths are now allowed for root operations.
 func Test_ParseJSONPatch_EmptyKeyPath(t *testing.T) {
 	jsonPatch := `{
 		"operations": [
@@ -713,9 +713,15 @@ func Test_ParseJSONPatch_EmptyKeyPath(t *testing.T) {
 		]
 	}`
 
-	_, err := ParseJSONPatch([]byte(jsonPatch))
-	if err == nil {
-		t.Error("Expected error for empty key path, got nil")
+	plan, err := ParseJSONPatch([]byte(jsonPatch))
+	if err != nil {
+		t.Errorf("Empty key path should be allowed for ensure_key (root), got error: %v", err)
+	}
+	if len(plan.Ops) != 1 {
+		t.Errorf("Expected 1 operation, got %d", len(plan.Ops))
+	}
+	if len(plan.Ops[0].KeyPath) != 0 {
+		t.Errorf("Expected empty key path, got %v", plan.Ops[0].KeyPath)
 	}
 }
 

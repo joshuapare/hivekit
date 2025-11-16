@@ -281,6 +281,20 @@ func (s *Session) FlushDeferredSubkeys() (int, error) {
 	return 0, nil // Strategy doesn't support deferred mode
 }
 
+// GetEfficiencyStats returns efficiency statistics from the allocator.
+//
+// This provides information about space usage, fragmentation, and HBIN efficiency.
+// The statistics include total capacity, allocated bytes, and wasted space.
+func (s *Session) GetEfficiencyStats() alloc.EfficiencyStats {
+	// Type assert to FastAllocator to access GetEfficiencyStats
+	// The default allocator is always FastAllocator
+	if fa, ok := s.alloc.(*alloc.FastAllocator); ok {
+		return fa.GetEfficiencyStats()
+	}
+	// Return empty stats if not a FastAllocator (shouldn't happen)
+	return alloc.EfficiencyStats{}
+}
+
 // Close cleans up resources used by the session.
 //
 // CRITICAL: Flushes all dirty pages to disk before cleanup.

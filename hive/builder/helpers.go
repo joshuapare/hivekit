@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -202,10 +201,8 @@ func ParseValueType(typeStr string) (uint32, error) {
 //	b.SetValueFromString("Software\\MyApp", "Timeout", "REG_DWORD", []byte{0x1E, 0x00, 0x00, 0x00})
 func (b *Builder) SetValueFromString(pathStr string, name string, typeStr string, data []byte) error {
 	// Split path
+	// Note: Empty path is now allowed for root key operations.
 	path := SplitPath(pathStr)
-	if len(path) == 0 {
-		return errors.New("path cannot be empty")
-	}
 
 	// Parse type
 	typ, err := ParseValueType(typeStr)

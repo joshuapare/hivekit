@@ -73,9 +73,9 @@ func convertPatchOp(patchOp *PatchOperation) (*Op, error) {
 		return nil, fmt.Errorf("unknown operation: %s", patchOp.Op)
 	}
 
-	// Validate key path
-	if len(op.KeyPath) == 0 {
-		return nil, fmt.Errorf("empty key path for operation %s", patchOp.Op)
+	// Validate key path (only for delete_key - can't delete root)
+	if len(op.KeyPath) == 0 && op.Type == OpDeleteKey {
+		return nil, fmt.Errorf("empty key path for operation %s (cannot delete root)", patchOp.Op)
 	}
 
 	return op, nil
