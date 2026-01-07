@@ -1,13 +1,12 @@
 package keytree
 
 import (
-	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 )
 
 // ExpandManager handles all expand/collapse operations on the tree.
@@ -51,7 +50,7 @@ func (em *ExpandManager) Expand(loadChildrenCmd func(path string) tea.Cmd) tea.C
 
 	// Fallback: Lazy loading
 	if !em.state.IsLoaded(item.Path) {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Expand: loading children for %q\n", item.Path)
+		logger.Debug("Expand: loading children", "path", item.Path)
 		return loadChildrenCmd(item.Path)
 	}
 
@@ -94,7 +93,7 @@ func (em *ExpandManager) expandFromAllItems(cursorPos int) tea.Cmd {
 		em.state.SetItems(newItems)
 		em.state.SetExpanded(item.Path, true)
 
-		fmt.Fprintf(os.Stderr, "[DEBUG] Expand: inserted %d children for %q from allItems\n", len(children), item.Path)
+		logger.Debug("Expand: inserted children from allItems", "count", len(children), "path", item.Path)
 	}
 
 	return nil
@@ -117,7 +116,7 @@ func (em *ExpandManager) expandFromDiffMap(cursorPos int) tea.Cmd {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] expandFromDiffMap: expanding %q from diffMap\n", item.Path)
+	logger.Debug("expandFromDiffMap: expanding from diffMap", "path", item.Path)
 
 	// Find all direct children in the diffMap
 	children := make([]Item, 0)
@@ -138,8 +137,8 @@ func (em *ExpandManager) expandFromDiffMap(cursorPos int) tea.Cmd {
 		// Look up NodeIDs for this child based on its DiffStatus
 		oldNodeID, newNodeID, err := em.state.GetNodeIDsForDiffKey(keyDiff.Path, keyDiff.Status)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG] expandFromDiffMap: failed to get NodeIDs for %q (status=%d): %v\n",
-				keyDiff.Path, keyDiff.Status, err)
+			logger.Debug("expandFromDiffMap: failed to get NodeIDs",
+				"path", keyDiff.Path, "status", keyDiff.Status, "error", err)
 			continue // Skip this child if we can't get its NodeIDs
 		}
 
@@ -160,7 +159,7 @@ func (em *ExpandManager) expandFromDiffMap(cursorPos int) tea.Cmd {
 		children = append(children, child)
 	}
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] expandFromDiffMap: found %d children for %q\n", len(children), item.Path)
+	logger.Debug("expandFromDiffMap: found children", "count", len(children), "path", item.Path)
 
 	// Sort children by name
 	sort.Slice(children, func(i, j int) bool {
@@ -196,14 +195,14 @@ func (em *ExpandManager) CollapseAt(cursorPos int) {
 	}
 
 	item := &items[cursorPos]
-	fmt.Fprintf(os.Stderr, "[TIMING] CollapseAt: START collapsing path=%q at cursor=%d (total items=%d)\n", item.Path, cursorPos, len(items))
+	logger.Debug("CollapseAt: START", "path", item.Path, "cursor", cursorPos, "totalItems", len(items))
 
 	if !item.Expanded {
 		// If already collapsed, move to parent
 		if item.Parent != "" {
 			em.MoveToParent()
 		}
-		fmt.Fprintf(os.Stderr, "[TIMING] CollapseAt: Item already collapsed, moved to parent\n")
+		logger.Debug("CollapseAt: Item already collapsed, moved to parent")
 		return
 	}
 
@@ -213,7 +212,7 @@ func (em *ExpandManager) CollapseAt(cursorPos int) {
 	em.state.SetLoaded(item.Path, false)
 	em.state.SetItems(items)
 	markDuration := time.Since(markStart)
-	fmt.Fprintf(os.Stderr, "[TIMING] CollapseAt: Mark as collapsed took %v\n", markDuration)
+	logger.Debug("CollapseAt: Mark as collapsed", "duration", markDuration)
 
 	// Remove all children from view
 	removeStart := time.Now()
@@ -221,8 +220,7 @@ func (em *ExpandManager) CollapseAt(cursorPos int) {
 	removeDuration := time.Since(removeStart)
 
 	totalDuration := time.Since(startTime)
-	fmt.Fprintf(os.Stderr, "[TIMING] CollapseAt: TOTAL took %v (mark=%v, removeChildren=%v)\n",
-		totalDuration, markDuration, removeDuration)
+	logger.Debug("CollapseAt: TOTAL", "duration", totalDuration, "markDuration", markDuration, "removeChildrenDuration", removeDuration)
 }
 
 // Collapse collapses the current item
@@ -234,13 +232,13 @@ func (em *ExpandManager) Collapse() {
 func (em *ExpandManager) removeChildren(parentPath string) {
 	startTime := time.Now()
 	items := em.state.Items()
-	fmt.Fprintf(os.Stderr, "[TIMING] removeChildren: START for path=%q, %d total items\n", parentPath, len(items))
+	logger.Debug("removeChildren: START", "path", parentPath, "totalItems", len(items))
 
 	// Clear loaded/expanded state for all descendants in ONE pass (not per-item)
 	clearStart := time.Now()
 	em.state.ClearLoadedDescendants(parentPath)
 	clearDuration := time.Since(clearStart)
-	fmt.Fprintf(os.Stderr, "[TIMING] removeChildren: ClearLoadedDescendants (single call) took %v\n", clearDuration)
+	logger.Debug("removeChildren: ClearLoadedDescendants", "duration", clearDuration)
 
 	// Filter out descendant items from visible list
 	iterationStart := time.Now()
@@ -264,13 +262,12 @@ func (em *ExpandManager) removeChildren(parentPath string) {
 		newItems = append(newItems, item)
 	}
 	iterationDuration := time.Since(iterationStart)
-	fmt.Fprintf(os.Stderr, "[TIMING] removeChildren: Item iteration (filtering) took %v, removed %d items\n",
-		iterationDuration, removedCount)
+	logger.Debug("removeChildren: Item iteration", "duration", iterationDuration, "removedCount", removedCount)
 
 	setItemsStart := time.Now()
 	em.state.SetItems(newItems)
 	setItemsDuration := time.Since(setItemsStart)
-	fmt.Fprintf(os.Stderr, "[TIMING] removeChildren: SetItems took %v (new count: %d)\n", setItemsDuration, len(newItems))
+	logger.Debug("removeChildren: SetItems", "duration", setItemsDuration, "newCount", len(newItems))
 
 	// Adjust cursor if it's out of bounds
 	if em.nav.Cursor() >= len(newItems) && len(newItems) > 0 {
@@ -278,14 +275,7 @@ func (em *ExpandManager) removeChildren(parentPath string) {
 	}
 
 	totalDuration := time.Since(startTime)
-	fmt.Fprintf(os.Stderr, "[TIMING] removeChildren: TOTAL took %v (removed %d items, 1 ClearLoadedDescendants call)\n",
-		totalDuration, removedCount)
-}
-
-// clearLoadedRecursive clears the loaded flag for a path and all its descendants
-func (em *ExpandManager) clearLoadedRecursive(path string) {
-	fmt.Fprintf(os.Stderr, "[DEBUG] clearLoadedRecursive: clearing loaded flag for %q and descendants\n", path)
-	em.state.ClearLoadedDescendants(path)
+	logger.Debug("removeChildren: TOTAL", "duration", totalDuration, "removedCount", removedCount)
 }
 
 // RemoveDescendantsFromView removes all descendants of a path from visible items

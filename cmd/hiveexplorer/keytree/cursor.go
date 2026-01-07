@@ -1,10 +1,8 @@
 package keytree
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keyselection"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/virtuallist"
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
@@ -69,10 +67,10 @@ func (cm *CursorManager) MoveTo(pos int, renderer *virtuallist.Renderer) bool {
 	// Update cursor in renderer (for visual display)
 	// Note: renderer.SetCursor() also handles scrolling the viewport
 	if renderer != nil {
-		fmt.Fprintf(os.Stderr, "[CURSOR] MoveTo(%d): renderer=%p, calling SetCursor(%d)\n", pos, renderer, pos)
+		logger.Debug("Cursor MoveTo", "pos", pos, "rendererExists", true)
 		renderer.SetCursor(pos)
 	} else {
-		fmt.Fprintf(os.Stderr, "[CURSOR] MoveTo(%d): renderer is NIL!\n", pos)
+		logger.Debug("Cursor MoveTo", "pos", pos, "rendererExists", false)
 	}
 
 	// Emit navigation signal

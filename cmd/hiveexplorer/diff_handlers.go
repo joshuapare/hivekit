@@ -2,19 +2,19 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // handleLoadDiff starts async diff loading
 func (m Model) handleLoadDiff(comparePath string) (tea.Model, tea.Cmd) {
-	fmt.Fprintf(os.Stderr, "[DIFF] handleLoadDiff called with comparePath=%q\n", comparePath)
+	logger.Debug("handleLoadDiff called", "comparePath", comparePath)
 
 	if comparePath == "" {
 		m.statusMessage = "Diff cancelled: no path provided"
@@ -33,25 +33,25 @@ func (m Model) handleLoadDiff(comparePath string) (tea.Model, tea.Cmd) {
 // loadDiffAsync creates a command that loads diff in background
 func (m Model) loadDiffAsync(comparePath string) tea.Cmd {
 	return func() tea.Msg {
-		fmt.Fprintf(os.Stderr, "[DIFF] Loading diff: old=%q, new=%q\n", m.hivePath, comparePath)
+		logger.Debug("Loading diff", "oldHive", m.hivePath, "newHive", comparePath)
 
 		diff, err := hive.DiffHives(m.hivePath, comparePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[DIFF] Error loading diff: %v\n", err)
+			logger.Error("Error loading diff", "error", err)
 			return diffLoadedMsg{diff: nil, err: err}
 		}
 
-		fmt.Fprintf(os.Stderr, "[DIFF] Diff loaded successfully\n")
+		logger.Debug("Diff loaded successfully")
 		return diffLoadedMsg{diff: diff, err: nil}
 	}
 }
 
 // reloadTreeWithDiff reloads the tree view using current diff filter settings
 func (m Model) reloadTreeWithDiff() (tea.Model, tea.Cmd) {
-	fmt.Fprintf(os.Stderr, "[DIFF] reloadTreeWithDiff called\n")
+	logger.Debug("reloadTreeWithDiff called")
 
 	if m.hiveDiff == nil {
-		fmt.Fprintf(os.Stderr, "[DIFF] No diff data, returning\n")
+		logger.Debug("No diff data, returning")
 		return m, nil
 	}
 
@@ -64,12 +64,11 @@ func (m Model) reloadTreeWithDiff() (tea.Model, tea.Cmd) {
 		showUnchanged = false
 	}
 
-	fmt.Fprintf(os.Stderr, "[DIFF] Filtering keys: added=%v, removed=%v, modified=%v, unchanged=%v\n",
-		m.showAdded, m.showRemoved, m.showModified, showUnchanged)
+	logger.Debug("Filtering keys", "added", m.showAdded, "removed", m.showRemoved, "modified", m.showModified, "unchanged", showUnchanged)
 
 	// Filter diff keys
 	filteredKeys := hive.FilterDiffKeys(m.hiveDiff, m.showAdded, m.showRemoved, m.showModified, showUnchanged)
-	fmt.Fprintf(os.Stderr, "[DIFF] Filtered to %d keys\n", len(filteredKeys))
+	logger.Debug("Filtered keys", "count", len(filteredKeys))
 
 	// Build diff map for quick lookup
 	diffMap := make(map[string]hive.KeyDiff)
@@ -114,7 +113,7 @@ func (m Model) reloadTreeWithDiff() (tea.Model, tea.Cmd) {
 				newNodeID, newErr = m.newHiveReader.Find(keyDiff.Path)
 			}
 			if newErr != nil {
-				fmt.Fprintf(os.Stderr, "[DIFF] Failed to find NodeID in new hive for added key %q: %v\n", keyDiff.Path, newErr)
+				logger.Debug("Failed to find NodeID in new hive for added key", "path", keyDiff.Path, "error", newErr)
 				continue
 			}
 
@@ -124,7 +123,7 @@ func (m Model) reloadTreeWithDiff() (tea.Model, tea.Cmd) {
 				oldNodeID, oldErr = m.oldHiveReader.Find(keyDiff.Path)
 			}
 			if oldErr != nil {
-				fmt.Fprintf(os.Stderr, "[DIFF] Failed to find NodeID in old hive for removed key %q: %v\n", keyDiff.Path, oldErr)
+				logger.Debug("Failed to find NodeID in old hive for removed key", "path", keyDiff.Path, "error", oldErr)
 				continue
 			}
 
@@ -137,8 +136,7 @@ func (m Model) reloadTreeWithDiff() (tea.Model, tea.Cmd) {
 				newNodeID, newErr = m.newHiveReader.Find(keyDiff.Path)
 			}
 			if oldErr != nil || newErr != nil {
-				fmt.Fprintf(os.Stderr, "[DIFF] Failed to find NodeIDs for modified/unchanged key %q (oldErr=%v, newErr=%v)\n",
-					keyDiff.Path, oldErr, newErr)
+				logger.Debug("Failed to find NodeIDs for modified/unchanged key", "path", keyDiff.Path, "oldErr", oldErr, "newErr", newErr)
 				continue
 			}
 		}
@@ -165,7 +163,7 @@ func (m Model) reloadTreeWithDiff() (tea.Model, tea.Cmd) {
 	currentPath := ""
 	if currentItem := m.keyTree.CurrentItem(); currentItem != nil {
 		currentPath = currentItem.Path
-		fmt.Fprintf(os.Stderr, "[DIFF] Storing current path: %q\n", currentPath)
+		logger.Debug("Storing current path", "path", currentPath)
 	}
 
 	m.keyTree.SetItems(items)
@@ -176,7 +174,7 @@ func (m Model) reloadTreeWithDiff() (tea.Model, tea.Cmd) {
 		for i, item := range m.keyTree.GetItems() {
 			if item.Path == currentPath {
 				m.keyTree.SetCursor(i)
-				fmt.Fprintf(os.Stderr, "[DIFF] Restored cursor to path %q at index %d\n", currentPath, i)
+				logger.Debug("Restored cursor to path", "path", currentPath, "index", i)
 				restored = true
 				break
 			}
@@ -187,15 +185,15 @@ func (m Model) reloadTreeWithDiff() (tea.Model, tea.Cmd) {
 	if !restored {
 		m.keyTree.SetCursor(0)
 		m.keyTree.GetViewport().YOffset = 0
-		fmt.Fprintf(os.Stderr, "[DIFF] Reset cursor to 0\n")
+		logger.Debug("Reset cursor to 0")
 	}
 
-	fmt.Fprintf(os.Stderr, "[DIFF] Tree rebuilt with %d items\n", len(m.keyTree.GetItems()))
+	logger.Debug("Tree rebuilt", "items", len(m.keyTree.GetItems()))
 
 	// Emit navigation signal to trigger value/metadata reload
 	// This uses the new navigation signal architecture
 	if len(m.keyTree.GetItems()) > 0 {
-		fmt.Fprintf(os.Stderr, "[DIFF] Emitting navigation signal for current item\n")
+		logger.Debug("Emitting navigation signal for current item")
 		m.keyTree.CursorManager.EmitSignal()
 	}
 

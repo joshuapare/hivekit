@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/valuedetail"
 	overlay "github.com/rmhubbert/bubbletea-overlay"
 )
@@ -103,16 +103,7 @@ func (m Model) renderContent() string {
 	}
 
 	// DEBUG
-	fmt.Fprintf(
-		os.Stderr,
-		"[VIEW] m.height=%d paneHeight=%d treeViewHeight=%d hiveInfoHeight=%d treeBox=%d valueBox=%d\n",
-		m.height,
-		paneHeight,
-		treeViewHeight,
-		hiveInfoHeight,
-		treeViewHeight+1,
-		paneHeight+3,
-	)
+	logger.Debug("View layout", "height", m.height, "paneHeight", paneHeight, "treeViewHeight", treeViewHeight, "hiveInfoHeight", hiveInfoHeight, "treeBox", treeViewHeight+1, "valueBox", paneHeight+3)
 
 	// Render tree pane
 	treeTitle := "Keys"
@@ -168,8 +159,7 @@ func (m Model) renderContent() string {
 	leftColumnHeight := lipgloss.Height(leftColumn)
 
 	// DEBUG: Check actual rendered heights
-	fmt.Fprintf(os.Stderr, "[VIEW] Rendered heights: treeBox=%d hiveInfoBox=%d leftColumn=%d\n",
-		lipgloss.Height(treeBox), lipgloss.Height(hiveInfoBox), leftColumnHeight)
+	logger.Debug("View rendered heights", "treeBox", lipgloss.Height(treeBox), "hiveInfoBox", lipgloss.Height(hiveInfoBox), "leftColumn", leftColumnHeight)
 
 	// Right column: NK info panel above values panel
 	// Render key info panel FIRST to measure its actual height
@@ -234,17 +224,7 @@ func (m Model) renderContent() string {
 	)
 
 	// DEBUG: Check actual rendered heights
-	fmt.Fprintf(
-		os.Stderr,
-		"[VIEW] Right column: leftColumnHeight=%d keyInfoBoxHeight=%d valueViewHeight=%d keyInfoBox=%d valueBox=%d rightColumn=%d (should match leftColumn=%d)\n",
-		leftColumnHeight,
-		keyInfoBoxHeight,
-		valueViewHeight,
-		lipgloss.Height(keyInfoBox),
-		lipgloss.Height(valueBox),
-		lipgloss.Height(rightColumn),
-		leftColumnHeight,
-	)
+	logger.Debug("View right column", "leftColumnHeight", leftColumnHeight, "keyInfoBoxHeight", keyInfoBoxHeight, "valueViewHeight", valueViewHeight, "keyInfoBox", lipgloss.Height(keyInfoBox), "valueBox", lipgloss.Height(valueBox), "rightColumn", lipgloss.Height(rightColumn))
 
 	// Join left column (tree + hive info) with right column (key info + values) horizontally
 	return lipgloss.JoinHorizontal(

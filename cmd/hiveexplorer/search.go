@@ -64,26 +64,3 @@ func SearchValues(items []valuetable.ValueRow, query string) []SearchResult {
 
 	return results
 }
-
-// HighlightMatch highlights a search match in a string
-func HighlightMatch(text, query string) string {
-	if query == "" {
-		return text
-	}
-
-	lowerText := strings.ToLower(text)
-	lowerQuery := strings.ToLower(query)
-	idx := strings.Index(lowerText, lowerQuery)
-
-	if idx == -1 {
-		return text
-	}
-
-	// Return text with match highlighted using ANSI codes
-	before := text[:idx]
-	match := text[idx : idx+len(query)]
-	after := text[idx+len(query):]
-
-	// Use searchMatchStyle from styles.go
-	return before + searchMatchStyle.Render(match) + after
-}

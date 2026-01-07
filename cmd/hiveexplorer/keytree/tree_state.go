@@ -2,9 +2,9 @@ package keytree
 
 import (
 	"fmt"
-	"os"
 	"time"
 
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
@@ -247,16 +247,14 @@ func (ts *TreeState) ClearLoadedDescendants(path string) {
 	deleteDuration := time.Since(deleteStart)
 
 	totalDuration := time.Since(startTime)
-	fmt.Fprintf(
-		os.Stderr,
-		"[TIMING] ClearLoadedDescendants: path=%q, mapSize=%d, scanned=%d, deleted=%d, collect=%v, delete=%v, total=%v\n",
-		path,
-		mapSize,
-		scannedKeys,
-		len(toDelete),
-		collectDuration,
-		deleteDuration,
-		totalDuration,
+	logger.Debug("ClearLoadedDescendants",
+		"path", path,
+		"mapSize", mapSize,
+		"scanned", scannedKeys,
+		"deleted", len(toDelete),
+		"collectDuration", collectDuration,
+		"deleteDuration", deleteDuration,
+		"totalDuration", totalDuration,
 	)
 }
 
@@ -330,8 +328,7 @@ func (ts *TreeState) FilterItemsWithParents(query string) []Item {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "[FILTER] Query=%q, Matches=%d, ParentsAdded=%d, Total=%d\n",
-		query, len(matches), len(parentsNeeded), len(filtered))
+	logger.Debug("Filter applied", "query", query, "matches", len(matches), "parentsAdded", len(parentsNeeded), "total", len(filtered))
 
 	return filtered
 }
@@ -389,8 +386,7 @@ func (ts *TreeState) FilterByPathsWithParents(paths []string) []Item {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "[FILTER_PATHS] Paths=%d, Matches=%d, ParentsAdded=%d, Total=%d\n",
-		len(paths), len(matches), len(parentsNeeded), len(filtered))
+	logger.Debug("FilterByPaths applied", "paths", len(paths), "matches", len(matches), "parentsAdded", len(parentsNeeded), "total", len(filtered))
 
 	return filtered
 }

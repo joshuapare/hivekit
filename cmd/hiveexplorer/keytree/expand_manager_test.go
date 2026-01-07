@@ -436,55 +436,6 @@ func TestMoveToParent(t *testing.T) {
 	}
 }
 
-// TestClearLoadedRecursive tests recursive clearing
-func TestClearLoadedRecursive(t *testing.T) {
-	state := NewTreeState()
-	nav := NewNavigator()
-	em := NewExpandManager(state, nav)
-
-	// Set up loaded hierarchy
-	paths := []string{
-		"SOFTWARE",
-		"SOFTWARE\\Microsoft",
-		"SOFTWARE\\Microsoft\\Windows",
-		"SOFTWARE\\Adobe",
-		"SYSTEM",
-	}
-
-	for _, path := range paths {
-		state.SetLoaded(path, true)
-		state.SetExpanded(path, true)
-	}
-
-	// Clear SOFTWARE and descendants
-	em.clearLoadedRecursive("SOFTWARE")
-
-	// Verify SOFTWARE and descendants are cleared
-	if state.IsLoaded("SOFTWARE") {
-		t.Error("SOFTWARE should not be loaded")
-	}
-	if state.IsExpanded("SOFTWARE") {
-		t.Error("SOFTWARE should not be expanded")
-	}
-	if state.IsLoaded("SOFTWARE\\Microsoft") {
-		t.Error("SOFTWARE\\Microsoft should not be loaded")
-	}
-	if state.IsLoaded("SOFTWARE\\Microsoft\\Windows") {
-		t.Error("SOFTWARE\\Microsoft\\Windows should not be loaded")
-	}
-	if state.IsLoaded("SOFTWARE\\Adobe") {
-		t.Error("SOFTWARE\\Adobe should not be loaded")
-	}
-
-	// Verify SYSTEM is still loaded (not a descendant)
-	if !state.IsLoaded("SYSTEM") {
-		t.Error("SYSTEM should still be loaded")
-	}
-	if !state.IsExpanded("SYSTEM") {
-		t.Error("SYSTEM should still be expanded")
-	}
-}
-
 // TestCollapseAtMovesToParent tests that collapsing an already collapsed item moves to parent
 func TestCollapseAtMovesToParent(t *testing.T) {
 	state := NewTreeState()

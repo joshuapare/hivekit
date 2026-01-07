@@ -1,7 +1,6 @@
 package hive
 
 import (
-	"github.com/joshuapare/hivekit/pkg/ast"
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
@@ -66,7 +65,7 @@ type OpenOptions = types.OpenOptions
 
 // Limits defines registry constraints to prevent corruption.
 // These match Windows registry specifications.
-type Limits = ast.Limits
+type Limits = types.Limits
 
 // EditOp represents a registry edit operation (re-exported for convenience).
 type EditOp = types.EditOp
@@ -91,7 +90,7 @@ type (
 //   - MaxTreeDepth: 512 levels
 //   - MaxTotalSize: 2 GB
 func DefaultLimits() Limits {
-	return ast.DefaultLimits()
+	return types.DefaultLimits()
 }
 
 // RelaxedLimits returns more permissive limits for system keys.
@@ -104,7 +103,7 @@ func DefaultLimits() Limits {
 //   - MaxTreeDepth: 1,024 levels
 //   - MaxTotalSize: 4 GB
 func RelaxedLimits() Limits {
-	return ast.RelaxedLimits()
+	return types.RelaxedLimits()
 }
 
 // StrictLimits returns conservative limits for safety-critical applications.
@@ -117,5 +116,5 @@ func RelaxedLimits() Limits {
 //   - MaxTreeDepth: 128 levels
 //   - MaxTotalSize: 100 MB
 func StrictLimits() Limits {
-	return ast.StrictLimits()
+	return types.StrictLimits()
 }

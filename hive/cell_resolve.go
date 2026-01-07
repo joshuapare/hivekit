@@ -8,15 +8,27 @@ import (
 	"github.com/joshuapare/hivekit/internal/format"
 )
 
+// Sentinel errors for cell resolution failures.
+var (
+	// ErrCellOffsetZero indicates a cell offset of 0, which is invalid.
+	ErrCellOffsetZero = errors.New("rel cell: offset is zero")
+
+	// ErrCellOutOfRange indicates a cell offset that exceeds hive bounds.
+	ErrCellOutOfRange = errors.New("rel cell: offset out of range")
+
+	// ErrCellTruncated indicates a cell that extends beyond available data.
+	ErrCellTruncated = errors.New("rel cell: truncated")
+)
+
 // resolveRelCell returns the slice of hiveBuf starting at the absolute
 // position for the given relative HCELL offset (header + payload).
 func resolveRelCell(hiveBuf []byte, relOff uint32) ([]byte, error) {
 	if relOff == 0 {
-		return nil, errors.New("rel cell: offset is zero")
+		return nil, ErrCellOffsetZero
 	}
 	abs := int(format.HiveDataBase) + int(relOff)
 	if abs < 0 || abs > len(hiveBuf) {
-		return nil, fmt.Errorf("rel cell: abs=%d out of range (len=%d)", abs, len(hiveBuf))
+		return nil, fmt.Errorf("%w: abs=%d, len=%d", ErrCellOutOfRange, abs, len(hiveBuf))
 	}
 	return hiveBuf[abs:], nil
 }
@@ -34,23 +46,23 @@ func resolveRelCellPayload(hiveBuf []byte, relOff uint32) ([]byte, error) {
 		return nil, err
 	}
 	if len(cell) < format.CellHeaderSize {
-		return nil, errors.New("rel cell: truncated header")
+		return nil, fmt.Errorf("%w: header", ErrCellTruncated)
 	}
 
 	// decode little-endian int32 without allocations
 	size := buf.I32LE(cell)
 	if size == 0 {
-		return nil, errors.New("rel cell: zero size")
+		return nil, ErrCellOffsetZero
 	}
 	total := int(size)
 	if total < 0 {
 		total = -total // allocated cells store negative size
 	}
 	if total < format.CellHeaderSize {
-		return nil, fmt.Errorf("rel cell: size too small: %d", total)
+		return nil, fmt.Errorf("%w: size too small: %d", ErrCellTruncated, total)
 	}
 	if total > len(cell) {
-		return nil, fmt.Errorf("rel cell: declared size %d > available %d", total, len(cell))
+		return nil, fmt.Errorf("%w: declared size %d > available %d", ErrCellOutOfRange, total, len(cell))
 	}
 
 	// Return only the payload (exclude 4-byte size header).

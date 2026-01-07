@@ -2,13 +2,13 @@ package displays
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keyselection"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
@@ -331,11 +331,7 @@ func (k *KeyInfoDisplay) renderInfo() string {
 	rendered := borderStyle.Render(content)
 
 	// DEBUG: Log rendered height to verify it's fixed
-	fmt.Fprintf(
-		os.Stderr,
-		"[KEYINFO] Rendered height: %d lines (expected: 8)\n",
-		lipgloss.Height(rendered),
-	)
+	logger.Debug("KeyInfo rendered", "height", lipgloss.Height(rendered), "expected", 8)
 
 	return rendered
 }

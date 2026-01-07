@@ -67,9 +67,6 @@ const (
 // Interface re-exports for advanced users.
 type (
 	Reader = types.Reader
-	Editor = types.Editor
-	Tx     = types.Tx
-	Writer = types.Writer
 )
 
 // .reg file types.

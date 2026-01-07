@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 )
 
 // handleInputMode handles input when in search or go-to-path mode
@@ -147,10 +147,10 @@ func (m Model) handleGoToPath(path string) (tea.Model, tea.Cmd) {
 
 	// Check if we found it
 	if item := m.keyTree.CurrentItem(); item != nil && item.Path == path {
-		fmt.Fprintf(os.Stderr, "[GOTO] Navigated to: %s\n", path)
+		logger.Debug("Navigated to path", "path", path)
 		// NavigateToPath emits navigation signal, value table will load values
 	} else {
-		fmt.Fprintf(os.Stderr, "[GOTO] Path not found: %s\n", path)
+		logger.Debug("Path not found", "path", path)
 		m.statusMessage = "Path not found: " + path
 	}
 

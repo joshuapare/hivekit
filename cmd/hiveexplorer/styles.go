@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 var (
@@ -125,52 +124,4 @@ var (
 	diffUnchangedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FAFAFA")) // Normal color
 
-	// Diff prefixes/indicators
-	diffAddedPrefix     = "+"
-	diffRemovedPrefix   = "-"
-	diffModifiedPrefix  = "~"
-	diffUnchangedPrefix = " "
 )
-
-// getDiffStyle returns the appropriate style for a diff status
-func getDiffStyle(status hive.DiffStatus) lipgloss.Style {
-	switch status {
-	case hive.DiffAdded:
-		return diffAddedStyle
-	case hive.DiffRemoved:
-		return diffRemovedStyle
-	case hive.DiffModified:
-		return diffModifiedStyle
-	case hive.DiffUnchanged:
-		return diffUnchangedStyle
-	default:
-		return diffUnchangedStyle
-	}
-}
-
-// getDiffPrefix returns the prefix character for a diff status
-func getDiffPrefix(status hive.DiffStatus) string {
-	switch status {
-	case hive.DiffAdded:
-		return diffAddedPrefix
-	case hive.DiffRemoved:
-		return diffRemovedPrefix
-	case hive.DiffModified:
-		return diffModifiedPrefix
-	case hive.DiffUnchanged:
-		return diffUnchangedPrefix
-	default:
-		return diffUnchangedPrefix
-	}
-}
-
-// truncate truncates a string to the specified length with ellipsis
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}

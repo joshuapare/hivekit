@@ -3,7 +3,6 @@ package valuetable
 import (
 	"encoding/hex"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -11,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keyselection"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/valuetable/adapter"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/valuetable/display"
 	"github.com/joshuapare/hivekit/pkg/hive"
@@ -756,7 +756,7 @@ func (m ValueTableModel) View() string {
 
 // updateViewport updates the viewport content
 func (m *ValueTableModel) updateViewport() {
-	fmt.Fprintf(os.Stderr, "[DEBUG] updateViewport: rendering %d items\n", len(m.items))
+	logger.Debug("updateViewport", "items", len(m.items))
 	var b strings.Builder
 
 	// Use the actual viewport width (which accounts for pane borders/padding)
@@ -765,13 +765,7 @@ func (m *ValueTableModel) updateViewport() {
 	if contentWidth <= 0 {
 		contentWidth = m.width // Fallback during initialization
 	}
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] updateViewport: contentWidth=%d, viewport.Width=%d, m.width=%d\n",
-		contentWidth,
-		m.viewport.Width,
-		m.width,
-	)
+	logger.Debug("updateViewport widths", "contentWidth", contentWidth, "viewportWidth", m.viewport.Width, "modelWidth", m.width)
 
 	// Calculate column widths based on available width
 	nameWidth := 20
@@ -797,13 +791,7 @@ func (m *ValueTableModel) updateViewport() {
 
 	// Rows - use adapter → display pipeline
 	for i, row := range m.items {
-		fmt.Fprintf(
-			os.Stderr,
-			"[DEBUG]   rendering row %d: name=%q, type=%s\n",
-			i,
-			row.Name,
-			row.Type,
-		)
+		logger.Debug("rendering row", "index", i, "name", row.Name, "type", row.Type)
 
 		// Convert domain ValueRow to ValueRowSource
 		source := adapter.ValueRowSource{

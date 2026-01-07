@@ -1,10 +1,8 @@
 package keytree
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 )
 
 // Navigator manages cursor position and navigation within the tree.
@@ -76,11 +74,11 @@ func (n *Navigator) EnsureCursorVisible(vp *viewport.Model, headerHeight int, it
 	if n.cursor < vp.YOffset {
 		vp.YOffset = n.cursor
 		scrolled = true
-		fmt.Fprintf(os.Stderr, "[NAVIGATOR] Scrolled UP: cursor=%d, YOffset %d -> %d\n", n.cursor, oldYOffset, vp.YOffset)
+		logger.Debug("Navigator scrolled UP", "cursor", n.cursor, "oldYOffset", oldYOffset, "newYOffset", vp.YOffset)
 	} else if n.cursor >= vp.YOffset+visibleHeight {
 		vp.YOffset = n.cursor - visibleHeight + 1
 		scrolled = true
-		fmt.Fprintf(os.Stderr, "[NAVIGATOR] Scrolled DOWN: cursor=%d, YOffset %d -> %d (visibleHeight=%d)\n", n.cursor, oldYOffset, vp.YOffset, visibleHeight)
+		logger.Debug("Navigator scrolled DOWN", "cursor", n.cursor, "oldYOffset", oldYOffset, "newYOffset", vp.YOffset, "visibleHeight", visibleHeight)
 	}
 
 	// Clamp YOffset to valid range [0, itemCount - visibleHeight]
@@ -94,11 +92,10 @@ func (n *Navigator) EnsureCursorVisible(vp *viewport.Model, headerHeight int, it
 	if vp.YOffset < 0 {
 		vp.YOffset = 0
 		scrolled = true
-		fmt.Fprintf(os.Stderr, "[NAVIGATOR] Clamped YOffset to 0 (was %d)\n", beforeClamp)
+		logger.Debug("Navigator clamped YOffset to 0", "was", beforeClamp)
 	}
 	if vp.YOffset > maxYOffset {
-		fmt.Fprintf(os.Stderr, "[NAVIGATOR] Clamping YOffset: %d -> %d (maxYOffset=%d, itemCount=%d, visibleHeight=%d)\n",
-			vp.YOffset, maxYOffset, maxYOffset, itemCount, visibleHeight)
+		logger.Debug("Navigator clamping YOffset", "from", vp.YOffset, "to", maxYOffset, "maxYOffset", maxYOffset, "itemCount", itemCount, "visibleHeight", visibleHeight)
 		vp.YOffset = maxYOffset
 		scrolled = true
 	}

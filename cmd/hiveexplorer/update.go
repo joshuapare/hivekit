@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/displays"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/valuedetail"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/valuetable"
 	"github.com/joshuapare/hivekit/internal/reader"
@@ -116,8 +116,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Next search match (works for both regular search and global value search)
 		if key.Matches(msg, m.keys.NextMatch) && (m.searchQuery != "" || m.globalValueSearchActive) {
-			fmt.Fprintf(os.Stderr, "[UPDATE] Next match key pressed - globalValueSearchActive=%v, searchQuery=%q\n",
-				m.globalValueSearchActive, m.searchQuery)
+			logger.Debug("Next match key pressed", "globalValueSearchActive", m.globalValueSearchActive, "searchQuery", m.searchQuery)
 			return m.handleNextMatch()
 		}
 
@@ -231,8 +230,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				fmt.Fprintf(os.Stderr, "[DIFF] Exiting diff mode, will restore state: cursor=%q, expanded=%d keys\n",
-					m.preDiffCursorPath, len(m.preDiffExpandedKeys))
+				logger.Debug("Exiting diff mode, will restore state", "cursorPath", m.preDiffCursorPath, "expandedKeys", len(m.preDiffExpandedKeys))
 
 				return m, tea.Batch(initCmd, restoreCmd)
 			}
@@ -326,7 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case errMsg:
-		fmt.Fprintf(os.Stderr, "[DEBUG] ERROR: %v\n", msg.err)
+		logger.Error("Error occurred", "error", msg.err)
 		m.err = msg.err
 		return m, nil
 
@@ -413,11 +411,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case valuesLoadedMsg:
 		// Forward to value table
-		fmt.Fprintf(os.Stderr, "[DEBUG] valuesLoadedMsg: path=%q, %d values\n",
-			msg.Path, len(msg.Values))
+		logger.Debug("valuesLoadedMsg received", "path", msg.Path, "valueCount", len(msg.Values))
 		m.valueTable, cmd = (&m.valueTable).Update(msg)
-		fmt.Fprintf(os.Stderr, "[DEBUG] value table after update: %d items, cursor=%d, YOffset=%d\n",
-			len(m.valueTable.GetItems()), m.valueTable.GetCursor(), m.valueTable.GetViewportYOffset())
+		logger.Debug("Value table after update", "items", len(m.valueTable.GetItems()), "cursor", m.valueTable.GetCursor(), "yOffset", m.valueTable.GetViewportYOffset())
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -431,8 +427,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case restoreTreeStateMsg:
 		// Restore tree state after exiting diff mode
-		fmt.Fprintf(os.Stderr, "[DIFF] Restoring tree state: cursor=%q, expanded=%d keys\n",
-			msg.cursorPath, len(msg.expandedKeys))
+		logger.Debug("Restoring tree state", "cursorPath", msg.cursorPath, "expandedKeys", len(msg.expandedKeys))
 
 		// Restore expanded keys
 		if len(msg.expandedKeys) > 0 {
@@ -460,8 +455,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.globalValueSearchInProgress = false // Clear "searching..." indicator
 		m.globalValueSearchActive = true      // Enable n/N navigation
 		m.statusMessage = fmt.Sprintf("Value search complete: found %d keys with matches", len(msg.results))
-		fmt.Fprintf(os.Stderr, "[SEARCH] Search complete: %d results, globalValueSearchActive=%v\n",
-			len(msg.results), m.globalValueSearchActive)
+		logger.Debug("Search complete", "results", len(msg.results), "globalValueSearchActive", m.globalValueSearchActive)
 
 		// Expand all parents to make matching keys visible
 		if len(msg.results) > 0 {
@@ -480,7 +474,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			fmt.Fprintf(os.Stderr, "[GLOBAL_VALUE_SEARCH] Expanding parents for %d matching paths\n", len(matchingPaths))
+			logger.Debug("Expanding parents for matching paths", "count", len(matchingPaths))
 
 			// Navigate to first match after expansions complete
 			if len(expandCmds) > 0 {
@@ -518,7 +512,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Diff loaded successfully - open readers for both hives and keep them open
-		fmt.Fprintf(os.Stderr, "[DIFF] Opening cached readers for old=%q and new=%q\n", m.hivePath, m.comparePath)
+		logger.Debug("Opening cached readers", "oldHive", m.hivePath, "newHive", m.comparePath)
 
 		oldReader, err := reader.Open(m.hivePath, hive.OpenOptions{})
 		if err != nil {
@@ -548,8 +542,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.preDiffCursorPath = item.Path
 		}
 		m.preDiffExpandedKeys = m.keyTree.GetExpandedKeys()
-		fmt.Fprintf(os.Stderr, "[DIFF] Saved pre-diff state: cursor=%q, expanded=%d keys\n",
-			m.preDiffCursorPath, len(m.preDiffExpandedKeys))
+		logger.Debug("Saved pre-diff state", "cursorPath", m.preDiffCursorPath, "expandedKeys", len(m.preDiffExpandedKeys))
 
 		// Set diff context on CursorManager so navigation signals include diff info
 		m.keyTree.CursorManager.SetDiffContext(true, oldReader, newReader)
