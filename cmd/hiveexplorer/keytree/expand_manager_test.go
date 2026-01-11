@@ -2,7 +2,6 @@ package keytree
 
 import (
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joshuapare/hivekit/pkg/hive"
@@ -100,99 +99,6 @@ func TestExpandFromAllItems(t *testing.T) {
 	if len(visibleItems) >= 2 && visibleItems[1].Name != "Adobe" &&
 		visibleItems[1].Name != "Microsoft" {
 		t.Errorf("expected child 'Adobe' or 'Microsoft', got %q", visibleItems[1].Name)
-	}
-}
-
-// TestExpandFromDiffMap tests expanding in diff mode
-func TestExpandFromDiffMap(t *testing.T) {
-	state := NewTreeState()
-	nav := NewNavigator()
-	em := NewExpandManager(state, nav)
-
-	testTime := time.Now()
-
-	// Create mock readers for diff mode
-	// In real usage, these would be actual hive readers
-	// For testing, we can use nil since GetNodeIDsForDiffKey will return an error
-	// which expandFromDiffMap will skip. This test just verifies the diff map
-	// iteration logic, not the NodeID lookup logic.
-	state.SetDiffReaders(nil, nil)
-
-	// Set up diff map with a hierarchy
-	diffMap := map[string]hive.KeyDiff{
-		"SOFTWARE": {
-			Path:      "SOFTWARE",
-			Name:      "SOFTWARE",
-			Status:    hive.DiffModified,
-			SubkeyN:   2,
-			ValueN:    0,
-			LastWrite: testTime,
-		},
-		"SOFTWARE\\Microsoft": {
-			Path:      "SOFTWARE\\Microsoft",
-			Name:      "Microsoft",
-			Status:    hive.DiffAdded,
-			SubkeyN:   0,
-			ValueN:    5,
-			LastWrite: testTime,
-		},
-		"SOFTWARE\\Adobe": {
-			Path:      "SOFTWARE\\Adobe",
-			Name:      "Adobe",
-			Status:    hive.DiffAdded,
-			SubkeyN:   0,
-			ValueN:    2,
-			LastWrite: testTime,
-		},
-	}
-	state.SetDiffMap(diffMap)
-
-	// Set visible items to just the root
-	items := []Item{
-		{
-			Path:        "SOFTWARE",
-			Name:        "SOFTWARE",
-			Depth:       0,
-			HasChildren: true,
-			SubkeyCount: 2,
-			Expanded:    false,
-			Parent:      "",
-			DiffStatus:  hive.DiffModified,
-		},
-	}
-	state.SetItems(items)
-	nav.SetCursor(0)
-
-	// Expand at cursor (SOFTWARE)
-	cmd := em.Expand(func(path string) tea.Cmd { return nil })
-
-	if cmd != nil {
-		t.Error("expected nil cmd when expanding from diffMap")
-	}
-
-	// NOTE: With the new dual NodeID architecture, expandFromDiffMap requires
-	// valid readers to look up NodeIDs. Without proper readers (we set nil above),
-	// GetNodeIDsForDiffKey will fail and children will be skipped.
-	// This test now verifies that expand doesn't crash with nil readers,
-	// and that the item is still marked as expanded/loaded.
-	// Real diff mode always has valid readers, so this is just a safety test.
-
-	// Verify parent is marked as expanded and loaded even though children couldn't be added
-	if !state.IsExpanded("SOFTWARE") {
-		t.Error("SOFTWARE should be marked as expanded")
-	}
-
-	if !state.IsLoaded("SOFTWARE") {
-		t.Error("SOFTWARE should be marked as loaded")
-	}
-
-	// With nil readers, no children should be added
-	visibleItems := state.Items()
-	if len(visibleItems) != 1 {
-		t.Logf(
-			"Note: With nil readers, expected 1 visible item (no children added), got %d",
-			len(visibleItems),
-		)
 	}
 }
 

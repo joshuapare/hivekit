@@ -1,7 +1,6 @@
 package keytree
 
 import (
-	"sort"
 	"strings"
 	"time"
 
@@ -35,11 +34,6 @@ func (em *ExpandManager) Expand(loadChildrenCmd func(path string) tea.Cmd) tea.C
 	if item.Expanded {
 		em.CollapseAt(em.nav.Cursor())
 		return nil
-	}
-
-	// In diff mode, load children from diffMap
-	if _, hasDiff := em.state.GetDiff(item.Path); hasDiff {
-		return em.expandFromDiffMap(em.nav.Cursor())
 	}
 
 	// If we have allItems loaded (upfront tree load), use it
@@ -94,93 +88,6 @@ func (em *ExpandManager) expandFromAllItems(cursorPos int) tea.Cmd {
 		em.state.SetExpanded(item.Path, true)
 
 		logger.Debug("Expand: inserted children from allItems", "count", len(children), "path", item.Path)
-	}
-
-	return nil
-}
-
-// expandFromDiffMap expands an item using diff map data
-func (em *ExpandManager) expandFromDiffMap(cursorPos int) tea.Cmd {
-	items := em.state.Items()
-	if cursorPos >= len(items) {
-		return nil
-	}
-
-	item := &items[cursorPos]
-
-	if em.state.IsLoaded(item.Path) {
-		// Already loaded, just expand
-		items[cursorPos].Expanded = true
-		em.state.SetExpanded(item.Path, true)
-		em.state.SetItems(items)
-		return nil
-	}
-
-	logger.Debug("expandFromDiffMap: expanding from diffMap", "path", item.Path)
-
-	// Find all direct children in the diffMap
-	children := make([]Item, 0)
-	expectedPrefix := item.Path + "\\"
-
-	// Get all diff data
-	diffMap := em.state.diffMap // Direct access for iteration
-	for path, keyDiff := range diffMap {
-		if !strings.HasPrefix(path, expectedPrefix) {
-			continue
-		}
-
-		remainder := path[len(expectedPrefix):]
-		if strings.Contains(remainder, "\\") {
-			continue // Not a direct child
-		}
-
-		// Look up NodeIDs for this child based on its DiffStatus
-		oldNodeID, newNodeID, err := em.state.GetNodeIDsForDiffKey(keyDiff.Path, keyDiff.Status)
-		if err != nil {
-			logger.Debug("expandFromDiffMap: failed to get NodeIDs",
-				"path", keyDiff.Path, "status", keyDiff.Status, "error", err)
-			continue // Skip this child if we can't get its NodeIDs
-		}
-
-		child := Item{
-			OldNodeID:   oldNodeID,
-			NewNodeID:   newNodeID,
-			Path:        keyDiff.Path,
-			Name:        keyDiff.Name,
-			Depth:       item.Depth + 1,
-			HasChildren: keyDiff.SubkeyN > 0,
-			SubkeyCount: keyDiff.SubkeyN,
-			ValueCount:  keyDiff.ValueN,
-			LastWrite:   keyDiff.LastWrite,
-			Expanded:    false,
-			Parent:      item.Path,
-			DiffStatus:  keyDiff.Status,
-		}
-		children = append(children, child)
-	}
-
-	logger.Debug("expandFromDiffMap: found children", "count", len(children), "path", item.Path)
-
-	// Sort children by name
-	sort.Slice(children, func(i, j int) bool {
-		return children[i].Name < children[j].Name
-	})
-
-	// Mark as expanded and loaded
-	items[cursorPos].Expanded = true
-	em.state.SetExpanded(item.Path, true)
-	em.state.SetLoaded(item.Path, true)
-
-	// Insert children after parent
-	newItems := make([]Item, 0, len(items)+len(children))
-	newItems = append(newItems, items[:cursorPos+1]...)
-	newItems = append(newItems, children...)
-	newItems = append(newItems, items[cursorPos+1:]...)
-	em.state.SetItems(newItems)
-
-	// Adjust cursor if needed
-	if em.nav.Cursor() > cursorPos {
-		em.nav.SetCursor(em.nav.Cursor() + len(children))
 	}
 
 	return nil

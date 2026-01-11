@@ -250,9 +250,6 @@ func (m Model) renderStatus() string {
 	case GoToPathMode:
 		prompt := searchPromptStyle.Render("Go to path: ") + m.inputBuffer + "█"
 		return statusStyle.Width(m.width).Render(prompt)
-	case DiffPathMode:
-		prompt := searchPromptStyle.Render("Compare with hive: ") + m.inputBuffer + "█"
-		return statusStyle.Width(m.width).Render(prompt)
 	}
 
 	// Show status message if set (takes priority over normal help)
@@ -267,14 +264,6 @@ func (m Model) renderStatus() string {
 
 	// Determine help context
 	switch {
-	case m.diffMode && m.focusedPane == TreePane:
-		help.WriteString(helpStyle.Render("a/r/m/u: Toggle"))
-		help.WriteString(" │ ")
-		help.WriteString(helpStyle.Render("v: Diff-only"))
-		help.WriteString(" │ ")
-		help.WriteString(helpStyle.Render("d: Exit diff"))
-		help.WriteString(" │ ")
-		help.WriteString(helpStyle.Render("q: Quit"))
 	case m.valueDetail.IsVisible():
 		help.WriteString(helpStyle.Render("ESC: Close Detail"))
 		help.WriteString(" │ ")
@@ -297,8 +286,6 @@ func (m Model) renderStatus() string {
 		help.WriteString(helpStyle.Render("/: Search"))
 		help.WriteString(" │ ")
 		help.WriteString(helpStyle.Render("^F: Values"))
-		help.WriteString(" │ ")
-		help.WriteString(helpStyle.Render("d: Diff"))
 		help.WriteString(" │ ")
 		help.WriteString(helpStyle.Render("?: Help"))
 		help.WriteString(" │ ")
@@ -332,12 +319,6 @@ func (m Model) renderStatus() string {
 	valueCount := m.valueTable.GetItemCount()
 
 	var statsBuilder strings.Builder
-
-	// Show diff mode indicator if active
-	if m.diffMode {
-		statsBuilder.WriteString(diffModifiedStyle.Render("DIFF"))
-		statsBuilder.WriteString(" │ ")
-	}
 
 	statsBuilder.WriteString(statusCountStyle.Render(fmt.Sprintf("%d", keyCount)))
 	statsBuilder.WriteString(" keys │ ")
@@ -533,22 +514,6 @@ func (m Model) renderHelpOverlay() string {
 	helpContent.WriteString(helpKeyStyle.Width(keyWidth).Render("B"))
 	helpContent.WriteString("  ")
 	helpContent.WriteString(helpDescStyle.Render("Jump to next bookmark"))
-	helpContent.WriteString("\n\n")
-
-	// Diff Mode section
-	helpContent.WriteString(modalTitleStyle.Render("Diff Mode"))
-	helpContent.WriteString("\n")
-	helpContent.WriteString(helpKeyStyle.Width(keyWidth).Render("d"))
-	helpContent.WriteString("  ")
-	helpContent.WriteString(helpDescStyle.Render("Enter/exit diff mode"))
-	helpContent.WriteString("\n")
-	helpContent.WriteString(helpKeyStyle.Width(keyWidth).Render("a/r/m/u"))
-	helpContent.WriteString("  ")
-	helpContent.WriteString(helpDescStyle.Render("Toggle added/removed/modified/unchanged"))
-	helpContent.WriteString("\n")
-	helpContent.WriteString(helpKeyStyle.Width(keyWidth).Render("v"))
-	helpContent.WriteString("  ")
-	helpContent.WriteString(helpDescStyle.Render("Toggle diff-only view"))
 	helpContent.WriteString("\n\n")
 
 	// Other section

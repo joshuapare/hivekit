@@ -72,7 +72,7 @@ func TestNotify(t *testing.T) {
 	testPath := "SOFTWARE\\Microsoft"
 	testHivePath := "/path/to/hive"
 
-	bus.Notify(testNodeID, testPath, testHivePath, false, 0, 0, 0, nil, nil)
+	bus.Notify(testNodeID, testPath, testHivePath)
 
 	// Verify both subscribers receive the event
 	select {
@@ -118,7 +118,7 @@ func TestNotifyCancellation(t *testing.T) {
 	ch := bus.Subscribe()
 
 	// First notification
-	bus.Notify(hive.NodeID(1), "path1", "hive1", false, 0, 0, 0, nil, nil)
+	bus.Notify(hive.NodeID(1), "path1", "hive1")
 
 	var firstCtx context.Context
 	select {
@@ -129,7 +129,7 @@ func TestNotifyCancellation(t *testing.T) {
 	}
 
 	// Second notification should cancel the first context
-	bus.Notify(hive.NodeID(2), "path2", "hive2", false, 0, 0, 0, nil, nil)
+	bus.Notify(hive.NodeID(2), "path2", "hive2")
 
 	// Verify first context is cancelled
 	select {
@@ -156,7 +156,7 @@ func TestNotifyNonBlockingOnFullChannel(t *testing.T) {
 	ch := bus.Subscribe()
 
 	// Fill the channel (buffer size is 1)
-	bus.Notify(hive.NodeID(1), "path1", "hive1", false, 0, 0, 0, nil, nil)
+	bus.Notify(hive.NodeID(1), "path1", "hive1")
 
 	// Receive first event to verify channel works
 	select {
@@ -167,13 +167,13 @@ func TestNotifyNonBlockingOnFullChannel(t *testing.T) {
 	}
 
 	// Fill the channel again
-	bus.Notify(hive.NodeID(2), "path2", "hive2", false, 0, 0, 0, nil, nil)
+	bus.Notify(hive.NodeID(2), "path2", "hive2")
 
 	// Try to send another event without draining the channel
 	// This should not block because of the select/default in Notify()
 	done := make(chan bool)
 	go func() {
-		bus.Notify(hive.NodeID(3), "path3", "hive3", false, 0, 0, 0, nil, nil)
+		bus.Notify(hive.NodeID(3), "path3", "hive3")
 		done <- true
 	}()
 
@@ -193,7 +193,7 @@ func TestClose(t *testing.T) {
 	ch2 := bus.Subscribe()
 
 	// Send an event to create a context
-	bus.Notify(hive.NodeID(1), "path1", "hive1", false, 0, 0, 0, nil, nil)
+	bus.Notify(hive.NodeID(1), "path1", "hive1")
 
 	var ctx context.Context
 	select {
@@ -256,7 +256,7 @@ func TestMultipleSubscribers(t *testing.T) {
 	testPath := "SOFTWARE\\Test\\Path"
 	testHivePath := "/test/hive/path"
 
-	bus.Notify(testNodeID, testPath, testHivePath, false, 0, 0, 0, nil, nil)
+	bus.Notify(testNodeID, testPath, testHivePath)
 
 	// Verify all subscribers receive the same event
 	for i, ch := range channels {
@@ -319,7 +319,7 @@ func TestEventContent(t *testing.T) {
 			bus := NewBus()
 			ch := bus.Subscribe()
 
-			bus.Notify(tt.nodeID, tt.path, tt.hivePath, false, 0, 0, 0, nil, nil)
+			bus.Notify(tt.nodeID, tt.path, tt.hivePath)
 
 			select {
 			case event := <-ch:

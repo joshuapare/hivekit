@@ -2,8 +2,6 @@ package keytree
 
 import (
 	"fmt"
-	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -452,16 +450,6 @@ func (m *Model) ExpandAllChildren() tea.Cmd {
 	// Store the starting cursor position
 	startCursor := m.nav.Cursor()
 
-	// In diff mode, use diffMap which is already in memory
-	if len(m.state.diffMap) > 0 {
-		m.expandAllFromDiffMap(item.Path)
-		m.nav.SetCursor(startCursor)
-		if m.renderer != nil {
-			m.renderer.SetCursor(startCursor)
-		}
-		return nil
-	}
-
 	// If allItems is loaded (upfront tree load), use in-memory expansion
 	allItems := m.state.AllItems()
 	if len(allItems) > 0 {
@@ -624,71 +612,6 @@ func (m *Model) expandAllSync(rootPath string) {
 	logger.Debug("expandAllSync: complete", "total_items", m.state.ItemCount())
 }
 
-// expandAllFromDiffMap expands all descendants using data from diffMap (diff mode)
-func (m *Model) expandAllFromDiffMap(rootPath string) {
-	logger.Debug("expandAllFromDiffMap: expanding all descendants", "root", rootPath)
-
-	// Queue of paths to expand
-	toExpand := []string{rootPath}
-	expanded := make(map[string]bool)
-
-	for len(toExpand) > 0 {
-		// Pop the first path
-		currentPath := toExpand[0]
-		toExpand = toExpand[1:]
-
-		if expanded[currentPath] {
-			continue
-		}
-
-		// Find the item in the tree
-		items := m.state.Items()
-		var currentIdx int
-		var found bool
-		for i, item := range items {
-			if item.Path == currentPath {
-				currentIdx = i
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			continue
-		}
-
-		currentItem := &items[currentIdx]
-		if !currentItem.HasChildren {
-			continue
-		}
-
-		// Expand from diffMap if not already loaded
-		if !m.state.IsLoaded(currentPath) {
-			m.nav.SetCursor(currentIdx)
-			m.expandFromDiffMap(currentItem)
-		} else {
-			// Just mark as expanded
-			items = m.state.Items()
-			items[currentIdx].Expanded = true
-			m.state.SetExpanded(currentPath, true)
-			m.state.SetItems(items)
-		}
-
-		expanded[currentPath] = true
-
-		// Add all children to the expansion queue
-		items = m.state.Items()
-		for _, item := range items {
-			if item.Parent == currentPath && item.HasChildren {
-				toExpand = append(toExpand, item.Path)
-			}
-		}
-	}
-
-	m.updateViewport()
-	logger.Debug("expandAllFromDiffMap: complete", "total_items", m.state.ItemCount())
-}
-
 // expandAllFromAllItems recursively expands all descendants using preloaded allItems (in-memory)
 func (m *Model) expandAllFromAllItems(rootPath string) {
 	startTime := time.Now()
@@ -809,115 +732,6 @@ func (m *Model) expandAllFromAllItems(rootPath string) {
 		"duration", totalDuration, "paths_expanded", len(toExpand), "visible_items", m.state.ItemCount())
 }
 
-// expandFromDiffMap expands a key using children from the diffMap
-func (m *Model) expandFromDiffMap(item *Item) {
-	if m.state.IsLoaded(item.Path) {
-		// Already loaded, just expand
-		items := m.state.Items()
-		for i := range items {
-			if items[i].Path == item.Path {
-				items[i].Expanded = true
-				m.state.SetExpanded(item.Path, true)
-				m.state.SetItems(items)
-				break
-			}
-		}
-		return
-	}
-
-	logger.Debug("expandFromDiffMap: expanding from diffMap", "path", item.Path)
-
-	// Find all direct children of this key in the diffMap
-	children := make([]Item, 0)
-	expectedPrefix := item.Path + "\\"
-
-	for path, keyDiff := range m.state.diffMap {
-		// Check if this is a direct child (not a grandchild)
-		if !strings.HasPrefix(path, expectedPrefix) {
-			continue
-		}
-
-		// Make sure it's a direct child by checking there are no more separators after the prefix
-		remainder := path[len(expectedPrefix):]
-		if strings.Contains(remainder, "\\") {
-			continue
-		}
-
-		// This is a direct child - look up both NodeIDs
-		oldNodeID, newNodeID, err := m.state.GetNodeIDsForDiffKey(keyDiff.Path, keyDiff.Status)
-		if err != nil {
-			// Failed to get NodeIDs - log and skip this child
-			fmt.Fprintf(
-				os.Stderr,
-				"[DEBUG] expandFromDiffMap: failed to get NodeIDs for %q (status=%d): %v\n",
-				keyDiff.Path,
-				keyDiff.Status,
-				err,
-			)
-			continue
-		}
-
-		child := Item{
-			OldNodeID:   oldNodeID,
-			NewNodeID:   newNodeID,
-			Path:        keyDiff.Path,
-			Name:        keyDiff.Name,
-			Depth:       item.Depth + 1,
-			HasChildren: keyDiff.SubkeyN > 0,
-			SubkeyCount: keyDiff.SubkeyN,
-			ValueCount:  keyDiff.ValueN,
-			LastWrite:   keyDiff.LastWrite,
-			Expanded:    false,
-			Parent:      item.Path,
-			DiffStatus:  keyDiff.Status,
-		}
-		children = append(children, child)
-	}
-
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] expandFromDiffMap: found %d children for %q\n",
-		len(children),
-		item.Path,
-	)
-
-	// Sort children by name
-	sort.Slice(children, func(i, j int) bool {
-		return children[i].Name < children[j].Name
-	})
-
-	// Find parent index in current items
-	items := m.state.Items()
-	parentIdx := -1
-	for i := range items {
-		if items[i].Path == item.Path {
-			parentIdx = i
-			break
-		}
-	}
-
-	if parentIdx >= 0 {
-		// Mark parent as expanded and loaded
-		items[parentIdx].Expanded = true
-		m.state.SetExpanded(item.Path, true)
-		m.state.SetLoaded(item.Path, true)
-
-		// Insert children after parent
-		newItems := make([]Item, 0, len(items)+len(children))
-		newItems = append(newItems, items[:parentIdx+1]...)
-		newItems = append(newItems, children...)
-		newItems = append(newItems, items[parentIdx+1:]...)
-		m.state.SetItems(newItems)
-
-		// Adjust cursor if needed
-		if m.nav.Cursor() > parentIdx {
-			m.nav.SetCursor(m.nav.Cursor() + len(children))
-		}
-	}
-
-	m.updateViewport()
-}
-
 // CollapseAll collapses all expanded items in the tree
 func (m *Model) CollapseAll() {
 	// Collapse all items by removing all but root-level items
@@ -972,10 +786,8 @@ func (m *Model) ExpandCurrentLevel() tea.Cmd {
 			oldCursor := m.nav.Cursor()
 			m.nav.SetCursor(i)
 
-			// Expand this item
-			if len(m.state.diffMap) > 0 {
-				m.expandFromDiffMap(levelItem)
-			} else if m.state.IsLoaded(levelItem.Path) {
+			// Expand this item if already loaded
+			if m.state.IsLoaded(levelItem.Path) {
 				items := m.state.Items()
 				items[i].Expanded = true
 				m.state.SetExpanded(levelItem.Path, true)
@@ -1140,73 +952,15 @@ func (m *Model) expandLoadedChildren(parentPath string) {
 	}
 	logger.Debug("expandLoadedChildren: found cached children", "count", len(children))
 
-	// In diff mode, use diffMap to get children
-	if len(m.state.diffMap) > 0 {
-		// Find children in diffMap (parent is determined by path prefix)
-		var childItems []Item
-		for path, keyDiff := range m.state.diffMap {
-			// Check if this is a direct child of parentPath
-			if isDirectChild(path, parentPath) {
-				// Look up both NodeIDs for this child
-				oldNodeID, newNodeID, err := m.state.GetNodeIDsForDiffKey(path, keyDiff.Status)
-				if err != nil {
-					// Failed to get NodeIDs - log and skip this child
-					fmt.Fprintf(
-						os.Stderr,
-						"[DEBUG] expandLoadedChildren: failed to get NodeIDs for %q (status=%d): %v\n",
-						path,
-						keyDiff.Status,
-						err,
-					)
-					continue
-				}
+	// Insert cached children
+	items = m.state.Items()
+	newItems := make([]Item, 0, len(items)+len(children))
+	newItems = append(newItems, items[:parentIdx+1]...)
+	newItems = append(newItems, children...)
+	newItems = append(newItems, items[parentIdx+1:]...)
+	m.state.SetItems(newItems)
 
-				childItems = append(childItems, Item{
-					OldNodeID:   oldNodeID,
-					NewNodeID:   newNodeID,
-					Path:        path,
-					Name:        keyDiff.Name,
-					Depth:       items[parentIdx].Depth + 1,
-					HasChildren: keyDiff.SubkeyN > 0,
-					SubkeyCount: keyDiff.SubkeyN,
-					ValueCount:  keyDiff.ValueN,
-					LastWrite:   keyDiff.LastWrite,
-					Expanded:    m.state.IsExpanded(path),
-					Parent:      parentPath,
-					DiffStatus:  keyDiff.Status,
-				})
-			}
-		}
-
-		// Sort children
-		sort.Slice(childItems, func(i, j int) bool {
-			return strings.ToLower(childItems[i].Name) < strings.ToLower(childItems[j].Name)
-		})
-
-		// Insert children after parent
-		items = m.state.Items()
-		newItems := make([]Item, 0, len(items)+len(childItems))
-		newItems = append(newItems, items[:parentIdx+1]...)
-		newItems = append(newItems, childItems...)
-		newItems = append(newItems, items[parentIdx+1:]...)
-		m.state.SetItems(newItems)
-
-		fmt.Fprintf(
-			os.Stderr,
-			"[DEBUG] expandLoadedChildren: inserted %d children from diffMap\n",
-			len(childItems),
-		)
-	} else {
-		// Normal mode - insert cached children
-		items = m.state.Items()
-		newItems := make([]Item, 0, len(items)+len(children))
-		newItems = append(newItems, items[:parentIdx+1]...)
-		newItems = append(newItems, children...)
-		newItems = append(newItems, items[parentIdx+1:]...)
-		m.state.SetItems(newItems)
-
-		logger.Debug("expandLoadedChildren: inserted cached children", "count", len(children))
-	}
+	logger.Debug("expandLoadedChildren: inserted cached children", "count", len(children))
 
 	m.updateViewport()
 }
@@ -1336,21 +1090,6 @@ func (m *Model) FilterByPaths(paths []string) {
 	}
 }
 
-// SetDiffMap sets the diff map
-func (m *Model) SetDiffMap(diffMap map[string]hive.KeyDiff) {
-	m.state.SetDiffMap(diffMap)
-}
-
-// SetDiffReaders sets the diff readers for NodeID lookups
-func (m *Model) SetDiffReaders(oldReader, newReader hive.Reader) {
-	m.state.SetDiffReaders(oldReader, newReader)
-}
-
-// ClearDiffReaders clears the diff readers
-func (m *Model) ClearDiffReaders() {
-	m.state.ClearDiffReaders()
-}
-
 // SetWidth sets the width
 func (m *Model) SetWidth(width int) {
 	// Initialize renderer if needed
@@ -1471,7 +1210,6 @@ func (m *Model) RenderItem(index int, isCursor bool, width int) string {
 		HasChildren: item.HasChildren,
 		Expanded:    item.Expanded,
 		SubkeyCount: item.SubkeyCount,
-		DiffStatus:  item.DiffStatus,
 	}
 
 	// Format timestamp
@@ -1520,11 +1258,7 @@ func (m *Model) RestoreExpandedKeys(expandedKeys map[string]bool) {
 		return
 	}
 
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] RestoreExpandedKeys: restoring %d expanded keys\n",
-		len(expandedKeys),
-	)
+	logger.Debug("RestoreExpandedKeys: restoring expanded keys", "count", len(expandedKeys))
 
 	// Set expanded state
 	m.state.SetExpandedKeys(expandedKeys)

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree"
-	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // TestE2E_Bookmarks_SingleBookmark verifies bookmarked items show star indicator
@@ -83,32 +82,6 @@ func TestE2E_Bookmarks_MixedBookmarks(t *testing.T) {
 	assertNoBookmark(t, outputs[3])
 }
 
-// TestE2E_Bookmarks_WithDiffStatus verifies bookmarks work with diff mode
-func TestE2E_Bookmarks_WithDiffStatus(t *testing.T) {
-	path := "SOFTWARE\\AddedAndBookmarked"
-	item := newTestItem("AddedAndBookmarked",
-		withPath(path),
-		withDiffStatus(hive.DiffAdded),
-	)
-
-	state := keytree.NewTreeState()
-	state.SetAllItems([]keytree.Item{item})
-	state.SetItems([]keytree.Item{item})
-	state.SetBookmarks(map[string]bool{
-		path: true,
-	})
-
-	model := &keytree.Model{}
-	model.SetStateForTesting(state)
-
-	output := model.RenderItem(0, false, 80)
-
-	// Should have both: bookmark indicator AND diff prefix
-	assertHasBookmark(t, output)
-	assertHasPrefix(t, output, '+')
-	assertContains(t, output, "AddedAndBookmarked")
-}
-
 // TestE2E_Bookmarks_ParentWithChildren verifies bookmarked parent renders correctly
 func TestE2E_Bookmarks_ParentWithChildren(t *testing.T) {
 	path := "SOFTWARE\\BookmarkedParent"
@@ -167,12 +140,11 @@ func TestE2E_Bookmarks_AtDepth(t *testing.T) {
 	}
 }
 
-// TestE2E_Bookmarks_ComplexScenario verifies bookmark + diff + children + depth
+// TestE2E_Bookmarks_ComplexScenario verifies bookmark + children + depth
 func TestE2E_Bookmarks_ComplexScenario(t *testing.T) {
 	path := "SOFTWARE\\ComplexBookmarked"
 	item := newTestItem("ComplexBookmarked",
 		withPath(path),
-		withDiffStatus(hive.DiffModified),
 		withChildren(8, true), // Expanded
 		withDepth(1),
 	)
@@ -191,12 +163,10 @@ func TestE2E_Bookmarks_ComplexScenario(t *testing.T) {
 
 	// Should have ALL features:
 	// - "★" bookmark indicator
-	// - "~" diff prefix
 	// - "▼" expanded icon
 	// - "(8)" count
 	// - Indentation for depth 1
 	assertHasBookmark(t, output)
-	assertHasPrefix(t, output, '~')
 	assertHasIcon(t, output, "▼")
 	assertContains(t, output, "(8)")
 	assertIndentation(t, output, 1)

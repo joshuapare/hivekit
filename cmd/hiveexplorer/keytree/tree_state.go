@@ -1,28 +1,21 @@
 package keytree
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
-	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // TreeState manages the tree data structure and visibility state.
-// It tracks all items, visible items, expanded/loaded state, and auxiliary data like bookmarks/diffs.
+// It tracks all items, visible items, expanded/loaded state, and auxiliary data like bookmarks.
 type TreeState struct {
-	allItems       []Item                  // Complete tree structure (all keys, loaded upfront)
-	items          []Item                  // Visible items (filtered based on expand/collapse and search)
-	preFilterItems []Item                  // Items before search filter was applied (for restoring)
-	expanded       map[string]bool         // Which paths are expanded
-	loaded         map[string]bool         // Which keys have loaded their children
-	diffMap        map[string]hive.KeyDiff // Diff data for diff mode (path -> KeyDiff)
-	bookmarks      map[string]bool         // Bookmarked key paths
-	searchFilter   string                  // Search filter query (live filtering)
-
-	// Diff mode readers (for looking up NodeIDs during diff tree operations)
-	oldReader hive.Reader // Reader for old hive (original)
-	newReader hive.Reader // Reader for new hive (comparison)
+	allItems       []Item          // Complete tree structure (all keys, loaded upfront)
+	items          []Item          // Visible items (filtered based on expand/collapse and search)
+	preFilterItems []Item          // Items before search filter was applied (for restoring)
+	expanded       map[string]bool // Which paths are expanded
+	loaded         map[string]bool // Which keys have loaded their children
+	bookmarks      map[string]bool // Bookmarked key paths
+	searchFilter   string          // Search filter query (live filtering)
 }
 
 // NewTreeState creates a new tree state manager
@@ -31,7 +24,6 @@ func NewTreeState() *TreeState {
 		items:     make([]Item, 0),
 		expanded:  make(map[string]bool),
 		loaded:    make(map[string]bool),
-		diffMap:   make(map[string]hive.KeyDiff),
 		bookmarks: make(map[string]bool),
 	}
 }
@@ -120,94 +112,6 @@ func (ts *TreeState) SetLoaded(path string, loaded bool) {
 // ClearLoaded clears the loaded state for a path
 func (ts *TreeState) ClearLoaded(path string) {
 	delete(ts.loaded, path)
-}
-
-// GetDiff returns the diff data for a path
-func (ts *TreeState) GetDiff(path string) (hive.KeyDiff, bool) {
-	diff, ok := ts.diffMap[path]
-	return diff, ok
-}
-
-// SetDiffMap sets the entire diff map
-func (ts *TreeState) SetDiffMap(diffMap map[string]hive.KeyDiff) {
-	ts.diffMap = diffMap
-}
-
-// SetDiffReaders sets the readers for diff mode NodeID lookups.
-// These are used when building tree items from diff results to populate NodeIDs.
-func (ts *TreeState) SetDiffReaders(oldReader, newReader hive.Reader) {
-	ts.oldReader = oldReader
-	ts.newReader = newReader
-}
-
-// ClearDiffReaders clears the diff mode readers.
-// This should be called when exiting diff mode.
-func (ts *TreeState) ClearDiffReaders() {
-	ts.oldReader = nil
-	ts.newReader = nil
-}
-
-// GetNodeIDsForDiffKey looks up BOTH NodeIDs for a diff key based on its status.
-// Returns (oldNodeID, newNodeID, error).
-// For Added keys: oldNodeID will be 0 (doesn't exist in old hive)
-// For Removed keys: newNodeID will be 0 (doesn't exist in new hive)
-// For Modified/Unchanged: both will be populated
-func (ts *TreeState) GetNodeIDsForDiffKey(
-	path string,
-	status hive.DiffStatus,
-) (hive.NodeID, hive.NodeID, error) {
-	var oldNodeID, newNodeID hive.NodeID
-	var oldErr, newErr error
-
-	switch status {
-	case hive.DiffAdded:
-		// Added key: only exists in NEW hive
-		if ts.newReader != nil {
-			newNodeID, newErr = ts.newReader.Find(path)
-		} else {
-			newErr = fmt.Errorf("new reader not set")
-		}
-		if newErr != nil {
-			return 0, 0, fmt.Errorf("failed to find in new hive: %w", newErr)
-		}
-		return 0, newNodeID, nil
-
-	case hive.DiffRemoved:
-		// Removed key: only exists in OLD hive
-		if ts.oldReader != nil {
-			oldNodeID, oldErr = ts.oldReader.Find(path)
-		} else {
-			oldErr = fmt.Errorf("old reader not set")
-		}
-		if oldErr != nil {
-			return 0, 0, fmt.Errorf("failed to find in old hive: %w", oldErr)
-		}
-		return oldNodeID, 0, nil
-
-	case hive.DiffModified, hive.DiffUnchanged:
-		// Modified/Unchanged: exists in BOTH hives
-		if ts.oldReader != nil {
-			oldNodeID, oldErr = ts.oldReader.Find(path)
-		} else {
-			oldErr = fmt.Errorf("old reader not set")
-		}
-		if ts.newReader != nil {
-			newNodeID, newErr = ts.newReader.Find(path)
-		} else {
-			newErr = fmt.Errorf("new reader not set")
-		}
-		if oldErr != nil || newErr != nil {
-			return 0, 0, fmt.Errorf(
-				"failed to find in hives (oldErr=%v, newErr=%v)",
-				oldErr,
-				newErr,
-			)
-		}
-		return oldNodeID, newNodeID, nil
-
-	default:
-		return 0, 0, fmt.Errorf("unknown diff status: %d", status)
-	}
 }
 
 // IsBookmarked checks if a path is bookmarked

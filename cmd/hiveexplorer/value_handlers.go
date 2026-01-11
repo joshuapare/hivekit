@@ -1,11 +1,8 @@
 package main
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
-	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // loadValuesForCurrentKey reloads values for the currently selected key.
@@ -16,54 +13,9 @@ func (m *Model) loadValuesForCurrentKey() tea.Cmd {
 		return nil
 	}
 
-	// In diff mode, determine which hive to use based on key status
-	if m.diffMode {
-		logger.Debug("loadValuesForCurrentKey", "path", item.Path, "status", item.DiffStatus, "oldHive", m.hivePath, "newHive", m.comparePath)
-
-		// Use cached readers if available for better performance
-		switch item.DiffStatus {
-		case hive.DiffAdded:
-			// Key only exists in new hive
-			logger.Debug("Loading from NEW hive (DiffAdded)")
-			if m.newHiveReader != nil {
-				return m.loadValuesWithReader(item.Path, m.newHiveReader)
-			}
-			return m.valueTable.LoadValuesFromHive(item.Path, m.comparePath)
-		case hive.DiffRemoved:
-			// Key only exists in old hive
-			logger.Debug("Loading from OLD hive (DiffRemoved)")
-			if m.oldHiveReader != nil {
-				return m.loadValuesWithReader(item.Path, m.oldHiveReader)
-			}
-			return m.valueTable.LoadValuesFromHive(item.Path, m.hivePath)
-		case hive.DiffModified, hive.DiffUnchanged:
-			// Key exists in both, load from new hive (comparePath) to show current state
-			logger.Debug("Loading from NEW hive (DiffModified/DiffUnchanged)")
-			if m.newHiveReader != nil {
-				return m.loadValuesWithReader(item.Path, m.newHiveReader)
-			}
-			return m.valueTable.LoadValuesFromHive(item.Path, m.comparePath)
-		default:
-			logger.Debug("Unknown status, using old hive", "status", item.DiffStatus)
-			return m.valueTable.LoadValuesFromHive(item.Path, m.hivePath)
-		}
-	}
-
-	// Normal mode: Re-emit navigation signal to trigger reload
+	// Re-emit navigation signal to trigger reload
 	// The bus architecture with context cancellation handles deduplication automatically
-	logger.Debug("Normal mode: re-emitting navigation signal", "path", item.Path)
+	logger.Debug("Re-emitting navigation signal for refresh", "path", item.Path)
 	m.keyTree.CursorManager.EmitSignal()
 	return nil
-}
-
-// loadValuesWithReader loads values using an existing reader (no open/close overhead)
-func (m *Model) loadValuesWithReader(keyPath string, r hive.Reader) tea.Cmd {
-	return func() tea.Msg {
-		values, err := hive.ListValuesWithReader(r, keyPath)
-		if err != nil {
-			return errMsg{fmt.Errorf("failed to load values for path %q: %w", keyPath, err)}
-		}
-		// Convert using helper function
-		return valuesLoadedMsg{Path: keyPath, Values: convertValueInfos(values)}
-	}
 }

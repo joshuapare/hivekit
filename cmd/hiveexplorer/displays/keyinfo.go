@@ -90,33 +90,8 @@ func (k *KeyInfoDisplay) loadKeyInfoAsync(sig keyselection.Event) tea.Cmd {
 		default:
 		}
 
-		// In diff mode, use the appropriate reader AND NodeID based on DiffStatus
-		reader := k.reader
-		nodeID := sig.NodeID // Normal mode uses sig.NodeID
-
-		if sig.DiffMode {
-			switch sig.DiffStatus {
-			case hive.DiffAdded:
-				// Added key: load from new hive using NewNodeID
-				reader = sig.NewReader
-				nodeID = sig.NewNodeID
-			case hive.DiffRemoved:
-				// Removed key: load from old hive using OldNodeID
-				reader = sig.OldReader
-				nodeID = sig.OldNodeID
-			case hive.DiffModified, hive.DiffUnchanged:
-				// Modified/Unchanged: load from new hive (current state) using NewNodeID
-				reader = sig.NewReader
-				nodeID = sig.NewNodeID
-			default:
-				// Fallback: use old reader with OldNodeID
-				reader = sig.OldReader
-				nodeID = sig.OldNodeID
-			}
-		}
-
-		// Load key info using appropriate reader and NodeID
-		err := k.LoadInfoWithReader(nodeID, sig.Path, reader)
+		// Load key info using the reader
+		err := k.LoadInfoWithReader(sig.NodeID, sig.Path, k.reader)
 		if err != nil {
 			// Log error but don't fail - just don't update display
 			return nil

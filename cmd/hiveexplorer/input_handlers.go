@@ -59,11 +59,6 @@ func (m Model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputMode = NormalMode
 			m.inputBuffer = ""
 			return m.handleGoToPath(path)
-		case DiffPathMode:
-			comparePath := m.inputBuffer
-			m.inputMode = NormalMode
-			m.inputBuffer = ""
-			return m.handleLoadDiff(comparePath)
 		default:
 			return m, nil
 		}
