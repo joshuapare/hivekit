@@ -56,8 +56,14 @@ import (
 //   - Applied: Statistics about operations applied
 //   - error: If parsing fails, hive cannot be opened, or operations fail
 func MergeRegTextWithPrefix(ctx context.Context, hivePath string, regText string, prefix string, opts *Options) (Applied, error) {
+	// Get parse options from opts
+	var parseOpts types.RegParseOptions
+	if opts != nil {
+		parseOpts = opts.ParseOptions
+	}
+
 	// Parse regtext with prefix transformation (validates input before opening hive)
-	plan, err := PlanFromRegTextWithPrefix(regText, prefix)
+	plan, err := PlanFromRegTextWithPrefixOpts(regText, prefix, parseOpts)
 	if err != nil {
 		return Applied{}, err
 	}

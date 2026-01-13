@@ -13,6 +13,7 @@ package merge
 
 import (
 	"github.com/joshuapare/hivekit/hive/dirty"
+	"github.com/joshuapare/hivekit/pkg/types"
 )
 
 // StrategyKind selects the write strategy for merge operations.
@@ -103,6 +104,16 @@ type Options struct {
 	// Default: 30 (30% fragmented = compact)
 	// Note: Auto-compaction not yet implemented (Phase 6)
 	CompactThreshold int
+
+	// ParseOptions configures .reg text parsing behavior.
+	// These options are used by MergeRegText, MergeRegTextWithPrefix, and session
+	// ApplyRegText/ApplyRegTextWithPrefix methods.
+	//
+	// Key options:
+	//   - AllowMissingHeader: When true, allows parsing .reg text without the
+	//     "Windows Registry Editor Version 5.00" header. Default: false.
+	//   - InputEncoding: Specifies input encoding (default: UTF-8).
+	ParseOptions types.RegParseOptions
 }
 
 // DefaultOptions returns production-ready defaults optimized for general use.

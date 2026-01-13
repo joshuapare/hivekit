@@ -18,7 +18,8 @@ import (
 //  2. Converts types.EditOp → merge.Op in a single pass
 //  3. Handles hive root prefix stripping automatically
 //
-// The .reg text must have a valid header (e.g., "Windows Registry Editor Version 5.00").
+// The .reg text must have a valid header (e.g., "Windows Registry Editor Version 5.00")
+// unless parsing headerless regtext via PlanFromRegTextOpts.
 // Hive root prefixes (HKEY_LOCAL_MACHINE\, HKLM\, etc.) are automatically stripped.
 //
 // Example:
@@ -38,10 +39,31 @@ import (
 //   - Value data cannot be parsed
 //   - Unsupported operation types are encountered
 func PlanFromRegText(regText string) (*Plan, error) {
+	return PlanFromRegTextOpts(regText, types.RegParseOptions{})
+}
+
+// PlanFromRegTextOpts parses Windows .reg file text with custom parse options.
+//
+// This variant allows specifying parse options such as AllowMissingHeader.
+//
+// Example:
+//
+//	// Parse headerless regtext
+//	plan, err := merge.PlanFromRegTextOpts(regText, types.RegParseOptions{
+//	    AllowMissingHeader: true,
+//	})
+func PlanFromRegTextOpts(regText string, parseOpts types.RegParseOptions) (*Plan, error) {
+	// Build parse options with defaults
+	opts := types.RegParseOptions{
+		InputEncoding:      "UTF-8", // Most .reg files are UTF-8
+		AllowMissingHeader: parseOpts.AllowMissingHeader,
+	}
+	if parseOpts.InputEncoding != "" {
+		opts.InputEncoding = parseOpts.InputEncoding
+	}
+
 	// Parse .reg text into operations
-	ops, err := regtext.ParseReg([]byte(regText), types.RegParseOptions{
-		InputEncoding: "UTF-8", // Most .reg files are UTF-8
-	})
+	ops, err := regtext.ParseReg([]byte(regText), opts)
 	if err != nil {
 		return nil, fmt.Errorf("parse .reg text: %w", err)
 	}
@@ -102,14 +124,35 @@ func PlanFromRegText(regText string) (*Plan, error) {
 //
 // For applying directly to a session, use Session.ApplyRegTextWithPrefix() instead.
 func PlanFromRegTextWithPrefix(regText string, prefix string) (*Plan, error) {
+	return PlanFromRegTextWithPrefixOpts(regText, prefix, types.RegParseOptions{})
+}
+
+// PlanFromRegTextWithPrefixOpts parses regtext with prefix and custom parse options.
+//
+// This variant allows specifying parse options such as AllowMissingHeader.
+//
+// Example:
+//
+//	// Parse headerless regtext with prefix
+//	plan, err := merge.PlanFromRegTextWithPrefixOpts(regText, "SOFTWARE", types.RegParseOptions{
+//	    AllowMissingHeader: true,
+//	})
+func PlanFromRegTextWithPrefixOpts(regText string, prefix string, parseOpts types.RegParseOptions) (*Plan, error) {
 	// Strip hive root from prefix
 	prefix = stripHiveRootPrefix(prefix)
 	prefixParts := splitPath(prefix)
 
+	// Build parse options with defaults
+	opts := types.RegParseOptions{
+		InputEncoding:      "UTF-8",
+		AllowMissingHeader: parseOpts.AllowMissingHeader,
+	}
+	if parseOpts.InputEncoding != "" {
+		opts.InputEncoding = parseOpts.InputEncoding
+	}
+
 	// Parse regtext
-	ops, err := regtext.ParseReg([]byte(regText), types.RegParseOptions{
-		InputEncoding: "UTF-8",
-	})
+	ops, err := regtext.ParseReg([]byte(regText), opts)
 	if err != nil {
 		return nil, fmt.Errorf("parse regtext: %w", err)
 	}
@@ -336,12 +379,19 @@ func MergePlan(ctx context.Context, hivePath string, plan *Plan, opts *Options) 
 //	fmt.Printf("Applied: %d keys created, %d values set\n",
 //	    applied.KeysCreated, applied.ValuesSet)
 //
-// Options can be nil to use defaults.
+// Options can be nil to use defaults. To parse headerless regtext, set
+// opts.ParseOptions.AllowMissingHeader to true.
 //
 // Returns Applied statistics or an error.
 func MergeRegText(ctx context.Context, hivePath string, regText string, opts *Options) (Applied, error) {
+	// Get parse options from opts
+	var parseOpts types.RegParseOptions
+	if opts != nil {
+		parseOpts = opts.ParseOptions
+	}
+
 	// Parse .reg text into plan
-	plan, err := PlanFromRegText(regText)
+	plan, err := PlanFromRegTextOpts(regText, parseOpts)
 	if err != nil {
 		return Applied{}, fmt.Errorf("parse .reg text: %w", err)
 	}

@@ -529,6 +529,11 @@ type RegParseOptions struct {
 	// InputEncoding declares the .reg text encoding (e.g., "UTF-16LE").
 	// Implementations may transcode to UTF-8 internally.
 	InputEncoding string
+
+	// AllowMissingHeader permits parsing .reg text without the standard header.
+	// When true, the parser will not require "Windows Registry Editor Version 5.00".
+	// Default is false (header required).
+	AllowMissingHeader bool
 }
 
 type RegExportOptions struct {

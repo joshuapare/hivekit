@@ -268,6 +268,9 @@ func (s *Session) ApplyWithTx(ctx context.Context, plan *Plan) (Applied, error) 
 // The prefix is prepended to all key paths in the regtext. Hive root prefixes
 // (HKEY_LOCAL_MACHINE\, HKLM\, etc.) are automatically stripped.
 //
+// Parse options are taken from the session's Options.ParseOptions. To parse headerless
+// regtext, create the session with Options{ParseOptions: types.RegParseOptions{AllowMissingHeader: true}}.
+//
 // Example:
 //
 //	h, _ := hive.Open(path)
@@ -279,7 +282,7 @@ func (s *Session) ApplyWithTx(ctx context.Context, plan *Plan) (Applied, error) 
 //	stats := sess.GetStorageStats()  // check bloat
 //	result, _ := sess.HasKeys(ctx, "SOFTWARE\\Microsoft")  // validation
 func (s *Session) ApplyRegTextWithPrefix(ctx context.Context, regText string, prefix string) (Applied, error) {
-	plan, err := PlanFromRegTextWithPrefix(regText, prefix)
+	plan, err := PlanFromRegTextWithPrefixOpts(regText, prefix, s.opt.ParseOptions)
 	if err != nil {
 		return Applied{}, err
 	}
@@ -290,8 +293,10 @@ func (s *Session) ApplyRegTextWithPrefix(ctx context.Context, regText string, pr
 //
 // Equivalent to ApplyRegTextWithPrefix(ctx, regText, "").
 // Use when the regtext paths are already correct relative to the hive root.
+//
+// Parse options are taken from the session's Options.ParseOptions.
 func (s *Session) ApplyRegText(ctx context.Context, regText string) (Applied, error) {
-	plan, err := PlanFromRegText(regText)
+	plan, err := PlanFromRegTextOpts(regText, s.opt.ParseOptions)
 	if err != nil {
 		return Applied{}, err
 	}

@@ -38,11 +38,16 @@ func ParseReg(data []byte, opts types.RegParseOptions) ([]types.EditOp, error) {
 			continue
 		}
 		if !seenHeader {
-			if string(trim) != RegFileHeader {
+			if string(trim) == RegFileHeader {
+				seenHeader = true
+				continue
+			}
+			// If header not found, check if we allow missing header
+			if !opts.AllowMissingHeader {
 				return nil, errors.New("regtext: missing header")
 			}
+			// Allow missing header - mark as seen and fall through to process this line
 			seenHeader = true
-			continue
 		}
 		if bytes.HasPrefix(trim, []byte(KeyOpenBracket)) {
 			if !bytes.HasSuffix(trim, []byte(KeyCloseBracket)) {

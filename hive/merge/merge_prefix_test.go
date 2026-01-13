@@ -10,6 +10,7 @@ import (
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/builder"
 	"github.com/joshuapare/hivekit/hive/merge"
+	"github.com/joshuapare/hivekit/pkg/types"
 )
 
 func TestMergeRegTextWithPrefix_SimplePrefix(t *testing.T) {
@@ -519,4 +520,165 @@ func TestPlanFromRegTextWithPrefix_DeleteValue(t *testing.T) {
 		}
 	}
 	require.True(t, found, "expected to find OpDeleteValue")
+}
+
+// =============================================================================
+// AllowMissingHeader Tests (surfaced through merge APIs)
+// =============================================================================
+
+func TestMergeRegTextWithPrefix_AllowMissingHeader(t *testing.T) {
+	dir := t.TempDir()
+	hivePath := filepath.Join(dir, "test.hive")
+
+	// Create an empty hive
+	b, err := builder.New(hivePath, nil)
+	require.NoError(t, err)
+	defer b.Close()
+
+	err = b.Commit()
+	require.NoError(t, err)
+
+	// Regtext without header
+	regText := `[Test\Key]
+"Value"="Data"
+`
+
+	// Should fail without AllowMissingHeader
+	_, err = merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "SOFTWARE", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing header")
+
+	// Should succeed with AllowMissingHeader
+	opts := &merge.Options{
+		ParseOptions: types.RegParseOptions{
+			AllowMissingHeader: true,
+		},
+	}
+	applied, err := merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "SOFTWARE", opts)
+	require.NoError(t, err)
+	require.Greater(t, applied.KeysCreated, 0)
+
+	// Verify the key was created
+	h, err := hive.Open(hivePath)
+	require.NoError(t, err)
+	defer h.Close()
+
+	value, err := h.GetString("SOFTWARE\\Test\\Key", "Value")
+	require.NoError(t, err)
+	require.Equal(t, "Data", value)
+}
+
+func TestMergeRegText_AllowMissingHeader(t *testing.T) {
+	dir := t.TempDir()
+	hivePath := filepath.Join(dir, "test.hive")
+
+	// Create an empty hive
+	b, err := builder.New(hivePath, nil)
+	require.NoError(t, err)
+	defer b.Close()
+
+	err = b.Commit()
+	require.NoError(t, err)
+
+	// Regtext without header
+	regText := `[TestKey]
+"Value"="Data"
+`
+
+	// Should fail without AllowMissingHeader
+	_, err = merge.MergeRegText(context.Background(), hivePath, regText, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing header")
+
+	// Should succeed with AllowMissingHeader
+	opts := &merge.Options{
+		ParseOptions: types.RegParseOptions{
+			AllowMissingHeader: true,
+		},
+	}
+	applied, err := merge.MergeRegText(context.Background(), hivePath, regText, opts)
+	require.NoError(t, err)
+	require.Greater(t, applied.KeysCreated, 0)
+}
+
+func TestSession_ApplyRegTextWithPrefix_AllowMissingHeader(t *testing.T) {
+	dir := t.TempDir()
+	hivePath := filepath.Join(dir, "test.hive")
+
+	// Create an empty hive
+	b, err := builder.New(hivePath, nil)
+	require.NoError(t, err)
+	defer b.Close()
+
+	err = b.Commit()
+	require.NoError(t, err)
+
+	// Regtext without header
+	regText := `[Test\Key]
+"Value"="Data"
+`
+
+	h, err := hive.Open(hivePath)
+	require.NoError(t, err)
+	defer h.Close()
+
+	// Session with AllowMissingHeader
+	opts := merge.Options{
+		ParseOptions: types.RegParseOptions{
+			AllowMissingHeader: true,
+		},
+	}
+	sess, err := merge.NewSession(context.Background(), h, opts)
+	require.NoError(t, err)
+	defer sess.Close(context.Background())
+
+	// Should succeed with AllowMissingHeader in session opts
+	applied, err := sess.ApplyRegTextWithPrefix(context.Background(), regText, "SOFTWARE")
+	require.NoError(t, err)
+	require.Greater(t, applied.KeysCreated, 0)
+}
+
+func TestPlanFromRegTextOpts_AllowMissingHeader(t *testing.T) {
+	// Regtext without header
+	regText := `[TestKey]
+"Value"="Data"
+`
+
+	// Should fail with default options
+	_, err := merge.PlanFromRegText(regText)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing header")
+
+	// Should succeed with AllowMissingHeader
+	plan, err := merge.PlanFromRegTextOpts(regText, types.RegParseOptions{
+		AllowMissingHeader: true,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, plan.Ops)
+}
+
+func TestPlanFromRegTextWithPrefixOpts_AllowMissingHeader(t *testing.T) {
+	// Regtext without header
+	regText := `[Test\Key]
+"Value"="Data"
+`
+
+	// Should fail with default options
+	_, err := merge.PlanFromRegTextWithPrefix(regText, "SOFTWARE")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing header")
+
+	// Should succeed with AllowMissingHeader
+	plan, err := merge.PlanFromRegTextWithPrefixOpts(regText, "SOFTWARE", types.RegParseOptions{
+		AllowMissingHeader: true,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, plan.Ops)
+
+	// Verify the path includes prefix
+	for _, op := range plan.Ops {
+		if op.Type == merge.OpSetValue {
+			require.Equal(t, "SOFTWARE", op.KeyPath[0])
+		}
+	}
 }
