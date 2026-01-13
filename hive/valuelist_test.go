@@ -83,7 +83,7 @@ func TestValueList_ParseTooSmall(t *testing.T) {
 	// NK claims 3 values, but only 2 offsets exist
 	_, err := ParseValueList(payload, 3)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "too small")
+	require.Contains(t, err.Error(), "bounds")
 }
 
 func TestValueList_ParseNegativeCount(t *testing.T) {
@@ -151,7 +151,7 @@ func TestValueList_ValidateCount_TooLarge(t *testing.T) {
 
 	err := vl.ValidateCount(3)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "too small")
+	require.Contains(t, err.Error(), "bounds")
 }
 
 func TestValueList_ValidateCount_Negative(t *testing.T) {

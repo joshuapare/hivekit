@@ -10,6 +10,7 @@ import (
 	"golang.org/x/text/encoding/charmap"
 
 	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/internal/buf"
 	"github.com/joshuapare/hivekit/internal/format"
 )
 
@@ -111,23 +112,26 @@ func readDirectList(h *hive.Hive, payload []byte) (*List, error) {
 	}
 
 	// Optimized: Use byte comparisons instead of string allocation
-	count := format.ReadU16(payload, listCountOffset)
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return nil, fmt.Errorf("list count: %w", err)
+	}
 
 	var nkRefs []uint32
-	var err error
+	var readErr error
 
 	// Check signature bytes directly (no string allocation)
 	sig0, sig1 := payload[0], payload[1]
 	if (sig0 == 'l' && sig1 == 'f') || (sig0 == 'l' && sig1 == 'h') {
-		nkRefs, err = readLFLH(payload, count)
+		nkRefs, readErr = readLFLH(payload, count)
 	} else if sig0 == 'l' && sig1 == 'i' {
-		nkRefs, err = readLI(payload, count)
+		nkRefs, readErr = readLI(payload, count)
 	} else {
 		return nil, ErrInvalidSignature
 	}
 
-	if err != nil {
-		return nil, err
+	if readErr != nil {
+		return nil, readErr
 	}
 
 	// For each NK reference, read the NK cell and extract the name
@@ -150,8 +154,18 @@ func readRIList(h *hive.Hive, payload []byte) (*List, error) {
 		return nil, ErrInvalidRI
 	}
 
-	count := format.ReadU16(payload, listCountOffset)
-	if len(payload) < format.ListHeaderSize+int(count)*format.DWORDSize {
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return nil, fmt.Errorf("ri list count: %w", err)
+	}
+
+	// Sanity check: RI list count
+	if uint32(count) > format.MaxRIListCount {
+		return nil, fmt.Errorf("ri list count %d exceeds limit: %w", count, format.ErrSanityLimit)
+	}
+
+	// Overflow-safe bounds check
+	if _, boundsErr := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); boundsErr != nil {
 		return nil, ErrTruncated
 	}
 
@@ -161,7 +175,11 @@ func readRIList(h *hive.Hive, payload []byte) (*List, error) {
 
 	for i := range count {
 		offset := format.ListHeaderSize + int(i)*format.DWORDSize
-		subListRef := format.ReadU32(payload, offset)
+		subListRef, readErr := format.CheckedReadU32(payload, offset)
+		if readErr != nil {
+			// Skip malformed entry
+			continue
+		}
 
 		// Read the sub-list
 		subList, err := Read(h, subListRef)
@@ -186,14 +204,20 @@ func readRIList(h *hive.Hive, payload []byte) (*List, error) {
 // readLFLH reads LF or LH list entries (with hash).
 func readLFLH(payload []byte, count uint16) ([]uint32, error) {
 	// Each entry is 8 bytes: 4 bytes offset + 4 bytes hash
-	if len(payload) < format.ListHeaderSize+int(count)*format.QWORDSize {
+	// Overflow-safe bounds check
+	if _, err := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.QWORDSize); err != nil {
 		return nil, ErrTruncated
 	}
 
 	refs := make([]uint32, count)
 	for i := range count {
 		offset := format.ListHeaderSize + int(i)*format.QWORDSize
-		refs[i] = format.ReadU32(payload, offset)
+		val, err := format.CheckedReadU32(payload, offset)
+		if err != nil {
+			// Return partial results on read error
+			return refs[:i], nil
+		}
+		refs[i] = val
 		// Skip the 4-byte hash (we don't need it for reading)
 	}
 
@@ -203,14 +227,20 @@ func readLFLH(payload []byte, count uint16) ([]uint32, error) {
 // readLI reads LI list entries (no hash).
 func readLI(payload []byte, count uint16) ([]uint32, error) {
 	// Each entry is 4 bytes: offset only (no hash)
-	if len(payload) < format.ListHeaderSize+int(count)*format.DWORDSize {
+	// Overflow-safe bounds check
+	if _, err := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); err != nil {
 		return nil, ErrTruncated
 	}
 
 	refs := make([]uint32, count)
 	for i := range count {
 		offset := format.ListHeaderSize + int(i)*format.DWORDSize
-		refs[i] = format.ReadU32(payload, offset)
+		val, err := format.CheckedReadU32(payload, offset)
+		if err != nil {
+			// Return partial results on read error
+			return refs[:i], nil
+		}
+		refs[i] = val
 	}
 
 	return refs, nil
@@ -268,8 +298,11 @@ func resolveCell(h *hive.Hive, ref uint32) ([]byte, error) {
 		return nil, fmt.Errorf("cell offset out of bounds: 0x%X", ref)
 	}
 
-	// Read cell size (4 bytes, little-endian, signed)
-	sizeRaw := format.ReadI32(data, offset)
+	// Read cell size with bounds checking (4 bytes, little-endian, signed)
+	sizeRaw, err := format.CheckedReadI32(data, offset)
+	if err != nil {
+		return nil, fmt.Errorf("cell size read failed: 0x%X: %w", ref, err)
+	}
 
 	if sizeRaw >= 0 {
 		return nil, fmt.Errorf("cell is free (positive size): 0x%X", ref)
@@ -280,9 +313,14 @@ func resolveCell(h *hive.Hive, ref uint32) ([]byte, error) {
 		return nil, fmt.Errorf("cell size too small: %d", size)
 	}
 
+	// Sanity check: cell size should not exceed limit
+	if size > format.MaxCellSizeLimit {
+		return nil, fmt.Errorf("cell size %d exceeds limit: 0x%X", size, ref)
+	}
+
 	payloadOffset := offset + format.CellHeaderSize
 	payloadEnd := offset + size
-	if payloadEnd > len(data) {
+	if payloadEnd < 0 || payloadEnd > len(data) {
 		return nil, fmt.Errorf("cell payload out of bounds: 0x%X", ref)
 	}
 
@@ -607,7 +645,13 @@ func decodeUTF16LEName(data []byte) (string, error) {
 	// Convert bytes to uint16 slice
 	u16 := make([]uint16, len(data)/utf16BytesPerChar)
 	for i := 0; i < len(data); i += utf16BytesPerChar {
-		u16[i/utf16BytesPerChar] = format.ReadU16(data, i)
+		val, err := format.CheckedReadU16(data, i)
+		if err != nil {
+			// Return partial results on read error
+			runes := utf16.Decode(u16[:i/utf16BytesPerChar])
+			return string(runes), nil
+		}
+		u16[i/utf16BytesPerChar] = val
 	}
 
 	// Decode UTF-16 to UTF-8

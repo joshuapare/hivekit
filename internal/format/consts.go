@@ -391,6 +391,44 @@ const (
 )
 
 // ============================================================================
+// Sanity Limits for Untrusted Input Validation
+// ============================================================================
+// These limits prevent integer overflow attacks and excessive memory allocations
+// when parsing untrusted hive files. Values based on Windows Registry constraints
+// and practical limits observed in real-world usage.
+const (
+	// MaxNameLen is the maximum key/value name length in bytes.
+	// Windows Registry names are limited to ~16KB but practical limit is ~255 chars.
+	// UTF-16LE encoding means 2 bytes per char, so 32KB is generous.
+	MaxNameLen = 32 * 1024 // 32KB
+
+	// MaxClassLen is the maximum class name length in bytes.
+	// Class names are rarely used and should be small.
+	MaxClassLen = 16 * 1024 // 16KB
+
+	// MaxSubkeyCount is the maximum number of subkeys per key.
+	// Windows has no hard limit, but >1M subkeys is abnormal and likely corruption.
+	MaxSubkeyCount = 1_000_000
+
+	// MaxValueCount is the maximum number of values per key.
+	// Same rationale as MaxSubkeyCount.
+	MaxValueCount = 1_000_000
+
+	// MaxValueDataLen is the maximum value data length.
+	// Windows limit is ~1GB for REG_BINARY, but we cap at 256MB for safety.
+	MaxValueDataLen = 256 * 1024 * 1024 // 256MB
+
+	// MaxRIListCount is the maximum number of sub-lists in an RI (indirect) list.
+	// RI lists are used for keys with many subkeys, but >10K chunks is suspect.
+	MaxRIListCount = 10_000
+
+	// MaxCellSizeLimit is the maximum cell size we'll accept.
+	// Largest practical cell is for big data which is ~65535 * 16KB ~= 1GB.
+	// We cap at 1GB to prevent excessive allocations from corrupt size fields.
+	MaxCellSizeLimit = 1 << 30 // 1GB
+)
+
+// ============================================================================
 // Generic Constants
 // ============================================================================.
 const (

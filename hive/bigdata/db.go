@@ -74,14 +74,28 @@ func ReadDBHeader(buf []byte) (*DBHeader, error) {
 		return nil, ErrInvalidSignature
 	}
 
-	// Read count
-	count := format.ReadU16(buf, dbCountOffset)
+	// Read count with bounds checking
+	count, err := format.CheckedReadU16(buf, dbCountOffset)
+	if err != nil {
+		return nil, ErrTruncated
+	}
 
-	// Read blocklist HCELL_INDEX
-	blocklist := format.ReadU32(buf, dbBlocklistOffset)
+	// Sanity check: block count
+	if uint32(count) > format.DBMaxBlockCount {
+		return nil, format.ErrSanityLimit
+	}
 
-	// Read reserved (we don't validate it, just read it)
-	reserved := format.ReadU32(buf, dbReservedOffset)
+	// Read blocklist HCELL_INDEX with bounds checking
+	blocklist, err := format.CheckedReadU32(buf, dbBlocklistOffset)
+	if err != nil {
+		return nil, ErrTruncated
+	}
+
+	// Read reserved with bounds checking (we don't validate it, just read it)
+	reserved, err := format.CheckedReadU32(buf, dbReservedOffset)
+	if err != nil {
+		return nil, ErrTruncated
+	}
 
 	return &DBHeader{
 		Signature: [2]byte{buf[0], buf[1]},
@@ -111,6 +125,13 @@ func WriteBlocklist(buf []byte, blockRefs []uint32) error {
 
 // ReadBlocklist reads a blocklist from the buffer.
 func ReadBlocklist(buf []byte, count uint16) ([]uint32, error) {
+	// Sanity check: block count (uint16 max is 65535, but still check against format limit)
+	if uint32(count) > format.DBMaxBlockCount {
+		return nil, format.ErrSanityLimit
+	}
+
+	// Simple bounds check is sufficient here since uint16 * 4 cannot overflow int
+	// (max: 65535 * 4 = 262140, well within int32 range)
 	need := int(count) * format.DWORDSize
 	if len(buf) < need {
 		return nil, ErrTruncated
@@ -119,7 +140,12 @@ func ReadBlocklist(buf []byte, count uint16) ([]uint32, error) {
 	refs := make([]uint32, count)
 	for i := range count {
 		offset := int(i) * format.DWORDSize
-		refs[i] = format.ReadU32(buf, offset)
+		val, err := format.CheckedReadU32(buf, offset)
+		if err != nil {
+			// Return partial results on read error
+			return refs[:i], nil
+		}
+		refs[i] = val
 	}
 
 	return refs, nil

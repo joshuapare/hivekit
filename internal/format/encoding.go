@@ -54,3 +54,87 @@ func ReadI32(b []byte, off int) int32 {
 func ReadU64(b []byte, off int) uint64 {
 	return binary.LittleEndian.Uint64(b[off : off+8])
 }
+
+// ============================================================================
+// Checked Encoding Functions
+// ============================================================================
+//
+// These functions perform bounds checking before accessing buffer memory.
+// Use these when parsing untrusted input (hive files, cell payloads).
+// They return ErrBoundsCheck instead of panicking on out-of-bounds access.
+
+// CheckedReadU16 reads a uint16 with bounds checking.
+// Returns (0, ErrBoundsCheck) if b[off:off+2] would exceed buffer bounds.
+func CheckedReadU16(b []byte, off int) (uint16, error) {
+	if off < 0 || off+2 > len(b) {
+		return 0, ErrBoundsCheck
+	}
+	return binary.LittleEndian.Uint16(b[off : off+2]), nil
+}
+
+// CheckedReadU32 reads a uint32 with bounds checking.
+// Returns (0, ErrBoundsCheck) if b[off:off+4] would exceed buffer bounds.
+func CheckedReadU32(b []byte, off int) (uint32, error) {
+	if off < 0 || off+4 > len(b) {
+		return 0, ErrBoundsCheck
+	}
+	return binary.LittleEndian.Uint32(b[off : off+4]), nil
+}
+
+// CheckedReadI32 reads an int32 with bounds checking.
+// Returns (0, ErrBoundsCheck) if b[off:off+4] would exceed buffer bounds.
+func CheckedReadI32(b []byte, off int) (int32, error) {
+	if off < 0 || off+4 > len(b) {
+		return 0, ErrBoundsCheck
+	}
+	return int32(binary.LittleEndian.Uint32(b[off : off+4])), nil
+}
+
+// CheckedReadU64 reads a uint64 with bounds checking.
+// Returns (0, ErrBoundsCheck) if b[off:off+8] would exceed buffer bounds.
+func CheckedReadU64(b []byte, off int) (uint64, error) {
+	if off < 0 || off+8 > len(b) {
+		return 0, ErrBoundsCheck
+	}
+	return binary.LittleEndian.Uint64(b[off : off+8]), nil
+}
+
+// CheckedPutU16 writes a uint16 with bounds checking.
+// Returns ErrBoundsCheck if b[off:off+2] would exceed buffer bounds.
+func CheckedPutU16(b []byte, off int, v uint16) error {
+	if off < 0 || off+2 > len(b) {
+		return ErrBoundsCheck
+	}
+	binary.LittleEndian.PutUint16(b[off:off+2], v)
+	return nil
+}
+
+// CheckedPutU32 writes a uint32 with bounds checking.
+// Returns ErrBoundsCheck if b[off:off+4] would exceed buffer bounds.
+func CheckedPutU32(b []byte, off int, v uint32) error {
+	if off < 0 || off+4 > len(b) {
+		return ErrBoundsCheck
+	}
+	binary.LittleEndian.PutUint32(b[off:off+4], v)
+	return nil
+}
+
+// CheckedPutI32 writes an int32 with bounds checking.
+// Returns ErrBoundsCheck if b[off:off+4] would exceed buffer bounds.
+func CheckedPutI32(b []byte, off int, v int32) error {
+	if off < 0 || off+4 > len(b) {
+		return ErrBoundsCheck
+	}
+	binary.LittleEndian.PutUint32(b[off:off+4], uint32(v))
+	return nil
+}
+
+// CheckedPutU64 writes a uint64 with bounds checking.
+// Returns ErrBoundsCheck if b[off:off+8] would exceed buffer bounds.
+func CheckedPutU64(b []byte, off int, v uint64) error {
+	if off < 0 || off+8 > len(b) {
+		return ErrBoundsCheck
+	}
+	binary.LittleEndian.PutUint64(b[off:off+8], v)
+	return nil
+}

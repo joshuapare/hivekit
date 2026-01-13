@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/joshuapare/hivekit/internal/buf"
 	"github.com/joshuapare/hivekit/internal/format"
 )
 
@@ -42,11 +43,16 @@ func ParseValueList(payload []byte, expectedCount int) (ValueList, error) {
 		return ValueList{}, errors.New("hive: negative value count")
 	}
 
-	needed := expectedCount * format.DWORDSize
-	if len(payload) < needed {
-		return ValueList{}, fmt.Errorf(
-			"hive: value list too small: need %d bytes for %d values, have %d",
-			needed, expectedCount, len(payload))
+	// Sanity check: value count
+	if expectedCount > format.MaxValueCount {
+		return ValueList{}, fmt.Errorf("hive: value count %d exceeds limit %d: %w",
+			expectedCount, format.MaxValueCount, format.ErrSanityLimit)
+	}
+
+	// Safe overflow check for expectedCount * DWORDSize
+	_, err := buf.CheckListBounds(len(payload), 0, expectedCount, format.DWORDSize)
+	if err != nil {
+		return ValueList{}, fmt.Errorf("hive: value list bounds: %w", err)
 	}
 
 	return ValueList{buf: payload, off: 0}, nil
@@ -69,10 +75,15 @@ func (vl ValueList) VKOffsetAt(i int) (uint32, error) {
 		return 0, io.EOF
 	}
 	off := i * format.DWORDSize
-	if off+format.DWORDSize > len(vl.buf) {
+	// Check for overflow and bounds
+	if off < 0 || off+format.DWORDSize > len(vl.buf) {
 		return 0, io.EOF
 	}
-	return format.ReadU32(vl.buf, off), nil
+	val, err := format.CheckedReadU32(vl.buf, off)
+	if err != nil {
+		return 0, io.EOF
+	}
+	return val, nil
 }
 
 // ValidateCount ensures the list has at least n entries (n * 4 bytes).
@@ -84,9 +95,11 @@ func (vl ValueList) ValidateCount(n int) error {
 	if n < 0 {
 		return errors.New("hive: negative count")
 	}
-	if n*format.DWORDSize > len(vl.buf) {
-		return fmt.Errorf("hive: value list too small: need %d bytes for %d values, have %d",
-			n*format.DWORDSize, n, len(vl.buf))
+
+	// Safe overflow check for n * DWORDSize
+	_, err := buf.CheckListBounds(len(vl.buf), 0, n, format.DWORDSize)
+	if err != nil {
+		return fmt.Errorf("hive: value list bounds: %w", err)
 	}
 	return nil
 }

@@ -36,24 +36,61 @@ func (vk VKRecord) InlineLength() int {
 	return int(vk.DataLength & VKDataLengthMask)
 }
 
-// DecodeVK decodes a VK record payload.
+// DecodeVK decodes a VK record payload with comprehensive bounds checking.
 func DecodeVK(b []byte) (VKRecord, error) {
 	if len(b) < VKMinSize {
-		return VKRecord{}, fmt.Errorf("vk: %w", ErrTruncated)
+		return VKRecord{}, fmt.Errorf("vk: %w (have %d, need %d)", ErrTruncated, len(b), VKMinSize)
 	}
 	if !bytes.Equal(b[:SignatureSize], VKSignature) {
 		return VKRecord{}, fmt.Errorf("vk: %w", ErrSignatureMismatch)
 	}
-	nameLen := buf.U16LE(b[VKNameLenOffset:])
-	dataLen := buf.U32LE(b[VKDataLenOffset:])
-	dataOff := buf.U32LE(b[VKDataOffOffset:])
-	valType := buf.U32LE(b[VKTypeOffset:])
-	flags := buf.U16LE(b[VKFlagsOffset:])
-	base := VKNameOffset
-	if len(b) < base+int(nameLen) {
-		return VKRecord{}, fmt.Errorf("vk name: %w", ErrTruncated)
+
+	// Read all fixed fields with checked reads
+	nameLen, err := CheckedReadU16(b, VKNameLenOffset)
+	if err != nil {
+		return VKRecord{}, fmt.Errorf("vk name len: %w", err)
 	}
-	name := b[base : base+int(nameLen)]
+	// Sanity check: name length
+	if int(nameLen) > MaxNameLen {
+		return VKRecord{}, fmt.Errorf("vk name len %d exceeds limit %d: %w",
+			nameLen, MaxNameLen, ErrSanityLimit)
+	}
+
+	dataLen, err := CheckedReadU32(b, VKDataLenOffset)
+	if err != nil {
+		return VKRecord{}, fmt.Errorf("vk data len: %w", err)
+	}
+	// Sanity check: data length (mask out inline bit for check)
+	actualDataLen := dataLen & VKDataLengthMask
+	if actualDataLen > MaxValueDataLen {
+		return VKRecord{}, fmt.Errorf("vk data len %d exceeds limit %d: %w",
+			actualDataLen, MaxValueDataLen, ErrSanityLimit)
+	}
+
+	dataOff, err := CheckedReadU32(b, VKDataOffOffset)
+	if err != nil {
+		return VKRecord{}, fmt.Errorf("vk data off: %w", err)
+	}
+
+	valType, err := CheckedReadU32(b, VKTypeOffset)
+	if err != nil {
+		return VKRecord{}, fmt.Errorf("vk type: %w", err)
+	}
+
+	flags, err := CheckedReadU16(b, VKFlagsOffset)
+	if err != nil {
+		return VKRecord{}, fmt.Errorf("vk flags: %w", err)
+	}
+
+	// Bounds check: name slice
+	base := VKNameOffset
+	nameEnd, ok := buf.AddOverflowSafe(base, int(nameLen))
+	if !ok || nameEnd > len(b) {
+		return VKRecord{}, fmt.Errorf("vk name: %w (need %d bytes from %d, have %d)",
+			ErrTruncated, nameLen, base, len(b))
+	}
+	name := b[base:nameEnd]
+
 	return VKRecord{
 		NameLength: nameLen,
 		DataLength: dataLen,

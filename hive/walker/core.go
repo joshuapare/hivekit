@@ -167,10 +167,20 @@ func (wc *WalkerCore) resolveAndParseCellFast(offset uint32) []byte {
 		return nil
 	}
 
-	// Read size (negative for allocated cells)
+	// Read size with bounds checking (negative for allocated cells)
+	// Use checked read to prevent SIGBUS on memory-mapped corrupt data
+	rawSize, err := format.CheckedReadU32(data, absOffset)
+	if err != nil {
+		return nil
+	}
 	// #nosec G115 - Intentional reinterpretation of uint32 as int32 for cell size format
-	size := -int32(format.ReadU32(data, absOffset))
+	size := -int32(rawSize)
 	if size <= 0 {
+		return nil
+	}
+
+	// Sanity check: cell size should not exceed limit
+	if size > format.MaxCellSizeLimit {
 		return nil
 	}
 
@@ -206,7 +216,14 @@ func (wc *WalkerCore) walkSubkeysFast(listOffset uint32) error {
 			return fmt.Errorf("%c%c list too small", sig0, sig1)
 		}
 
-		count := format.ReadU16(payload, listCountOffset)
+		count, err := format.CheckedReadU16(payload, listCountOffset)
+		if err != nil {
+			return fmt.Errorf("%c%c list count: %w", sig0, sig1, err)
+		}
+
+		// Sanity check: subkey count (uint16 max is 65535, well within MaxSubkeyCount)
+		// No explicit check needed as uint16 cannot exceed MaxSubkeyCount
+
 		entrySize := format.QWORDSize // Each entry: offset(4) + hash/name_hint(4)
 
 		for i := range count {
@@ -215,7 +232,11 @@ func (wc *WalkerCore) walkSubkeysFast(listOffset uint32) error {
 				break
 			}
 
-			childOffset := format.ReadU32(payload, entryOffset)
+			childOffset, err := format.CheckedReadU32(payload, entryOffset)
+			if err != nil {
+				// Skip malformed entry, continue processing
+				continue
+			}
 
 			// Push child NK onto stack if not already visited
 			if !wc.visited.IsSet(childOffset) {
@@ -228,7 +249,15 @@ func (wc *WalkerCore) walkSubkeysFast(listOffset uint32) error {
 			return errors.New("ri list too small")
 		}
 
-		count := format.ReadU16(payload, listCountOffset)
+		count, err := format.CheckedReadU16(payload, listCountOffset)
+		if err != nil {
+			return fmt.Errorf("ri list count: %w", err)
+		}
+
+		// Sanity check: RI list count
+		if uint32(count) > format.MaxRIListCount {
+			return fmt.Errorf("ri list count %d exceeds limit: %w", count, format.ErrSanityLimit)
+		}
 
 		// Process each sub-list
 		for i := range count {
@@ -237,7 +266,11 @@ func (wc *WalkerCore) walkSubkeysFast(listOffset uint32) error {
 				break
 			}
 
-			sublistRef := format.ReadU32(payload, sublistOffset)
+			sublistRef, err := format.CheckedReadU32(payload, sublistOffset)
+			if err != nil {
+				// Skip malformed entry, continue processing
+				continue
+			}
 			if sublistRef != 0 && sublistRef != format.InvalidOffset {
 				// Recursively process sub-list
 				if err := wc.walkSubkeysFast(sublistRef); err != nil {
@@ -260,20 +293,36 @@ func (wc *WalkerCore) walkValuesFast(nk hive.NK) ([]uint32, error) {
 		return nil, nil
 	}
 
+	// Sanity check: value count
+	if valueCount > format.MaxValueCount {
+		return nil, fmt.Errorf("value count %d exceeds limit: %w", valueCount, format.ErrSanityLimit)
+	}
+
 	listOffset := nk.ValueListOffsetRel()
 	if listOffset == format.InvalidOffset {
 		return nil, nil
 	}
 
 	payload := wc.resolveAndParseCellFast(listOffset)
-	if len(payload) < int(valueCount)*format.DWORDSize {
+	if payload == nil {
+		return nil, errors.New("value list cell not found")
+	}
+
+	// Check bounds with overflow protection
+	needed := int(valueCount) * format.DWORDSize
+	if needed < 0 || needed > len(payload) {
 		return nil, errors.New("value list too small")
 	}
 
 	// Extract VK offsets
 	vkOffsets := make([]uint32, 0, valueCount)
 	for i := range valueCount {
-		vkOffset := format.ReadU32(payload, int(i*format.DWORDSize))
+		off := int(i) * format.DWORDSize
+		vkOffset, err := format.CheckedReadU32(payload, off)
+		if err != nil {
+			// Skip malformed entry, continue processing
+			continue
+		}
 		if vkOffset != 0 && vkOffset != format.InvalidOffset {
 			vkOffsets = append(vkOffsets, vkOffset)
 		}
@@ -308,15 +357,30 @@ func (wc *WalkerCore) walkDataCell(dataOffset uint32, dataSize uint32) (bool, er
 			return true, errors.New("DB header too small")
 		}
 
-		blocklistOffset := format.ReadU32(payload, dbBlocklistOffset)
+		blocklistOffset, err := format.CheckedReadU32(payload, dbBlocklistOffset)
+		if err != nil {
+			return true, fmt.Errorf("DB blocklist offset: %w", err)
+		}
 		if blocklistOffset != 0 && blocklistOffset != format.InvalidOffset {
 			// Visit blocklist cell
 			blocklistPayload := wc.resolveAndParseCellFast(blocklistOffset)
+			if blocklistPayload == nil {
+				return true, nil // Blocklist cell not found, but DB was valid
+			}
 
 			// Blocklist is array of block offsets
 			numBlocks := len(blocklistPayload) / format.DWORDSize
+			// Sanity check: limit block count
+			if numBlocks > int(format.DBMaxBlockCount) {
+				numBlocks = int(format.DBMaxBlockCount)
+			}
 			for i := range numBlocks {
-				blockOffset := format.ReadU32(blocklistPayload, i*format.DWORDSize)
+				off := i * format.DWORDSize
+				blockOffset, err := format.CheckedReadU32(blocklistPayload, off)
+				if err != nil {
+					// Skip malformed entry, continue processing
+					continue
+				}
 				if blockOffset != 0 && blockOffset != format.InvalidOffset && blockOffset < wc.visited.size {
 					// Visit data block (just mark as visited, don't parse)
 					// Only mark if within hive bounds to avoid index panic

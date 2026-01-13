@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/internal/buf"
 	"github.com/joshuapare/hivekit/internal/format"
 )
 
@@ -38,16 +39,27 @@ func Read(h *hive.Hive, nk hive.NK) (*List, error) {
 // parseValueList parses a value list payload.
 // Value lists are just flat arrays of HCELL_INDEX (uint32) references to VK cells.
 func parseValueList(payload []byte, count uint32) ([]uint32, error) {
-	need := int(count) * format.DWORDSize // Each entry is a DWORD (uint32)
+	// Sanity check: value count
+	if count > format.MaxValueCount {
+		return nil, fmt.Errorf("value count %d exceeds limit %d: %w",
+			count, format.MaxValueCount, format.ErrSanityLimit)
+	}
 
-	if len(payload) < need {
+	// Use overflow-safe bounds check: count * DWORDSize with overflow protection
+	_, err := buf.CheckListBounds(len(payload), 0, int(count), format.DWORDSize)
+	if err != nil {
 		return nil, ErrTruncated
 	}
 
 	vkRefs := make([]uint32, count)
 	for i := range count {
 		offset := int(i) * format.DWORDSize
-		vkRefs[i] = format.ReadU32(payload, offset)
+		val, err := format.CheckedReadU32(payload, offset)
+		if err != nil {
+			// Return partial results on read error (corrupt data)
+			return vkRefs[:i], nil
+		}
+		vkRefs[i] = val
 	}
 
 	return vkRefs, nil
@@ -58,12 +70,15 @@ func resolveCell(h *hive.Hive, ref uint32) ([]byte, error) {
 	data := h.Bytes()
 	offset := format.HeaderSize + int(ref)
 
-	if offset < 0 || offset+4 > len(data) {
+	if offset < 0 || offset+format.CellHeaderSize > len(data) {
 		return nil, fmt.Errorf("cell offset out of bounds: 0x%X", ref)
 	}
 
-	// Read cell size (4 bytes, little-endian, signed)
-	sizeRaw := format.ReadI32(data, offset)
+	// Read cell size with bounds checking (4 bytes, little-endian, signed)
+	sizeRaw, err := format.CheckedReadI32(data, offset)
+	if err != nil {
+		return nil, fmt.Errorf("cell size read failed: 0x%X: %w", ref, err)
+	}
 
 	if sizeRaw >= 0 {
 		return nil, fmt.Errorf("cell is free (positive size): 0x%X", ref)
@@ -74,9 +89,14 @@ func resolveCell(h *hive.Hive, ref uint32) ([]byte, error) {
 		return nil, fmt.Errorf("cell size too small: %d", size)
 	}
 
+	// Sanity check: cell size should not exceed limit
+	if size > format.MaxCellSizeLimit {
+		return nil, fmt.Errorf("cell size %d exceeds limit: 0x%X", size, ref)
+	}
+
 	payloadOffset := offset + format.CellHeaderSize
 	payloadEnd := offset + size
-	if payloadEnd > len(data) {
+	if payloadEnd < 0 || payloadEnd > len(data) {
 		return nil, fmt.Errorf("cell payload out of bounds: 0x%X", ref)
 	}
 
