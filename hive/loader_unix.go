@@ -41,6 +41,15 @@ func Open(path string) (*Hive, error) {
 		return nil, fmt.Errorf("mmap failed: %w", err)
 	}
 
+	// CRITICAL: Pre-fault all pages to detect inaccessible memory regions.
+	// This converts potential SIGBUS during processing into an error here.
+	// Without this, corrupt/sparse files can cause unrecoverable crashes.
+	if err := PreFaultPages(data); err != nil {
+		_ = syscall.Munmap(data)
+		_ = f.Close()
+		return nil, fmt.Errorf("hive file has inaccessible regions: %w", err)
+	}
+
 	bb, err := ParseBaseBlock(data)
 	if err != nil {
 		_ = syscall.Munmap(data)
@@ -145,6 +154,25 @@ func (h *Hive) Append(n int64) error {
 		)
 		h.data = oldData
 		return fmt.Errorf("hive: failed to remap after grow: %w", err)
+	}
+
+	// Pre-fault the new pages to ensure they're accessible
+	// Only pre-fault the newly appended region since old pages were already validated
+	if n > 0 {
+		newRegion := data[h.size:]
+		if err := PreFaultPages(newRegion); err != nil {
+			// Remap to old size to recover
+			_ = syscall.Munmap(data)
+			oldData, _ := syscall.Mmap(
+				int(h.f.Fd()),
+				0,
+				int(h.size),
+				syscall.PROT_READ|syscall.PROT_WRITE,
+				syscall.MAP_SHARED,
+			)
+			h.data = oldData
+			return fmt.Errorf("hive: new pages inaccessible after grow: %w", err)
+		}
 	}
 
 	h.data = data
