@@ -4,13 +4,34 @@ import (
 	"fmt"
 
 	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/alloc"
 	"github.com/joshuapare/hivekit/hive/walker"
 )
 
-// HiveStats contains exact counts of keys and values in a hive.
+// HiveStats contains comprehensive statistics about a hive's structure and storage.
+//
+// This struct combines:
+// - Key/value counts from tree traversal
+// - Storage metrics (file size, free/used space)
+// - Allocator efficiency statistics
 type HiveStats struct {
-	TotalKeys   int
+	// TotalKeys is the count of all NK (node key) cells in the hive.
+	TotalKeys int
+
+	// TotalValues is the count of all VK (value key) cells in the hive.
 	TotalValues int
+
+	// Storage contains file size, free space, and usage metrics.
+	// Note: Only populated when using GetHiveStats() from a Session.
+	Storage StorageStats
+
+	// Efficiency contains detailed allocator statistics including:
+	// - TotalWasted: Total wasted space in bytes
+	// - OverallEfficiency: Percentage of space actually used (0-100)
+	// - Per-HBIN efficiency distribution
+	// - LeastEfficientHBINs: Worst performing HBINs for analysis
+	// Note: Only populated when using GetHiveStats() from a Session.
+	Efficiency alloc.EfficiencyStats
 }
 
 // AnalyzeHive returns exact statistics about a hive's structure.

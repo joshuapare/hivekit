@@ -6,7 +6,9 @@ package merge
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/alloc"
@@ -315,6 +317,251 @@ func (s *Session) GetEfficiencyStats() alloc.EfficiencyStats {
 	}
 	// Return empty stats if not a FastAllocator (shouldn't happen)
 	return alloc.EfficiencyStats{}
+}
+
+// GetStorageStats returns storage statistics for the hive.
+//
+// This provides file size, free space, and usage metrics without reopening the hive.
+// The statistics are derived from the allocator's efficiency data.
+func (s *Session) GetStorageStats() StorageStats {
+	effStats := s.GetEfficiencyStats()
+	fileSize := s.h.Size()
+
+	var freePercent float64
+	if fileSize > 0 {
+		freePercent = float64(effStats.TotalWasted) / float64(fileSize) * 100.0
+	}
+
+	return StorageStats{
+		FileSize:    fileSize,
+		FreeBytes:   effStats.TotalWasted,
+		UsedBytes:   effStats.TotalAllocated,
+		FreePercent: freePercent,
+	}
+}
+
+// GetHiveStats returns comprehensive hive statistics including storage,
+// efficiency, and structure metrics.
+//
+// This is the recommended method for getting complete hive information
+// after applying merge operations, as it avoids reopening the hive file.
+func (s *Session) GetHiveStats() HiveStats {
+	return HiveStats{
+		Storage:    s.GetStorageStats(),
+		Efficiency: s.GetEfficiencyStats(),
+		// Note: TotalKeys and TotalValues are not populated here
+		// since that requires a full tree walk. Use AnalyzeHive() for those.
+	}
+}
+
+// KeyInfo represents a key in the hive with its path and metadata.
+type KeyInfo struct {
+	// Path is the full path from the root key to this key.
+	// Each element is a key name segment.
+	Path []string
+
+	// SubkeyCount is the number of immediate subkeys under this key.
+	SubkeyCount uint32
+
+	// ValueCount is the number of values stored in this key.
+	ValueCount uint32
+
+	// Offset is the cell offset of this key in the hive file.
+	// This is useful for advanced operations that need to reference the key directly.
+	Offset uint32
+}
+
+// WalkKeys walks all keys in the hive recursively, calling fn for each key.
+//
+// The walk is performed in depth-first order starting from the root key.
+// If fn returns walker.ErrStopWalk, the walk stops early and nil is returned.
+// If the context is cancelled, the context error is returned.
+// Any other error from fn is returned to the caller.
+//
+// Example:
+//
+//	err := session.WalkKeys(ctx, func(info merge.KeyInfo) error {
+//	    fmt.Printf("Key: %s (subkeys: %d, values: %d)\n",
+//	        strings.Join(info.Path, "\\"), info.SubkeyCount, info.ValueCount)
+//	    return nil
+//	})
+func (s *Session) WalkKeys(ctx context.Context, fn func(KeyInfo) error) error {
+	// Start from the root key
+	rootOffset := s.h.RootCellOffset()
+	err := s.walkKeysRecursive(ctx, rootOffset, nil, fn)
+	// Convert ErrStopWalk to nil for the caller (normal early termination)
+	return wrapWalkError(err)
+}
+
+// walkKeysRecursive performs depth-first traversal of the key tree.
+func (s *Session) walkKeysRecursive(ctx context.Context, nkOffset uint32, parentPath []string, fn func(KeyInfo) error) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Resolve the NK cell
+	payload, err := s.h.ResolveCellPayload(nkOffset)
+	if err != nil {
+		return err
+	}
+
+	nk, err := hive.ParseNK(payload)
+	if err != nil {
+		return err
+	}
+
+	// Build the current path
+	name := string(nk.Name())
+	var currentPath []string
+	if parentPath == nil {
+		// Root key - use empty path or the root name
+		currentPath = []string{name}
+	} else {
+		currentPath = make([]string, len(parentPath)+1)
+		copy(currentPath, parentPath)
+		currentPath[len(parentPath)] = name
+	}
+
+	// Create KeyInfo and call the callback
+	info := KeyInfo{
+		Path:        currentPath,
+		SubkeyCount: nk.SubkeyCount(),
+		ValueCount:  nk.ValueCount(),
+		Offset:      nkOffset,
+	}
+
+	if callbackErr := fn(info); callbackErr != nil {
+		// Propagate ErrStopWalk to stop the entire walk
+		return callbackErr
+	}
+
+	// Recursively walk subkeys (only if this key has subkeys)
+	if nk.SubkeyCount() > 0 {
+		err = walker.WalkSubkeysCtx(ctx, s.h, nkOffset, func(subkeyNK hive.NK, ref uint32) error {
+			return s.walkKeysRecursive(ctx, ref, currentPath, fn)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// wrapWalkError checks if an error is ErrStopWalk and converts it to nil for the caller.
+func wrapWalkError(err error) error {
+	if errors.Is(err, walker.ErrStopWalk) {
+		return nil
+	}
+	return err
+}
+
+// ListAllKeys returns all key paths in the hive as backslash-separated strings.
+//
+// This is a convenience wrapper around WalkKeys that collects all paths.
+// For large hives with many keys, consider using WalkKeys directly to avoid
+// storing all paths in memory.
+//
+// Example:
+//
+//	keys, err := session.ListAllKeys(ctx)
+//	if err != nil {
+//	    return err
+//	}
+//	for _, key := range keys {
+//	    fmt.Println(key)
+//	}
+func (s *Session) ListAllKeys(ctx context.Context) ([]string, error) {
+	var paths []string
+	err := s.WalkKeys(ctx, func(info KeyInfo) error {
+		paths = append(paths, strings.Join(info.Path, "\\"))
+		return nil
+	})
+	return paths, err
+}
+
+// KeyCheckResult contains results from checking key existence.
+type KeyCheckResult struct {
+	// AllPresent is true if all requested keys exist in the hive.
+	AllPresent bool
+
+	// Present contains the key paths that exist in the hive.
+	Present []string
+
+	// Missing contains the key paths that do not exist in the hive.
+	Missing []string
+}
+
+// HasKeys checks if the specified key paths exist in the hive.
+//
+// Key paths should be provided as backslash-separated strings
+// (e.g., "Software\\Microsoft\\Windows").
+//
+// This method uses the index for O(1) lookups per key, making it very efficient
+// for checking many keys.
+//
+// Returns detailed information about which keys are present vs missing.
+// The context can be used to cancel the operation.
+//
+// Example:
+//
+//	result, err := session.HasKeys(ctx,
+//	    "Software\\Microsoft",
+//	    "Software\\NonExistent",
+//	    "System\\ControlSet001",
+//	)
+//	if err != nil {
+//	    return err
+//	}
+//	if !result.AllPresent {
+//	    fmt.Printf("Missing keys: %v\n", result.Missing)
+//	}
+func (s *Session) HasKeys(ctx context.Context, keyPaths ...string) (KeyCheckResult, error) {
+	// Check for cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return KeyCheckResult{}, err
+	}
+
+	result := KeyCheckResult{
+		AllPresent: true,
+		Present:    make([]string, 0, len(keyPaths)),
+		Missing:    make([]string, 0),
+	}
+
+	rootOffset := s.h.RootCellOffset()
+
+	for _, keyPath := range keyPaths {
+		// Check for cancellation before each key
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+
+		// Split path and check via index
+		parts := strings.Split(keyPath, "\\")
+		_, exists := index.WalkPath(s.idx, rootOffset, parts...)
+
+		if exists {
+			result.Present = append(result.Present, keyPath)
+		} else {
+			result.Missing = append(result.Missing, keyPath)
+			result.AllPresent = false
+		}
+	}
+
+	return result, nil
+}
+
+// HasKey is a convenience method to check if a single key exists.
+//
+// The key path should be a backslash-separated string
+// (e.g., "Software\\Microsoft\\Windows").
+//
+// This method uses the index for O(1) lookup.
+func (s *Session) HasKey(keyPath string) bool {
+	parts := strings.Split(keyPath, "\\")
+	_, exists := index.WalkPath(s.idx, s.h.RootCellOffset(), parts...)
+	return exists
 }
 
 // Close cleans up resources used by the session.

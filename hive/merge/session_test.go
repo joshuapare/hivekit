@@ -3,12 +3,15 @@ package merge
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/walker"
 	"github.com/joshuapare/hivekit/internal/format"
 )
 
@@ -650,5 +653,753 @@ func Test_Session_MultipleOperations(t *testing.T) {
 			finalSeq1,
 			finalSeq2,
 		)
+	}
+}
+
+// =============================================================================
+// Stats and Key Enumeration Tests
+// =============================================================================
+
+// Test 12: GetStorageStats returns valid stats.
+func Test_Session_GetStorageStats(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	stats := session.GetStorageStats()
+
+	// File size should be positive
+	if stats.FileSize <= 0 {
+		t.Errorf("FileSize should be positive, got %d", stats.FileSize)
+	}
+
+	// UsedBytes should be positive
+	if stats.UsedBytes <= 0 {
+		t.Errorf("UsedBytes should be positive, got %d", stats.UsedBytes)
+	}
+
+	// FreePercent should be between 0 and 100
+	if stats.FreePercent < 0 || stats.FreePercent > 100 {
+		t.Errorf("FreePercent should be 0-100, got %f", stats.FreePercent)
+	}
+
+	t.Logf("StorageStats: FileSize=%d, FreeBytes=%d, UsedBytes=%d, FreePercent=%.2f%%",
+		stats.FileSize, stats.FreeBytes, stats.UsedBytes, stats.FreePercent)
+}
+
+// Test 13: GetHiveStats returns combined stats.
+func Test_Session_GetHiveStats(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	stats := session.GetHiveStats()
+
+	// Verify storage stats are populated
+	if stats.Storage.FileSize <= 0 {
+		t.Errorf("Storage.FileSize should be positive, got %d", stats.Storage.FileSize)
+	}
+
+	// Verify efficiency stats are populated
+	if stats.Efficiency.TotalCapacity <= 0 {
+		t.Errorf("Efficiency.TotalCapacity should be positive, got %d", stats.Efficiency.TotalCapacity)
+	}
+
+	t.Logf("HiveStats: FileSize=%d, TotalCapacity=%d, OverallEfficiency=%.2f%%",
+		stats.Storage.FileSize, stats.Efficiency.TotalCapacity, stats.Efficiency.OverallEfficiency)
+}
+
+// Test 14: WalkKeys enumerates all keys.
+func Test_Session_WalkKeys(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	var keyCount int
+	var maxDepth int
+
+	err := session.WalkKeys(context.Background(), func(info KeyInfo) error {
+		keyCount++
+		depth := len(info.Path)
+		if depth > maxDepth {
+			maxDepth = depth
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkKeys failed: %v", err)
+	}
+
+	// Should find at least the root key
+	if keyCount < 1 {
+		t.Errorf("Expected at least 1 key, found %d", keyCount)
+	}
+
+	t.Logf("WalkKeys: Found %d keys, max depth %d", keyCount, maxDepth)
+}
+
+// Test 15: ListAllKeys returns paths.
+func Test_Session_ListAllKeys(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	keys, err := session.ListAllKeys(context.Background())
+	if err != nil {
+		t.Fatalf("ListAllKeys failed: %v", err)
+	}
+
+	// Should find at least the root key
+	if len(keys) < 1 {
+		t.Errorf("Expected at least 1 key, found %d", len(keys))
+	}
+
+	// First few keys should have backslash-separated paths
+	for i := 0; i < len(keys) && i < 5; i++ {
+		t.Logf("Key %d: %s", i, keys[i])
+	}
+
+	t.Logf("ListAllKeys: Found %d keys", len(keys))
+}
+
+// Test 16: HasKey returns correct results.
+func Test_Session_HasKey(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// First, create a known key
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_HasKeyTest", "ExistingKey"})
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	// Test existing key
+	if !session.HasKey("_HasKeyTest\\ExistingKey") {
+		t.Error("HasKey should return true for existing key")
+	}
+
+	// Test non-existing key
+	if session.HasKey("_HasKeyTest\\NonExistentKey") {
+		t.Error("HasKey should return false for non-existing key")
+	}
+
+	// Test partial path that exists
+	if !session.HasKey("_HasKeyTest") {
+		t.Error("HasKey should return true for parent key")
+	}
+}
+
+// Test 17: HasKeys returns correct results with detailed info.
+func Test_Session_HasKeys(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Create some known keys
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_HasKeysTest", "Key1"})
+	plan.AddEnsureKey([]string{"_HasKeysTest", "Key2"})
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("Failed to create test keys: %v", err)
+	}
+
+	// Test with mix of existing and non-existing keys
+	result, err := session.HasKeys(context.Background(),
+		"_HasKeysTest\\Key1",
+		"_HasKeysTest\\Key2",
+		"_HasKeysTest\\NonExistent",
+	)
+	if err != nil {
+		t.Fatalf("HasKeys failed: %v", err)
+	}
+
+	// AllPresent should be false (one missing)
+	if result.AllPresent {
+		t.Error("AllPresent should be false when some keys are missing")
+	}
+
+	// Should have 2 present
+	if len(result.Present) != 2 {
+		t.Errorf("Expected 2 present keys, got %d", len(result.Present))
+	}
+
+	// Should have 1 missing
+	if len(result.Missing) != 1 {
+		t.Errorf("Expected 1 missing key, got %d", len(result.Missing))
+	}
+
+	// Missing should contain the non-existent key
+	found := false
+	for _, missing := range result.Missing {
+		if missing == "_HasKeysTest\\NonExistent" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Missing should contain '_HasKeysTest\\NonExistent'")
+	}
+
+	t.Logf("HasKeys: AllPresent=%v, Present=%v, Missing=%v",
+		result.AllPresent, result.Present, result.Missing)
+}
+
+// Test 18: HasKeys with all present.
+func Test_Session_HasKeys_AllPresent(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Create known keys
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_HasKeysAllTest", "A"})
+	plan.AddEnsureKey([]string{"_HasKeysAllTest", "B"})
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("Failed to create test keys: %v", err)
+	}
+
+	// Check all existing keys
+	result, err := session.HasKeys(context.Background(),
+		"_HasKeysAllTest\\A",
+		"_HasKeysAllTest\\B",
+	)
+	if err != nil {
+		t.Fatalf("HasKeys failed: %v", err)
+	}
+
+	if !result.AllPresent {
+		t.Error("AllPresent should be true when all keys exist")
+	}
+
+	if len(result.Missing) != 0 {
+		t.Errorf("Expected no missing keys, got %d", len(result.Missing))
+	}
+}
+
+// Test 19: HasKeys with empty input.
+func Test_Session_HasKeys_Empty(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Check with no keys
+	result, err := session.HasKeys(context.Background())
+	if err != nil {
+		t.Fatalf("HasKeys failed: %v", err)
+	}
+
+	// AllPresent should be true for empty input (vacuously true)
+	if !result.AllPresent {
+		t.Error("AllPresent should be true for empty input")
+	}
+
+	if len(result.Present) != 0 {
+		t.Errorf("Present should be empty, got %d", len(result.Present))
+	}
+
+	if len(result.Missing) != 0 {
+		t.Errorf("Missing should be empty, got %d", len(result.Missing))
+	}
+}
+
+// Test 20: WalkKeys with early stop.
+func Test_Session_WalkKeys_EarlyStop(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// First count total keys
+	var totalKeys int
+	err := session.WalkKeys(context.Background(), func(info KeyInfo) error {
+		totalKeys++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkKeys (count) failed: %v", err)
+	}
+
+	// Now test early stop
+	var keyCount int
+	maxKeys := 5
+
+	err = session.WalkKeys(context.Background(), func(info KeyInfo) error {
+		keyCount++
+		if keyCount >= maxKeys {
+			return walker.ErrStopWalk
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkKeys failed: %v", err)
+	}
+
+	// Should stop before processing all keys
+	if keyCount >= totalKeys {
+		t.Errorf("Expected early stop before %d keys, but processed all %d", totalKeys, keyCount)
+	}
+
+	// Should have processed at least maxKeys (the point where we requested stop)
+	if keyCount < maxKeys {
+		t.Errorf("Expected at least %d keys, got %d", maxKeys, keyCount)
+	}
+
+	t.Logf("WalkKeys with early stop: Processed %d of %d total keys", keyCount, totalKeys)
+}
+
+// Test 21: WalkKeys with cancellation.
+func Test_Session_WalkKeys_Cancelled(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Pre-cancel the context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := session.WalkKeys(ctx, func(info KeyInfo) error {
+		t.Error("Callback should not be called with cancelled context")
+		return nil
+	})
+
+	if err == nil {
+		t.Error("Expected error with cancelled context")
+	}
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled, got %v", err)
+	}
+}
+
+// Test 22: HasKeys with cancellation.
+func Test_Session_HasKeys_Cancelled(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Pre-cancel the context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := session.HasKeys(ctx, "SomeKey")
+	if err == nil {
+		t.Error("Expected error with cancelled context")
+	}
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled, got %v", err)
+	}
+}
+
+// =============================================================================
+// Additional Comprehensive Tests for Stats and Key Enumeration
+// =============================================================================
+
+// Test 23: GetStorageStats after modifications shows changes.
+func Test_Session_GetStorageStats_AfterModifications(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Get initial stats
+	initialStats := session.GetStorageStats()
+
+	// Make some modifications
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_StatsTest", "Key1"})
+	plan.AddEnsureKey([]string{"_StatsTest", "Key2"})
+	plan.AddEnsureKey([]string{"_StatsTest", "Key3"})
+	plan.AddSetValue([]string{"_StatsTest"}, "Data", format.REGBinary, make([]byte, 1024))
+
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+
+	// Get stats after modifications
+	afterStats := session.GetStorageStats()
+
+	// UsedBytes should increase
+	if afterStats.UsedBytes <= initialStats.UsedBytes {
+		t.Errorf("UsedBytes should increase after adding data: before=%d, after=%d",
+			initialStats.UsedBytes, afterStats.UsedBytes)
+	}
+
+	t.Logf("Stats change: UsedBytes %d -> %d (delta: %d)",
+		initialStats.UsedBytes, afterStats.UsedBytes, afterStats.UsedBytes-initialStats.UsedBytes)
+}
+
+// Test 24: GetHiveStats consistency check.
+func Test_Session_GetHiveStats_Consistency(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	stats := session.GetHiveStats()
+
+	// Verify FreeBytes matches TotalWasted
+	if stats.Storage.FreeBytes != stats.Efficiency.TotalWasted {
+		t.Errorf("Storage.FreeBytes (%d) should match Efficiency.TotalWasted (%d)",
+			stats.Storage.FreeBytes, stats.Efficiency.TotalWasted)
+	}
+
+	// Verify UsedBytes matches TotalAllocated
+	if stats.Storage.UsedBytes != stats.Efficiency.TotalAllocated {
+		t.Errorf("Storage.UsedBytes (%d) should match Efficiency.TotalAllocated (%d)",
+			stats.Storage.UsedBytes, stats.Efficiency.TotalAllocated)
+	}
+
+	// Verify efficiency is reasonable (0-100%)
+	if stats.Efficiency.OverallEfficiency < 0 || stats.Efficiency.OverallEfficiency > 100 {
+		t.Errorf("OverallEfficiency should be 0-100, got %.2f", stats.Efficiency.OverallEfficiency)
+	}
+
+	// Verify TotalHBINs is positive
+	if stats.Efficiency.TotalHBINs <= 0 {
+		t.Errorf("TotalHBINs should be positive, got %d", stats.Efficiency.TotalHBINs)
+	}
+
+	t.Logf("HiveStats consistency: TotalHBINs=%d, Efficiency=%.2f%%",
+		stats.Efficiency.TotalHBINs, stats.Efficiency.OverallEfficiency)
+}
+
+// Test 25: WalkKeys verifies KeyInfo fields are correct.
+func Test_Session_WalkKeys_KeyInfoFields(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Create a key with known subkeys and values
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_KeyInfoTest"})
+	plan.AddEnsureKey([]string{"_KeyInfoTest", "Child1"})
+	plan.AddEnsureKey([]string{"_KeyInfoTest", "Child2"})
+	plan.AddSetValue([]string{"_KeyInfoTest"}, "Value1", format.REGSZ, []byte("test\x00"))
+	plan.AddSetValue([]string{"_KeyInfoTest"}, "Value2", format.REGDWORD, []byte{1, 0, 0, 0})
+
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+
+	// Find our test key and verify its fields
+	var foundKey *KeyInfo
+	err := session.WalkKeys(context.Background(), func(info KeyInfo) error {
+		if len(info.Path) >= 1 && info.Path[len(info.Path)-1] == "_KeyInfoTest" {
+			// Make a copy
+			copy := info
+			foundKey = &copy
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkKeys failed: %v", err)
+	}
+
+	if foundKey == nil {
+		t.Fatal("_KeyInfoTest key not found")
+	}
+
+	// Verify SubkeyCount
+	if foundKey.SubkeyCount != 2 {
+		t.Errorf("Expected SubkeyCount=2, got %d", foundKey.SubkeyCount)
+	}
+
+	// Verify ValueCount
+	if foundKey.ValueCount != 2 {
+		t.Errorf("Expected ValueCount=2, got %d", foundKey.ValueCount)
+	}
+
+	// Verify Offset is non-zero
+	if foundKey.Offset == 0 {
+		t.Error("Expected non-zero Offset")
+	}
+
+	t.Logf("KeyInfo verified: Path=%v, SubkeyCount=%d, ValueCount=%d, Offset=%d",
+		foundKey.Path, foundKey.SubkeyCount, foundKey.ValueCount, foundKey.Offset)
+}
+
+// Test 26: WalkKeys with callback error (non-ErrStopWalk).
+func Test_Session_WalkKeys_CallbackError(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	expectedErr := errors.New("test callback error")
+
+	err := session.WalkKeys(context.Background(), func(info KeyInfo) error {
+		return expectedErr
+	})
+
+	if err == nil {
+		t.Error("Expected error from callback")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Expected callback error, got: %v", err)
+	}
+}
+
+// Test 27: ListAllKeys with context cancellation.
+func Test_Session_ListAllKeys_Cancelled(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := session.ListAllKeys(ctx)
+	if err == nil {
+		t.Error("Expected error with cancelled context")
+	}
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled, got %v", err)
+	}
+}
+
+// Test 28: ListAllKeys path format verification.
+func Test_Session_ListAllKeys_PathFormat(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Create a nested key structure
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_PathTest", "Level1", "Level2", "Level3"})
+
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+
+	keys, err := session.ListAllKeys(context.Background())
+	if err != nil {
+		t.Fatalf("ListAllKeys failed: %v", err)
+	}
+
+	// Find our deep key
+	expectedPath := "_PathTest\\Level1\\Level2\\Level3"
+	found := false
+	for _, key := range keys {
+		if strings.HasSuffix(key, expectedPath) {
+			found = true
+			// Verify backslash separation
+			if !strings.Contains(key, "\\") {
+				t.Errorf("Path should contain backslashes: %s", key)
+			}
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("Expected to find key ending with %q", expectedPath)
+	}
+}
+
+// Test 29: HasKey with first-level subkey.
+func Test_Session_HasKey_FirstLevelSubkey(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Get a first-level subkey name from WalkKeys (depth == 2: root + subkey)
+	var subkeyName string
+	err := session.WalkKeys(context.Background(), func(info KeyInfo) error {
+		if len(info.Path) == 2 {
+			subkeyName = info.Path[1] // First subkey under root
+			return walker.ErrStopWalk
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkKeys failed: %v", err)
+	}
+
+	if subkeyName == "" {
+		t.Skip("Could not find a first-level subkey")
+	}
+
+	// First-level subkey should exist
+	if !session.HasKey(subkeyName) {
+		t.Errorf("First-level subkey %q should exist", subkeyName)
+	}
+
+	t.Logf("First-level subkey %q exists", subkeyName)
+}
+
+// Test 30: HasKey with deeply nested path.
+func Test_Session_HasKey_DeepPath(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Create a deeply nested key
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_DeepTest", "L1", "L2", "L3", "L4", "L5"})
+
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+
+	// Test full path exists
+	if !session.HasKey("_DeepTest\\L1\\L2\\L3\\L4\\L5") {
+		t.Error("Deep nested key should exist")
+	}
+
+	// Test partial paths exist
+	if !session.HasKey("_DeepTest\\L1\\L2") {
+		t.Error("Partial path should exist")
+	}
+
+	// Test path beyond what exists
+	if session.HasKey("_DeepTest\\L1\\L2\\L3\\L4\\L5\\L6") {
+		t.Error("Non-existent deeper path should not exist")
+	}
+}
+
+// Test 31: HasKeys with all missing.
+func Test_Session_HasKeys_AllMissing(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	result, err := session.HasKeys(context.Background(),
+		"_NonExistent1",
+		"_NonExistent2",
+		"_NonExistent3",
+	)
+	if err != nil {
+		t.Fatalf("HasKeys failed: %v", err)
+	}
+
+	if result.AllPresent {
+		t.Error("AllPresent should be false when all keys are missing")
+	}
+
+	if len(result.Present) != 0 {
+		t.Errorf("Present should be empty, got %d", len(result.Present))
+	}
+
+	if len(result.Missing) != 3 {
+		t.Errorf("Missing should have 3 keys, got %d", len(result.Missing))
+	}
+}
+
+// Test 32: HasKeys preserves order.
+func Test_Session_HasKeys_PreservesOrder(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Create keys
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_OrderTest", "A"})
+	plan.AddEnsureKey([]string{"_OrderTest", "B"})
+	plan.AddEnsureKey([]string{"_OrderTest", "C"})
+
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+
+	// Check in specific order
+	result, err := session.HasKeys(context.Background(),
+		"_OrderTest\\C",
+		"_OrderTest\\A",
+		"_OrderTest\\B",
+	)
+	if err != nil {
+		t.Fatalf("HasKeys failed: %v", err)
+	}
+
+	// Verify order is preserved
+	expectedOrder := []string{"_OrderTest\\C", "_OrderTest\\A", "_OrderTest\\B"}
+	if len(result.Present) != len(expectedOrder) {
+		t.Fatalf("Expected %d present keys, got %d", len(expectedOrder), len(result.Present))
+	}
+
+	for i, expected := range expectedOrder {
+		if result.Present[i] != expected {
+			t.Errorf("Present[%d] = %q, want %q", i, result.Present[i], expected)
+		}
+	}
+}
+
+// Test 33: WalkKeys depth-first order verification.
+// Depth-first guarantees: parent is visited before children.
+// Sibling order depends on hive storage (hash-based), so we only verify parent-child ordering.
+func Test_Session_WalkKeys_DepthFirst(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Create a structure where depth-first is observable
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_DFSTest"})
+	plan.AddEnsureKey([]string{"_DFSTest", "A"})
+	plan.AddEnsureKey([]string{"_DFSTest", "A", "A1"})
+	plan.AddEnsureKey([]string{"_DFSTest", "B"})
+
+	if _, err := session.ApplyWithTx(context.Background(), plan); err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+
+	// Collect keys in our test subtree
+	var visitOrder []string
+	err := session.WalkKeys(context.Background(), func(info KeyInfo) error {
+		lastPart := info.Path[len(info.Path)-1]
+		if strings.HasPrefix(lastPart, "_DFSTest") || lastPart == "A" || lastPart == "A1" || lastPart == "B" {
+			visitOrder = append(visitOrder, lastPart)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkKeys failed: %v", err)
+	}
+
+	t.Logf("Visit order: %v", visitOrder)
+
+	// Find positions
+	var dfsPos, aPos, a1Pos, bPos int = -1, -1, -1, -1
+	for i, name := range visitOrder {
+		switch name {
+		case "_DFSTest":
+			dfsPos = i
+		case "A":
+			aPos = i
+		case "A1":
+			a1Pos = i
+		case "B":
+			bPos = i
+		}
+	}
+
+	// Verify all keys were found
+	if dfsPos == -1 || aPos == -1 || a1Pos == -1 || bPos == -1 {
+		t.Skipf("Not all test keys found in visit order: %v", visitOrder)
+	}
+
+	// Depth-first invariants:
+	// 1. _DFSTest must come before all its children (A, B, A1)
+	// 2. A must come before A1 (parent before child)
+	// Note: Order of A vs B depends on hive storage, so not tested
+
+	if dfsPos >= aPos {
+		t.Errorf("_DFSTest(%d) should come before A(%d)", dfsPos, aPos)
+	}
+	if dfsPos >= bPos {
+		t.Errorf("_DFSTest(%d) should come before B(%d)", dfsPos, bPos)
+	}
+	if dfsPos >= a1Pos {
+		t.Errorf("_DFSTest(%d) should come before A1(%d)", dfsPos, a1Pos)
+	}
+	if aPos >= a1Pos {
+		t.Errorf("A(%d) should come before A1(%d)", aPos, a1Pos)
+	}
+}
+
+// Test 34: GetStorageStats non-zero values.
+func Test_Session_GetStorageStats_NonZeroValues(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	stats := session.GetStorageStats()
+
+	// Verify all stats are non-zero for a real hive
+	if stats.FileSize == 0 {
+		t.Error("FileSize should be non-zero")
+	}
+
+	if stats.UsedBytes == 0 {
+		t.Error("UsedBytes should be non-zero")
+	}
+
+	// FreeBytes can be zero for a well-packed hive, but let's log it
+	t.Logf("Stats: FileSize=%d, UsedBytes=%d, FreeBytes=%d, FreePercent=%.2f%%",
+		stats.FileSize, stats.UsedBytes, stats.FreeBytes, stats.FreePercent)
+
+	// FreePercent should be in valid range [0, 100]
+	if stats.FreePercent < 0 || stats.FreePercent > 100 {
+		t.Errorf("FreePercent should be in range [0,100], got %.2f", stats.FreePercent)
+	}
+
+	// Sanity check: UsedBytes + FreeBytes should be <= FileSize
+	// (they may not equal exactly due to header space)
+	if stats.UsedBytes+stats.FreeBytes > stats.FileSize {
+		t.Errorf("UsedBytes(%d) + FreeBytes(%d) > FileSize(%d)",
+			stats.UsedBytes, stats.FreeBytes, stats.FileSize)
 	}
 }

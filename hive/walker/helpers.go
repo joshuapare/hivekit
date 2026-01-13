@@ -1,6 +1,7 @@
 package walker
 
 import (
+	"context"
 	"errors"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -168,6 +169,11 @@ func WalkValues(h *hive.Hive, nkOffset uint32, fn func(vk hive.VK, ref uint32) e
 		return err
 	}
 
+	// If the NK has no values, return early
+	if nk.ValueCount() == 0 {
+		return nil
+	}
+
 	// Get value list
 	values, err := nk.ResolveValueList(h)
 	if err != nil {
@@ -180,6 +186,173 @@ func WalkValues(h *hive.Hive, nkOffset uint32, fn func(vk hive.VK, ref uint32) e
 		ref, vkOffsetErr := values.VKOffsetAt(i)
 		if vkOffsetErr != nil {
 			return vkOffsetErr
+		}
+
+		// Skip invalid VK offsets (0 is invalid)
+		if ref == 0 {
+			continue
+		}
+
+		// Resolve the value VK
+		vkPayload, resolveErr := h.ResolveCellPayload(ref)
+		if resolveErr != nil {
+			return resolveErr
+		}
+
+		vk, parseErr := hive.ParseVK(vkPayload)
+		if parseErr != nil {
+			return parseErr
+		}
+
+		// Call the callback
+		if callbackErr := fn(vk, ref); callbackErr != nil {
+			if errors.Is(callbackErr, ErrStopWalk) {
+				return nil // Normal early termination
+			}
+			return callbackErr
+		}
+	}
+
+	return nil
+}
+
+// WalkSubkeysCtx walks all subkeys of the NK at the given offset with context cancellation support.
+// If fn returns ErrStopWalk, the walk stops early and nil is returned.
+// If the context is cancelled, the context error is returned.
+// Any other error from fn is returned to the caller.
+func WalkSubkeysCtx(ctx context.Context, h *hive.Hive, nkOffset uint32, fn func(nk hive.NK, ref uint32) error) error {
+	// Check for cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Resolve the NK cell
+	payload, err := h.ResolveCellPayload(nkOffset)
+	if err != nil {
+		return err
+	}
+
+	nk, err := hive.ParseNK(payload)
+	if err != nil {
+		return err
+	}
+
+	// Get subkey list
+	subkeys, err := nk.ResolveSubkeyList(h)
+	if err != nil {
+		return err
+	}
+
+	// Get refs based on list kind
+	var refs []uint32
+	switch subkeys.Kind {
+	case hive.ListLF:
+		count := subkeys.LF.Count()
+		refs = make([]uint32, count)
+		for i := range count {
+			refs[i] = subkeys.LF.Entry(i).Cell()
+		}
+	case hive.ListLH:
+		count := subkeys.LH.Count()
+		refs = make([]uint32, count)
+		for i := range count {
+			refs[i] = subkeys.LH.Entry(i).Cell()
+		}
+	case hive.ListLI:
+		count := subkeys.LI.Count()
+		refs = make([]uint32, count)
+		for i := range count {
+			refs[i] = subkeys.LI.CellIndexAt(i)
+		}
+	case hive.ListRI:
+		var riErr error
+		refs, riErr = extractRIRefs(h, subkeys.RI)
+		if riErr != nil {
+			return riErr
+		}
+	case hive.ListUnknown:
+		// Unknown list type - skip
+		return nil
+	}
+
+	// Walk each subkey with cancellation checks
+	for _, ref := range refs {
+		// Check for cancellation before each subkey
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		// Resolve the subkey NK
+		subkeyPayload, subkeyErr := h.ResolveCellPayload(ref)
+		if subkeyErr != nil {
+			return subkeyErr
+		}
+
+		subkeyNK, parseErr := hive.ParseNK(subkeyPayload)
+		if parseErr != nil {
+			return parseErr
+		}
+
+		// Call the callback
+		if callbackErr := fn(subkeyNK, ref); callbackErr != nil {
+			if errors.Is(callbackErr, ErrStopWalk) {
+				return nil // Normal early termination
+			}
+			return callbackErr
+		}
+	}
+
+	return nil
+}
+
+// WalkValuesCtx walks all values of the NK at the given offset with context cancellation support.
+// If fn returns ErrStopWalk, the walk stops early and nil is returned.
+// If the context is cancelled, the context error is returned.
+// Any other error from fn is returned to the caller.
+func WalkValuesCtx(ctx context.Context, h *hive.Hive, nkOffset uint32, fn func(vk hive.VK, ref uint32) error) error {
+	// Check for cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Resolve the NK cell
+	payload, err := h.ResolveCellPayload(nkOffset)
+	if err != nil {
+		return err
+	}
+
+	nk, err := hive.ParseNK(payload)
+	if err != nil {
+		return err
+	}
+
+	// If the NK has no values, return early
+	if nk.ValueCount() == 0 {
+		return nil
+	}
+
+	// Get value list
+	values, err := nk.ResolveValueList(h)
+	if err != nil {
+		return err
+	}
+
+	// Walk each value with cancellation checks
+	count := values.Count()
+	for i := range count {
+		// Check for cancellation before each value
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		ref, vkOffsetErr := values.VKOffsetAt(i)
+		if vkOffsetErr != nil {
+			return vkOffsetErr
+		}
+
+		// Skip invalid VK offsets (0 is invalid)
+		if ref == 0 {
+			continue
 		}
 
 		// Resolve the value VK
