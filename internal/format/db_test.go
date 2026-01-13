@@ -13,10 +13,10 @@ func TestDecodeDB(t *testing.T) {
 	copy(buf[DBSignatureOffset:], DBSignature)
 
 	// Number of blocks: 3
-	binary.LittleEndian.PutUint16(buf[DBNumBlocksOffset:], 3)
+	binary.LittleEndian.PutUint16(buf[DBCountOffset:], 3)
 
 	// Blocklist offset: 0x1000
-	binary.LittleEndian.PutUint32(buf[DBBlocklistOffset:], 0x1000)
+	binary.LittleEndian.PutUint32(buf[DBListOffset:], 0x1000)
 
 	// Unknown1: 0
 	binary.LittleEndian.PutUint32(buf[DBUnknown1Offset:], 0)
@@ -31,7 +31,7 @@ func TestDecodeDB(t *testing.T) {
 	}
 
 	if db.BlocklistOffset != 0x1000 {
-		t.Errorf("BlocklistOffset: expected 0x1000, got 0x%x", db.BlocklistOffset)
+		t.Errorf("ListOffset: expected 0x1000, got 0x%x", db.BlocklistOffset)
 	}
 
 	if db.Unknown1 != 0 {
@@ -51,7 +51,7 @@ func TestDecodeDB_BadSignature(t *testing.T) {
 	buf := make([]byte, 16)
 	buf[0] = 'x'
 	buf[1] = 'x'
-	binary.LittleEndian.PutUint16(buf[DBNumBlocksOffset:], 1)
+	binary.LittleEndian.PutUint16(buf[DBCountOffset:], 1)
 
 	if _, err := DecodeDB(buf); err == nil {
 		t.Error("Expected error for bad signature")
@@ -62,8 +62,8 @@ func TestDecodeDB_TruncatedRecord(t *testing.T) {
 	// Buffer too small for full db record (needs DBMinSize bytes minimum)
 	buf := make([]byte, 8)
 	copy(buf[DBSignatureOffset:], DBSignature)
-	binary.LittleEndian.PutUint16(buf[DBNumBlocksOffset:], 3)
-	binary.LittleEndian.PutUint32(buf[DBBlocklistOffset:], 0x1000)
+	binary.LittleEndian.PutUint16(buf[DBCountOffset:], 3)
+	binary.LittleEndian.PutUint32(buf[DBListOffset:], 0x1000)
 	// Missing unknown1 field
 
 	if _, err := DecodeDB(buf); err == nil {

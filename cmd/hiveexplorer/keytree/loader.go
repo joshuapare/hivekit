@@ -2,9 +2,9 @@ package keytree
 
 import (
 	"fmt"
-	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/internal/reader"
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
@@ -109,7 +109,7 @@ func buildTreeRecursive(
 			)
 			if err != nil {
 				// Log error but continue with other children
-				fmt.Fprintf(os.Stderr, "[WARN] Failed to load child: %v\n", err)
+				logger.Warn("Failed to load child", "error", err)
 			}
 		}
 	}

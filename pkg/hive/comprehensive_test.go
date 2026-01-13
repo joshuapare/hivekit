@@ -109,7 +109,7 @@ func TestMergeRegFiles_FileNotFound(t *testing.T) {
 	}
 }
 
-// TestMergeRegFiles_HiveNotFound tests batch merge with missing 
+// TestMergeRegFiles_HiveNotFound tests batch merge with missing.
 func TestMergeRegFiles_HiveNotFound(t *testing.T) {
 	err := hive.MergeRegFiles("nonexistent.hive", []string{"test.reg"}, nil)
 	if err == nil {
@@ -117,7 +117,7 @@ func TestMergeRegFiles_HiveNotFound(t *testing.T) {
 	}
 }
 
-// TestExportReg_HiveNotFound tests export with missing 
+// TestExportReg_HiveNotFound tests export with missing.
 func TestExportReg_HiveNotFound(t *testing.T) {
 	tempDir := t.TempDir()
 	outputFile := filepath.Join(tempDir, "output.reg")
@@ -128,7 +128,7 @@ func TestExportReg_HiveNotFound(t *testing.T) {
 	}
 }
 
-// TestExportRegString_HiveNotFound tests string export with missing 
+// TestExportRegString_HiveNotFound tests string export with missing.
 func TestExportRegString_HiveNotFound(t *testing.T) {
 	_, err := hive.ExportRegString("nonexistent.hive", nil)
 	if err == nil {
@@ -437,85 +437,6 @@ func TestMergeRegFile_WithCustomLimits(t *testing.T) {
 	}
 }
 
-// TestMergeRegFile_ErrorAbort tests that OnError can abort.
-func TestMergeRegFile_ErrorAbort(t *testing.T) {
-	tempDir := t.TempDir()
-	hiveFile := filepath.Join(tempDir, "test.hive")
-	regFile := filepath.Join(tempDir, "test.reg")
-
-	minimalHive, _ := os.ReadFile("../../testdata/minimal")
-	os.WriteFile(hiveFile, minimalHive, 0644)
-
-	regContent := `Windows Registry Editor Version 5.00
-
-[HKEY_LOCAL_MACHINE\ErrorTest1]
-"Value1"="Data1"
-
-[HKEY_LOCAL_MACHINE\ErrorTest2]
-"Value2"="Data2"
-`
-	os.WriteFile(regFile, []byte(regContent), 0644)
-
-	errorCount := 0
-	opts := &hive.MergeOptions{
-		OnError: func(op hive.EditOp, err error) bool {
-			errorCount++
-			if errorCount >= 1 {
-				return false // Abort after first error
-			}
-			return true
-		},
-		Limits: func() *hive.Limits {
-			// Set impossible limits to trigger errors
-			l := hive.StrictLimits()
-			l.MaxKeyNameLen = 5 // Very short
-			return &l
-		}(),
-	}
-
-	err := hive.MergeRegFile(hiveFile, regFile, opts)
-	// Should get an error since we aborted
-	if err == nil {
-		t.Error("Expected error when OnError returns false")
-	}
-}
-
-// TestMergeRegFiles_WithProgress tests batch merge progress.
-func TestMergeRegFiles_WithProgress(t *testing.T) {
-	tempDir := t.TempDir()
-	hiveFile := filepath.Join(tempDir, "test.hive")
-
-	minimalHive, _ := os.ReadFile("../../testdata/minimal")
-	os.WriteFile(hiveFile, minimalHive, 0644)
-
-	// Create multiple .reg files
-	regFiles := make([]string, 3)
-	for i := 0; i < 3; i++ {
-		regFile := filepath.Join(tempDir, "test"+string(rune('0'+i))+".reg")
-		regFiles[i] = regFile
-		regContent := "Windows Registry Editor Version 5.00\n\n" +
-			"[HKEY_LOCAL_MACHINE\\BatchFile" + string(rune('0'+i)) + "]\n" +
-			"\"Value\"=\"Data\"\n"
-		os.WriteFile(regFile, []byte(regContent), 0644)
-	}
-
-	progressCalls := 0
-	opts := &hive.MergeOptions{
-		OnProgress: func(current, total int) {
-			progressCalls++
-		},
-	}
-
-	err := hive.MergeRegFiles(hiveFile, regFiles, opts)
-	if err != nil {
-		t.Fatalf("Batch merge with progress failed: %v", err)
-	}
-
-	if progressCalls != 3 {
-		t.Errorf("Expected 3 progress calls, got %d", progressCalls)
-	}
-}
-
 // TestDefragment_RealHive tests defragmentation on various hives.
 func TestDefragment_RealHive(t *testing.T) {
 	testCases := []string{
@@ -544,7 +465,7 @@ func TestDefragment_RealHive(t *testing.T) {
 
 			// Verify backup exists
 			backupFile := hiveFile + ".bak"
-			if _, err := os.Stat(backupFile); err != nil {
+			if _, statErr := os.Stat(backupFile); statErr != nil {
 				t.Error("Backup not created")
 			}
 		})
@@ -600,44 +521,5 @@ func TestExportReg_RealHives(t *testing.T) {
 				t.Error("Export file is empty")
 			}
 		})
-	}
-}
-
-// TestMergeRegString_WithAllOptions tests string merge with all options.
-func TestMergeRegString_WithAllOptions(t *testing.T) {
-	tempDir := t.TempDir()
-	hiveFile := filepath.Join(tempDir, "test.hive")
-
-	minimalHive, _ := os.ReadFile("../../testdata/minimal")
-	os.WriteFile(hiveFile, minimalHive, 0644)
-
-	regContent := `Windows Registry Editor Version 5.00
-
-[HKEY_LOCAL_MACHINE\AllOptions]
-"Value"="Data"
-`
-
-	progressCalled := false
-	opts := &hive.MergeOptions{
-		OnProgress: func(current, total int) {
-			progressCalled = true
-		},
-		Defragment:   true,
-		CreateBackup: true,
-	}
-
-	err := hive.MergeRegString(hiveFile, regContent, opts)
-	if err != nil {
-		t.Fatalf("MergeRegString with all options failed: %v", err)
-	}
-
-	if !progressCalled {
-		t.Error("OnProgress was not called")
-	}
-
-	// Verify backup exists
-	backupFile := hiveFile + ".bak"
-	if _, err := os.Stat(backupFile); err != nil {
-		t.Error("Backup not created")
 	}
 }

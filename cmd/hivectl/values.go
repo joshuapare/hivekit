@@ -1,10 +1,15 @@
 package main
 
 import (
-	"encoding/hex"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
+	"sort"
 
-	"github.com/joshuapare/hivekit/pkg/hive"
+	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/internal/regtext"
+	"github.com/joshuapare/hivekit/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -46,85 +51,117 @@ func runValues(args []string) error {
 
 	printVerbose("Opening hive: %s\n", hivePath)
 
-	// List values using public API
-	values, err := hive.ListValues(hivePath, keyPath)
+	// Open hive with new backend
+	h, err := hive.Open(hivePath)
 	if err != nil {
-		return fmt.Errorf("failed to list values: %w", err)
+		return fmt.Errorf("failed to open hive: %w", err)
+	}
+	defer h.Close()
+
+	// Get reader
+	reader, err := h.Reader()
+	if err != nil {
+		return fmt.Errorf("failed to get reader: %w", err)
 	}
 
-	// Output as JSON if requested
+	// Find the key
+	keyID, err := h.Find(keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to find key: %w", err)
+	}
+
+	// Get values
+	values, err := reader.Values(keyID)
+	if err != nil {
+		return fmt.Errorf("failed to get values: %w", err)
+	}
+
+	// Sort values by name
+	sort.Slice(values, func(i, j int) bool {
+		mi, _ := reader.StatValue(values[i])
+		mj, _ := reader.StatValue(values[j])
+		return mi.Name < mj.Name
+	})
+
+	// Handle JSON output
 	if jsonOut {
-		result := map[string]interface{}{
-			"hive":   hivePath,
-			"path":   keyPath,
-			"values": values,
-			"count":  len(values),
-		}
-		return printJSON(result)
+		return outputValuesJSON(reader, values)
 	}
 
-	// Text output
-	printInfo("\nValues in %s:\n", keyPath)
+	// Text output in .reg format (pipeline-friendly)
+	return outputValuesText(reader, values)
+}
 
-	if len(values) == 0 {
-		printInfo("  (no values)\n")
-	} else {
-		for _, val := range values {
-			valueName := val.Name
-			if valueName == "" {
-				valueName = "(Default)"
+func outputValuesText(reader types.Reader, values []types.ValueID) error {
+	var buf bytes.Buffer
+	for _, vid := range values {
+		meta, err := reader.StatValue(vid)
+		if err != nil {
+			continue
+		}
+		// Use regtext emitValue function for consistent .reg formatting
+		if err := regtext.EmitValue(&buf, reader, vid, meta); err != nil {
+			return err
+		}
+	}
+	_, err := os.Stdout.Write(buf.Bytes())
+	return err
+}
+
+func outputValuesJSON(reader types.Reader, values []types.ValueID) error {
+	result := make(map[string]interface{})
+	for _, vid := range values {
+		meta, err := reader.StatValue(vid)
+		if err != nil {
+			continue
+		}
+
+		name := meta.Name
+		if name == "" {
+			name = "(Default)"
+		}
+
+		// Decode value based on type
+		var data interface{}
+		switch meta.Type {
+		case types.REG_SZ, types.REG_EXPAND_SZ:
+			str, err := reader.ValueString(vid, types.ReadOptions{})
+			if err == nil {
+				data = str
 			}
-
-			// Print name
-			printInfo("  %-20s", valueName)
-
-			// Print type if requested
-			if valuesShowType {
-				printInfo("  %-15s", val.Type)
+		case types.REG_DWORD, types.REG_DWORD_BE:
+			val, err := reader.ValueDWORD(vid)
+			if err == nil {
+				data = val
 			}
-
-			// Print data if requested
-			if valuesShowData {
-				printInfo("  ")
-				// Print based on type
-				if val.StringVal != "" {
-					printInfo("\"%s\"", val.StringVal)
-				} else if len(val.StringVals) > 0 {
-					printInfo("[")
-					for i, s := range val.StringVals {
-						if i > 0 {
-							printInfo(", ")
-						}
-						printInfo("\"%s\"", s)
-					}
-					printInfo("]")
-				} else if val.Type == "REG_DWORD" || val.Type == "REG_DWORD_LE" || val.Type == "REG_DWORD_BE" {
-					if valuesHex {
-						printInfo("0x%08x", val.DWordVal)
-					} else {
-						printInfo("%d", val.DWordVal)
-					}
-				} else if val.Type == "REG_QWORD" {
-					if valuesHex {
-						printInfo("0x%016x", val.QWordVal)
-					} else {
-						printInfo("%d", val.QWordVal)
-					}
-				} else if len(val.Data) > 0 {
-					// Binary data
-					if len(val.Data) > 32 {
-						printInfo("%s... (%d bytes)", hex.EncodeToString(val.Data[:32]), len(val.Data))
-					} else {
-						printInfo("%s", hex.EncodeToString(val.Data))
-					}
-				}
+		case types.REG_QWORD:
+			val, err := reader.ValueQWORD(vid)
+			if err == nil {
+				data = val
 			}
+		case types.REG_MULTI_SZ:
+			strs, err := reader.ValueStrings(vid, types.ReadOptions{})
+			if err == nil {
+				data = strs
+			}
+		default:
+			bytes, err := reader.ValueBytes(vid, types.ReadOptions{CopyData: true})
+			if err == nil {
+				data = fmt.Sprintf("<%d bytes>", len(bytes))
+			}
+		}
 
-			printInfo("\n")
+		if valuesShowType {
+			result[name] = map[string]interface{}{
+				"type": meta.Type.String(),
+				"data": data,
+			}
+		} else {
+			result[name] = data
 		}
 	}
 
-	printInfo("\nTotal: %d values\n", len(values))
-
-	return nil
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
 }

@@ -23,11 +23,11 @@ type VirtualList interface {
 // It only renders items that are actually visible on screen, making
 // navigation performance constant regardless of total item count.
 type Renderer struct {
-	list        VirtualList
-	viewport    viewport.Model
-	cursor      int
-	width       int
-	height      int
+	list         VirtualList
+	viewport     viewport.Model
+	cursor       int
+	width        int
+	height       int
 	scrollOffset int // Track scroll position independently of viewport.YOffset
 }
 

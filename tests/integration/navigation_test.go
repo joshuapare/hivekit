@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -8,7 +9,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestParent tests the Parent() navigation function
+// TestParent tests the Parent() navigation function.
 func TestParent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow integration test in short mode")
@@ -33,7 +34,7 @@ func TestParent(t *testing.T) {
 
 			// Test 1: Root node should have no parent
 			_, err = r.Parent(rootID)
-			if err != hive.ErrNotFound {
+			if !errors.Is(err, hive.ErrNotFound) {
 				t.Errorf("Expected ErrNotFound for root parent, got: %v", err)
 			}
 
@@ -67,20 +68,24 @@ func TestParent(t *testing.T) {
 
 			if len(grandchildren) > 0 {
 				grandchildID := grandchildren[0]
-				grandparentID, err := r.Parent(grandchildID)
-				if err != nil {
-					t.Fatalf("Failed to get parent of grandchild: %v", err)
+				grandparentID, parentErr := r.Parent(grandchildID)
+				if parentErr != nil {
+					t.Fatalf("Failed to get parent of grandchild: %v", parentErr)
 				}
 
 				if grandparentID != childID {
-					t.Errorf("Parent of grandchild should be child, got NodeID %d instead of %d", grandparentID, childID)
+					t.Errorf(
+						"Parent of grandchild should be child, got NodeID %d instead of %d",
+						grandparentID,
+						childID,
+					)
 				}
 			}
 		})
 	}
 }
 
-// TestGetChild tests the GetChild() lookup function
+// TestGetChild tests the GetChild() lookup function.
 func TestGetChild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow integration test in short mode")
@@ -142,14 +147,14 @@ func TestGetChild(t *testing.T) {
 
 			// Test 3: Non-existent child
 			_, err = r.GetChild(rootID, "ThisChildDoesNotExist_123456789")
-			if err != hive.ErrNotFound {
+			if !errors.Is(err, hive.ErrNotFound) {
 				t.Errorf("Expected ErrNotFound for non-existent child, got: %v", err)
 			}
 		})
 	}
 }
 
-// TestGetValue tests the GetValue() lookup function
+// TestGetValue tests the GetValue() lookup function.
 func TestGetValue(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow integration test in short mode")
@@ -178,11 +183,8 @@ func TestGetValue(t *testing.T) {
 			var testValueName string
 
 			// Walk tree to find a node with at least one value
-			err = r.Walk(rootID, func(nodeID hive.NodeID) error {
-				values, err := r.Values(nodeID)
-				if err != nil {
-					return nil // Continue walking
-				}
+			walkErr := r.Walk(rootID, func(nodeID hive.NodeID) error {
+				values, _ := r.Values(nodeID)
 
 				if len(values) > 0 {
 					// Found a node with values
@@ -190,9 +192,9 @@ func TestGetValue(t *testing.T) {
 					testValue = values[0]
 
 					// Get value name
-					valueMeta, err := r.StatValue(testValue)
-					if err != nil {
-						return nil // Continue looking
+					valueMeta, statErr := r.StatValue(testValue)
+					if statErr != nil {
+						return statErr
 					}
 
 					testValueName = valueMeta.Name
@@ -201,6 +203,11 @@ func TestGetValue(t *testing.T) {
 
 				return nil
 			})
+
+			// ErrNotFound means we found a node and stopped walking (success)
+			if walkErr != nil && !errors.Is(walkErr, hive.ErrNotFound) {
+				t.Fatalf("Walk failed: %v", walkErr)
+			}
 
 			if nodeWithValues == 0 {
 				t.Skip("No nodes with values found in hive")
@@ -229,14 +236,14 @@ func TestGetValue(t *testing.T) {
 
 			// Test 3: Non-existent value
 			_, err = r.GetValue(nodeWithValues, "ThisValueDoesNotExist_123456789")
-			if err != hive.ErrNotFound {
+			if !errors.Is(err, hive.ErrNotFound) {
 				t.Errorf("Expected ErrNotFound for non-existent value, got: %v", err)
 			}
 		})
 	}
 }
 
-// TestNavigationRoundTrip tests that Parent and GetChild work together
+// TestNavigationRoundTrip tests that Parent and GetChild work together.
 func TestNavigationRoundTrip(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow integration test in short mode")
@@ -293,10 +300,10 @@ func TestNavigationRoundTrip(t *testing.T) {
 	}
 }
 
-// Helper function to convert string to uppercase
+// Helper function to convert string to uppercase.
 func toUpperCase(s string) string {
 	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if c >= 'a' && c <= 'z' {
 			c = c - 'a' + 'A'

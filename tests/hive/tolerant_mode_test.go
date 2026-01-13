@@ -32,7 +32,7 @@ func TestTolerantModeAllowsTruncatedValue(t *testing.T) {
 	if len(vals) == 0 {
 		t.Fatalf("expected values present")
 	}
-	if _, err := strict.ValueBytes(vals[0], hive.ReadOptions{}); err == nil {
+	if _, readErr := strict.ValueBytes(vals[0], hive.ReadOptions{}); readErr == nil {
 		t.Fatalf("expected ValueBytes to fail without tolerant mode")
 	}
 
@@ -46,7 +46,7 @@ func TestTolerantModeAllowsTruncatedValue(t *testing.T) {
 	if len(vals) == 0 {
 		t.Fatalf("expected values even in tolerant mode")
 	}
-	if _, err := tolerant.ValueDWORD(vals[0]); err == nil {
+	if _, dwordErr := tolerant.ValueDWORD(vals[0]); dwordErr == nil {
 		t.Fatalf("expected ValueDWORD to fail due to short data")
 	}
 }

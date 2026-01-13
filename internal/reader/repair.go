@@ -10,7 +10,11 @@ import (
 
 // ApplyRepairs applies repair actions to a hive file using the repair engine.
 // This is the internal implementation called by types.DiagnosticReport.ApplyRepairs().
-func ApplyRepairs(hivePath string, diagnostics []types.Diagnostic, opts types.RepairOptions) (*types.RepairResult, error) {
+func ApplyRepairs(
+	hivePath string,
+	diagnostics []types.Diagnostic,
+	opts types.RepairOptions,
+) (*types.RepairResult, error) {
 	// Read hive data
 	data, err := os.ReadFile(hivePath)
 	if err != nil {
@@ -72,16 +76,16 @@ func ApplyRepairs(hivePath string, diagnostics []types.Diagnostic, opts types.Re
 				backupSuffix = ".backup"
 			}
 
-			backupPath, err := writer.CreateBackup(hivePath, backupSuffix)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create backup: %w", err)
+			backupPath, backupErr := writer.CreateBackup(hivePath, backupSuffix)
+			if backupErr != nil {
+				return nil, fmt.Errorf("failed to create backup: %w", backupErr)
 			}
 			publicResult.BackupPath = backupPath
 		}
 
 		// Use atomic write to apply repairs
-		if err := writer.WriteAtomic(hivePath, data); err != nil {
-			return nil, fmt.Errorf("failed to write repaired hive: %w", err)
+		if writeErr := writer.WriteAtomic(hivePath, data); writeErr != nil {
+			return nil, fmt.Errorf("failed to write repaired hive: %w", writeErr)
 		}
 	}
 

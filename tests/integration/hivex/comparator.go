@@ -1,3 +1,4 @@
+//go:build hivex
 // +build hivex
 
 package integration
@@ -12,18 +13,18 @@ import (
 
 // ComparisonResult holds all differences found during tree comparison
 type ComparisonResult struct {
-	Mismatches []Mismatch
-	NodesCompared int
+	Mismatches     []Mismatch
+	NodesCompared  int
 	ValuesCompared int
 }
 
 // Mismatch represents a single difference between hivex and gohivex
 type Mismatch struct {
-	Path     string
-	Category string // "key_name", "child_count", "value_count", "value_name", "value_type", "value_data"
-	Message  string
-	HivexValue    interface{}
-	GohivexValue  interface{}
+	Path         string
+	Category     string // "key_name", "child_count", "value_count", "value_name", "value_type", "value_data"
+	Message      string
+	HivexValue   interface{}
+	GohivexValue interface{}
 }
 
 // CompareTreesRecursively compares entire tree structures starting from root nodes
@@ -75,11 +76,11 @@ func compareNodesRecursive(
 
 	if hivexName != gohivexMeta.Name {
 		result.Mismatches = append(result.Mismatches, Mismatch{
-			Path:     path,
-			Category: "key_name",
-			Message:  "Key names differ",
-			HivexValue:    hivexName,
-			GohivexValue:  gohivexMeta.Name,
+			Path:         path,
+			Category:     "key_name",
+			Message:      "Key names differ",
+			HivexValue:   hivexName,
+			GohivexValue: gohivexMeta.Name,
 		})
 	}
 
@@ -91,11 +92,11 @@ func compareNodesRecursive(
 
 	if int64(gohivexMeta.SubkeyN) != hivexChildCount {
 		result.Mismatches = append(result.Mismatches, Mismatch{
-			Path:     path,
-			Category: "child_count",
-			Message:  fmt.Sprintf("Child count mismatch at %s", path),
-			HivexValue:    hivexChildCount,
-			GohivexValue:  gohivexMeta.SubkeyN,
+			Path:         path,
+			Category:     "child_count",
+			Message:      fmt.Sprintf("Child count mismatch at %s", path),
+			HivexValue:   hivexChildCount,
+			GohivexValue: gohivexMeta.SubkeyN,
 		})
 	}
 
@@ -107,11 +108,11 @@ func compareNodesRecursive(
 
 	if int64(gohivexMeta.ValueN) != hivexValueCount {
 		result.Mismatches = append(result.Mismatches, Mismatch{
-			Path:     path,
-			Category: "value_count",
-			Message:  fmt.Sprintf("Value count mismatch at %s", path),
-			HivexValue:    hivexValueCount,
-			GohivexValue:  gohivexMeta.ValueN,
+			Path:         path,
+			Category:     "value_count",
+			Message:      fmt.Sprintf("Value count mismatch at %s", path),
+			HivexValue:   hivexValueCount,
+			GohivexValue: gohivexMeta.ValueN,
 		})
 	}
 
@@ -166,11 +167,11 @@ func compareNodesRecursive(
 		gohivexChildID, found := gohivexChildMap[name]
 		if !found {
 			result.Mismatches = append(result.Mismatches, Mismatch{
-				Path:     path,
-				Category: "missing_child",
-				Message:  fmt.Sprintf("Child %q exists in hivex but not in gohivex", name),
-				HivexValue:    name,
-				GohivexValue:  nil,
+				Path:         path,
+				Category:     "missing_child",
+				Message:      fmt.Sprintf("Child %q exists in hivex but not in gohivex", name),
+				HivexValue:   name,
+				GohivexValue: nil,
 			})
 			continue
 		}
@@ -197,11 +198,11 @@ func compareNodesRecursive(
 	for name := range gohivexChildMap {
 		if _, found := hivexChildMap[name]; !found {
 			result.Mismatches = append(result.Mismatches, Mismatch{
-				Path:     path,
-				Category: "extra_child",
-				Message:  fmt.Sprintf("Child %q exists in gohivex but not in hivex", name),
-				HivexValue:    nil,
-				GohivexValue:  name,
+				Path:         path,
+				Category:     "extra_child",
+				Message:      fmt.Sprintf("Child %q exists in gohivex but not in hivex", name),
+				HivexValue:   nil,
+				GohivexValue: name,
 			})
 		}
 	}
@@ -255,11 +256,11 @@ func compareValues(
 		gohivexValID, found := gohivexValueMap[name]
 		if !found {
 			result.Mismatches = append(result.Mismatches, Mismatch{
-				Path:     path,
-				Category: "missing_value",
-				Message:  fmt.Sprintf("Value %q exists in hivex but not in gohivex at %s", name, path),
-				HivexValue:    name,
-				GohivexValue:  nil,
+				Path:         path,
+				Category:     "missing_value",
+				Message:      fmt.Sprintf("Value %q exists in hivex but not in gohivex at %s", name, path),
+				HivexValue:   name,
+				GohivexValue: nil,
 			})
 			continue
 		}
@@ -284,11 +285,11 @@ func compareValues(
 		//   - This matches how hivex formats unknown types (as signed int32 values)
 		if int32(hivexType) != int32(gohivexMeta.Type) {
 			result.Mismatches = append(result.Mismatches, Mismatch{
-				Path:     fmt.Sprintf("%s\\[%s]", path, name),
-				Category: "value_type",
-				Message:  fmt.Sprintf("Value type mismatch for %q", name),
-				HivexValue:    HivexValueTypeName(hivexType),
-				GohivexValue:  gohivexMeta.Type.String(),
+				Path:         fmt.Sprintf("%s\\[%s]", path, name),
+				Category:     "value_type",
+				Message:      fmt.Sprintf("Value type mismatch for %q", name),
+				HivexValue:   HivexValueTypeName(hivexType),
+				GohivexValue: gohivexMeta.Type.String(),
 			})
 		}
 
@@ -305,11 +306,11 @@ func compareValues(
 
 		if !bytes.Equal(hivexData, gohivexData) {
 			result.Mismatches = append(result.Mismatches, Mismatch{
-				Path:     fmt.Sprintf("%s\\[%s]", path, name),
-				Category: "value_data",
-				Message:  fmt.Sprintf("Value data mismatch for %q (hivex: %d bytes, gohivex: %d bytes)", name, len(hivexData), len(gohivexData)),
-				HivexValue:    fmt.Sprintf("%d bytes", len(hivexData)),
-				GohivexValue:  fmt.Sprintf("%d bytes", len(gohivexData)),
+				Path:         fmt.Sprintf("%s\\[%s]", path, name),
+				Category:     "value_data",
+				Message:      fmt.Sprintf("Value data mismatch for %q (hivex: %d bytes, gohivex: %d bytes)", name, len(hivexData), len(gohivexData)),
+				HivexValue:   fmt.Sprintf("%d bytes", len(hivexData)),
+				GohivexValue: fmt.Sprintf("%d bytes", len(gohivexData)),
 			})
 		}
 	}
@@ -318,11 +319,11 @@ func compareValues(
 	for name := range gohivexValueMap {
 		if _, found := hivexValueMap[name]; !found {
 			result.Mismatches = append(result.Mismatches, Mismatch{
-				Path:     path,
-				Category: "extra_value",
-				Message:  fmt.Sprintf("Value %q exists in gohivex but not in hivex at %s", name, path),
-				HivexValue:    nil,
-				GohivexValue:  name,
+				Path:         path,
+				Category:     "extra_value",
+				Message:      fmt.Sprintf("Value %q exists in gohivex but not in hivex at %s", name, path),
+				HivexValue:   nil,
+				GohivexValue: name,
 			})
 		}
 	}

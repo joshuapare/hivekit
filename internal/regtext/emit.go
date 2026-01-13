@@ -17,8 +17,8 @@ func ExportReg(r types.Reader, root types.NodeID, opts types.RegExportOptions) (
 	}
 	var buf bytes.Buffer
 	buf.WriteString(RegFileHeader + CRLF + CRLF)
-	if err := exportKey(&buf, r, root, []string{meta.Name}); err != nil {
-		return nil, err
+	if exportErr := exportKey(&buf, r, root, []string{meta.Name}); exportErr != nil {
+		return nil, exportErr
 	}
 	switch strings.ToUpper(opts.OutputEncoding) {
 	case "", EncodingUTF8:
@@ -36,9 +36,9 @@ func exportKey(buf *bytes.Buffer, r types.Reader, id types.NodeID, path []string
 	buf.WriteString(full)
 	buf.WriteString(KeyCloseBracket + CRLF)
 
-	values, err := r.Values(id)
-	if err != nil {
-		return err
+	values, valuesErr := r.Values(id)
+	if valuesErr != nil {
+		return valuesErr
 	}
 	sort.Slice(values, func(i, j int) bool {
 		mi, _ := r.StatValue(values[i])
@@ -47,12 +47,12 @@ func exportKey(buf *bytes.Buffer, r types.Reader, id types.NodeID, path []string
 	})
 
 	for _, vid := range values {
-		meta, err := r.StatValue(vid)
-		if err != nil {
-			return err
+		meta, valueStatErr := r.StatValue(vid)
+		if valueStatErr != nil {
+			return valueStatErr
 		}
-		if err := emitValue(buf, r, vid, meta); err != nil {
-			return err
+		if emitErr := emitValue(buf, r, vid, meta); emitErr != nil {
+			return emitErr
 		}
 	}
 	buf.WriteString(CRLF)
@@ -67,9 +67,9 @@ func exportKey(buf *bytes.Buffer, r types.Reader, id types.NodeID, path []string
 	}
 	children := make([]child, 0, len(subkeys))
 	for _, sid := range subkeys {
-		meta, err := r.StatKey(sid)
-		if err != nil {
-			return err
+		meta, statErr := r.StatKey(sid)
+		if statErr != nil {
+			return statErr
 		}
 		children = append(children, child{name: meta.Name, id: sid})
 	}
@@ -77,11 +77,17 @@ func exportKey(buf *bytes.Buffer, r types.Reader, id types.NodeID, path []string
 		return strings.ToLower(children[i].name) < strings.ToLower(children[j].name)
 	})
 	for _, c := range children {
-		if err := exportKey(buf, r, c.id, append(path, c.name)); err != nil {
-			return err
+		if exportErr := exportKey(buf, r, c.id, append(path, c.name)); exportErr != nil {
+			return exportErr
 		}
 	}
 	return nil
+}
+
+// EmitValue formats a single value in .reg format and writes it to the buffer.
+// This is exported for use by CLI commands that need to output values in .reg format.
+func EmitValue(buf *bytes.Buffer, r types.Reader, id types.ValueID, meta types.ValueMeta) error {
+	return emitValue(buf, r, id, meta)
 }
 
 func emitValue(buf *bytes.Buffer, r types.Reader, id types.ValueID, meta types.ValueMeta) error {
@@ -116,7 +122,7 @@ func emitValue(buf *bytes.Buffer, r types.Reader, id types.ValueID, meta types.V
 		}
 		buf.WriteString(DWORDPrefix)
 		fmt.Fprintf(buf, DWORDHexFormat, dw)
-	case types.REG_DWORD_BE:
+	case types.REG_DWORD_BE, types.REG_NONE, types.REG_BINARY, types.REG_LINK, types.REG_QWORD:
 		data, err := r.ValueBytes(id, types.ReadOptions{CopyData: true})
 		if err != nil {
 			return err

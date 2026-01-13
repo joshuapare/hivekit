@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	
 )
 
 // TestTreeNavigation_ExpandCollapse verifies that expanding and collapsing keys works correctly
@@ -196,7 +195,7 @@ func TestTreeNavigation_CollapseAll(t *testing.T) {
 		p.Send(tea.KeyMsg{Type: tea.KeyEnter})
 		time.Sleep(100 * time.Millisecond)
 		p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}}) // CollapseAll
-		time.Sleep(100 * time.Millisecond) // Give more time for collapse to complete
+		time.Sleep(100 * time.Millisecond)                         // Give more time for collapse to complete
 		p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	}()
 

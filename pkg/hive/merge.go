@@ -1,21 +1,18 @@
 package hive
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"os"
 
-	"github.com/joshuapare/hivekit/internal/edit"
-	"github.com/joshuapare/hivekit/internal/reader"
-	"github.com/joshuapare/hivekit/internal/regtext"
-	"github.com/joshuapare/hivekit/pkg/types"
+	"github.com/joshuapare/hivekit/hive/merge"
 )
 
-// MergeRegFile merges a .reg file into a registry 
+// MergeRegFile merges a .reg file into a registry
 //
 // The hive file is modified in-place. Registry limits are enforced by default
 // (use opts.Limits to customize). The operation is atomic - if any error occurs
-// (and OnError is not set), no changes are made to the 
+// (and OnError is not set), no changes are made to the
 //
 // Example:
 //
@@ -94,20 +91,8 @@ func MergeRegFiles(hivePath string, regPaths []string, opts *MergeOptions) error
 
 	total := len(regPaths)
 	for i, regPath := range regPaths {
-		// Report progress for file-level operations
-		if opts != nil && opts.OnProgress != nil {
-			opts.OnProgress(i+1, total)
-		}
-
-		// Create a copy of opts without progress callback for individual merges
-		// (to avoid double progress reporting)
-		fileOpts := &MergeOptions{}
-		if opts != nil {
-			*fileOpts = *opts
-			fileOpts.OnProgress = nil // Disable operation-level progress
-		}
-
-		if err := MergeRegFile(hivePath, regPath, fileOpts); err != nil {
+		// Merge each file in sequence
+		if err := MergeRegFile(hivePath, regPath, opts); err != nil {
 			return fmt.Errorf("failed to merge %s (file %d/%d): %w", regPath, i+1, total, err)
 		}
 	}
@@ -115,15 +100,11 @@ func MergeRegFiles(hivePath string, regPaths []string, opts *MergeOptions) error
 	return nil
 }
 
-// mergeRegBytes is the internal implementation that merges .reg data from bytes.
+// mergeRegBytes merges .reg file data into a hive using the mmap-based implementation.
 func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
 	// Apply defaults
 	if opts == nil {
 		opts = &MergeOptions{}
-	}
-	if opts.Limits == nil {
-		limits := DefaultLimits()
-		opts.Limits = &limits
 	}
 
 	// Create backup if requested
@@ -134,84 +115,18 @@ func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
 		}
 	}
 
-	// Open hive
-	hiveData, err := os.ReadFile(hivePath)
+	// Use optimized path (PlanFromRegTexts applies query optimization even for single files)
+	// This automatically applies:
+	//   - Deduplication (remove redundant ops within the .reg file)
+	//   - Delete shadowing (remove ops under deleted subtrees)
+	//   - I/O-efficient ordering (group by key, parents before children)
+	regTexts := []string{string(regData)}
+	plan, _, err := merge.PlanFromRegTexts(regTexts)
 	if err != nil {
-		return fmt.Errorf("failed to read hive %s: %w", hivePath, err)
+		return fmt.Errorf("parse and optimize: %w", err)
 	}
 
-	r, err := reader.OpenBytes(hiveData, OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open hive %s: %w", hivePath, err)
-	}
-	defer r.Close()
-
-	// Parse .reg file
-	codec := regtext.NewCodec()
-	ops, err := codec.ParseReg(regData, RegParseOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to parse .reg data: %w", err)
-	}
-
-	// Handle empty operation list
-	if len(ops) == 0 {
-		// Nothing to do, but not an error
-		return nil
-	}
-
-	// Start transaction with limits
-	ed := edit.NewEditor(r)
-	tx := ed.BeginWithLimits(*opts.Limits)
-
-	// Apply operations
-	total := len(ops)
-	for i, op := range ops {
-		// Progress callback
-		if opts.OnProgress != nil {
-			opts.OnProgress(i+1, total)
-		}
-
-		// Apply operation
-		if err := applyOperation(tx, op); err != nil {
-			// Error callback
-			if opts.OnError != nil {
-				if !opts.OnError(op, err) {
-					// User requested abort
-					tx.Rollback()
-					return fmt.Errorf("operation aborted at %d/%d: %w", i+1, total, err)
-				}
-				// User requested continue - skip this operation
-				continue
-			}
-			// No error handler - abort on first error
-			tx.Rollback()
-			return fmt.Errorf("operation %d/%d failed: %w", i+1, total, err)
-		}
-	}
-
-	// Dry run? Don't commit
-	if opts.DryRun {
-		return tx.Rollback()
-	}
-
-	// Commit to buffer
-	buf := &bytes.Buffer{}
-	writeOpts := types.WriteOptions{Repack: opts.Defragment}
-	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to commit changes to %s: %w", hivePath, err)
-	}
-
-	// Write to file atomically (write to temp, then rename)
-	tempPath := hivePath + ".tmp"
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file %s: %w", tempPath, err)
-	}
-
-	if err := os.Rename(tempPath, hivePath); err != nil {
-		// Clean up temp file on error
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive %s: %w", hivePath, err)
-	}
-
-	return nil
+	// Apply optimized plan
+	_, err = merge.MergePlan(context.Background(), hivePath, plan, nil)
+	return err
 }

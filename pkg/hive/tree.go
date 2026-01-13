@@ -20,7 +20,7 @@ type TreeNode struct {
 // to efficiently load values and metadata on-demand as the user navigates.
 //
 // Memory usage: ~64 bytes per node
-// Performance: Single tree walk, no path string lookups
+// Performance: Single tree walk, no path string lookups.
 func BuildTreeStructure(r Reader) ([]TreeNode, error) {
 	root, err := r.Root()
 	if err != nil {
@@ -38,7 +38,7 @@ func BuildTreeStructure(r Reader) ([]TreeNode, error) {
 	return nodes, nil
 }
 
-// buildTreeRecursive recursively walks the tree and appends TreeNodes
+// buildTreeRecursive recursively walks the tree and appends TreeNodes.
 func buildTreeRecursive(r Reader, nodeID NodeID, parentPath string, depth int, parent string, nodes *[]TreeNode) error {
 	// Get node metadata (just name and child count - minimal data)
 	meta, err := r.StatKey(nodeID)
@@ -64,14 +64,14 @@ func buildTreeRecursive(r Reader, nodeID NodeID, parentPath string, depth int, p
 
 	// Recursively process children if any
 	if meta.SubkeyN > 0 {
-		childIDs, err := r.Subkeys(nodeID)
-		if err != nil {
-			return err
+		childIDs, subkeysErr := r.Subkeys(nodeID)
+		if subkeysErr != nil {
+			return subkeysErr
 		}
 
 		for _, childID := range childIDs {
-			err := buildTreeRecursive(r, childID, currentPath, depth+1, currentPath, nodes)
-			if err != nil {
+			recurseErr := buildTreeRecursive(r, childID, currentPath, depth+1, currentPath, nodes)
+			if recurseErr != nil {
 				// Log error but continue with other children
 				// This prevents one corrupted key from breaking the entire tree
 				continue

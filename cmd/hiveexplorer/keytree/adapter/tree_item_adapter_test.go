@@ -2,80 +2,13 @@ package adapter
 
 import (
 	"testing"
-
-	"github.com/joshuapare/hivekit/pkg/hive"
 )
-
-// TestItemToDisplayProps_DiffStatusAdded tests mapping for added items
-func TestItemToDisplayProps_DiffStatusAdded(t *testing.T) {
-	source := TreeItemSource{
-		Name:       "AddedKey",
-		Depth:      0,
-		DiffStatus: hive.DiffAdded,
-	}
-
-	props := ItemToDisplayProps(source, false, false)
-
-	if props.Prefix != "+" {
-		t.Errorf("expected prefix '+' for added item, got %q", props.Prefix)
-	}
-
-	if props.Name != "AddedKey" {
-		t.Errorf("expected name 'AddedKey', got %q", props.Name)
-	}
-}
-
-// TestItemToDisplayProps_DiffStatusRemoved tests mapping for removed items
-func TestItemToDisplayProps_DiffStatusRemoved(t *testing.T) {
-	source := TreeItemSource{
-		Name:       "RemovedKey",
-		Depth:      0,
-		DiffStatus: hive.DiffRemoved,
-	}
-
-	props := ItemToDisplayProps(source, false, false)
-
-	if props.Prefix != "-" {
-		t.Errorf("expected prefix '-' for removed item, got %q", props.Prefix)
-	}
-}
-
-// TestItemToDisplayProps_DiffStatusModified tests mapping for modified items
-func TestItemToDisplayProps_DiffStatusModified(t *testing.T) {
-	source := TreeItemSource{
-		Name:       "ModifiedKey",
-		Depth:      0,
-		DiffStatus: hive.DiffModified,
-	}
-
-	props := ItemToDisplayProps(source, false, false)
-
-	if props.Prefix != "~" {
-		t.Errorf("expected prefix '~' for modified item, got %q", props.Prefix)
-	}
-}
-
-// TestItemToDisplayProps_DiffStatusUnchanged tests mapping for unchanged items
-func TestItemToDisplayProps_DiffStatusUnchanged(t *testing.T) {
-	source := TreeItemSource{
-		Name:       "UnchangedKey",
-		Depth:      0,
-		DiffStatus: hive.DiffUnchanged,
-	}
-
-	props := ItemToDisplayProps(source, false, false)
-
-	if props.Prefix != " " {
-		t.Errorf("expected prefix ' ' for unchanged item, got %q", props.Prefix)
-	}
-}
 
 // TestItemToDisplayProps_Bookmarked tests bookmark indicator
 func TestItemToDisplayProps_Bookmarked(t *testing.T) {
 	source := TreeItemSource{
-		Name:       "BookmarkedKey",
-		Depth:      0,
-		DiffStatus: hive.DiffUnchanged,
+		Name:  "BookmarkedKey",
+		Depth: 0,
 	}
 
 	// With bookmark
@@ -99,7 +32,6 @@ func TestItemToDisplayProps_HasChildren_Expanded(t *testing.T) {
 		HasChildren: true,
 		Expanded:    true,
 		SubkeyCount: 5,
-		DiffStatus:  hive.DiffUnchanged,
 	}
 
 	props := ItemToDisplayProps(source, false, false)
@@ -121,7 +53,6 @@ func TestItemToDisplayProps_HasChildren_Collapsed(t *testing.T) {
 		HasChildren: true,
 		Expanded:    false,
 		SubkeyCount: 3,
-		DiffStatus:  hive.DiffUnchanged,
 	}
 
 	props := ItemToDisplayProps(source, false, false)
@@ -141,7 +72,6 @@ func TestItemToDisplayProps_NoChildren(t *testing.T) {
 		Name:        "LeafKey",
 		Depth:       0,
 		HasChildren: false,
-		DiffStatus:  hive.DiffUnchanged,
 	}
 
 	props := ItemToDisplayProps(source, false, false)
@@ -161,9 +91,8 @@ func TestItemToDisplayProps_DepthMapping(t *testing.T) {
 
 	for _, depth := range tests {
 		source := TreeItemSource{
-			Name:       "TestKey",
-			Depth:      depth,
-			DiffStatus: hive.DiffUnchanged,
+			Name:  "TestKey",
+			Depth: depth,
 		}
 
 		props := ItemToDisplayProps(source, false, false)
@@ -177,9 +106,8 @@ func TestItemToDisplayProps_DepthMapping(t *testing.T) {
 // TestItemToDisplayProps_CursorSelection tests selection flag
 func TestItemToDisplayProps_CursorSelection(t *testing.T) {
 	source := TreeItemSource{
-		Name:       "TestKey",
-		Depth:      0,
-		DiffStatus: hive.DiffUnchanged,
+		Name:  "TestKey",
+		Depth: 0,
 	}
 
 	// Selected
@@ -198,10 +126,9 @@ func TestItemToDisplayProps_CursorSelection(t *testing.T) {
 // TestItemToDisplayProps_TimestampFormatting tests timestamp passthrough
 func TestItemToDisplayProps_TimestampFormatting(t *testing.T) {
 	source := TreeItemSource{
-		Name:       "TestKey",
-		Depth:      0,
-		LastWrite:  "2024-03-15 14:30",
-		DiffStatus: hive.DiffUnchanged,
+		Name:      "TestKey",
+		Depth:     0,
+		LastWrite: "2024-03-15 14:30",
 	}
 
 	props := ItemToDisplayProps(source, false, false)
@@ -220,7 +147,6 @@ func TestItemToDisplayProps_ComplexScenario(t *testing.T) {
 		Expanded:    true,
 		SubkeyCount: 12,
 		LastWrite:   "2024-01-01 00:00",
-		DiffStatus:  hive.DiffAdded,
 	}
 
 	props := ItemToDisplayProps(source, true, true)
@@ -236,10 +162,6 @@ func TestItemToDisplayProps_ComplexScenario(t *testing.T) {
 
 	if props.Icon != "▼" {
 		t.Errorf("expected expanded icon, got %q", props.Icon)
-	}
-
-	if props.Prefix != "+" {
-		t.Errorf("expected '+' prefix for added, got %q", props.Prefix)
 	}
 
 	if props.LeftIndicator != "★" {
@@ -262,9 +184,8 @@ func TestItemToDisplayProps_ComplexScenario(t *testing.T) {
 // TestItemToDisplayProps_StylesNotNil tests that styles are properly set
 func TestItemToDisplayProps_StylesNotNil(t *testing.T) {
 	source := TreeItemSource{
-		Name:       "TestKey",
-		Depth:      0,
-		DiffStatus: hive.DiffAdded,
+		Name:  "TestKey",
+		Depth: 0,
 	}
 
 	props := ItemToDisplayProps(source, false, false)
@@ -273,25 +194,5 @@ func TestItemToDisplayProps_StylesNotNil(t *testing.T) {
 	// but we can verify the function doesn't panic and returns valid props)
 	if props.Name == "" {
 		t.Error("adapter should set props correctly")
-	}
-}
-
-// TestItemToDisplayProps_UnknownDiffStatus tests default fallback for invalid DiffStatus
-func TestItemToDisplayProps_UnknownDiffStatus(t *testing.T) {
-	source := TreeItemSource{
-		Name:       "TestKey",
-		Depth:      0,
-		DiffStatus: hive.DiffStatus(999), // Unknown/invalid value
-	}
-
-	props := ItemToDisplayProps(source, false, false)
-
-	// Should default to unchanged style
-	if props.Prefix != " " {
-		t.Errorf("expected unchanged prefix ' ' for unknown DiffStatus, got %q", props.Prefix)
-	}
-
-	if props.Name != "TestKey" {
-		t.Errorf("expected name to be preserved, got %q", props.Name)
 	}
 }

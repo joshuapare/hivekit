@@ -10,7 +10,7 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestRegDebugMismatches provides detailed analysis of all value count mismatches
+// TestRegDebugMismatches provides detailed analysis of all value count mismatches.
 func TestRegDebugMismatches(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow integration test in short mode")
@@ -164,7 +164,7 @@ func TestRegDebugMismatches(t *testing.T) {
 			}
 
 			if mismatches == 0 {
-				t.Logf("✅ No value count mismatches found!")
+				t.Logf("No value count mismatches found!")
 			} else {
 				t.Logf("")
 				t.Logf("Total mismatches: %d", mismatches)
@@ -173,7 +173,7 @@ func TestRegDebugMismatches(t *testing.T) {
 	}
 }
 
-// buildGohivexStructureDebug is like buildGohivexStructure but logs value read errors
+// buildGohivexStructureDebug is like buildGohivexStructure but logs value read errors.
 func buildGohivexStructureDebug(t *testing.T, r hive.Reader, nodeID hive.NodeID, parentPath string) []*GohivexKey {
 	result := make([]*GohivexKey, 0)
 
@@ -186,13 +186,14 @@ func buildGohivexStructureDebug(t *testing.T, r hive.Reader, nodeID hive.NodeID,
 
 	// Build path
 	var path string
-	if parentPath == "" {
+	switch parentPath {
+	case "":
 		// Root node
 		path = "\\"
-	} else if parentPath == "\\" {
+	case "\\":
 		// Direct child of root
 		path = "\\" + meta.Name
-	} else {
+	default:
 		// Deeper nesting
 		path = parentPath + "\\" + meta.Name
 	}
@@ -202,10 +203,10 @@ func buildGohivexStructureDebug(t *testing.T, r hive.Reader, nodeID hive.NodeID,
 	values, err := r.Values(nodeID)
 	if err == nil {
 		for _, valueID := range values {
-			valueMeta, err := r.StatValue(valueID)
-			if err != nil {
+			valueMeta, valErr := r.StatValue(valueID)
+			if valErr != nil {
 				// LOG THE ERROR with details
-				t.Logf("ERROR reading value at key %q: %v (ValueID=%d)", path, err, valueID)
+				t.Logf("ERROR reading value at key %q: %v (ValueID=%d)", path, valErr, valueID)
 				continue
 			}
 			// Log if size is suspicious (might help identify big data records)

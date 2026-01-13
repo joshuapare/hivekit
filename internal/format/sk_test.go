@@ -7,21 +7,30 @@ import (
 
 func TestDecodeSK(t *testing.T) {
 	const descriptorLen = 0x10
-	buf := make([]byte, SKDataOffset+descriptorLen*2)
+	buf := make([]byte, SKDescriptorOffset+descriptorLen*2)
 	copy(buf, SKSignature)
-	binary.LittleEndian.PutUint32(buf[SKLengthOffset:], descriptorLen)    // descriptor length
-	binary.LittleEndian.PutUint32(buf[SKDescOffsetField:], SKDataOffset) // descriptor offset
-	for i := 0; i < descriptorLen; i++ {
-		buf[SKDataOffset+i] = byte(i)
+	binary.LittleEndian.PutUint32(
+		buf[SKDescriptorLengthOffset:],
+		descriptorLen,
+	) // descriptor length
+	// Descriptor data starts inline at SKDescriptorOffset (0x14)
+	for i := range descriptorLen {
+		buf[SKDescriptorOffset+i] = byte(i)
 	}
 	cellOff := 0x200
 	start, n, err := DecodeSK(buf, cellOff)
 	if err != nil {
 		t.Fatalf("DecodeSK: %v", err)
 	}
-	expectedStart := cellOff + SKDataOffset
+	expectedStart := cellOff + SKDescriptorOffset
 	if start != expectedStart || n != descriptorLen {
-		t.Fatalf("unexpected result start=%d (expected %d) n=%d (expected %d)", start, expectedStart, n, descriptorLen)
+		t.Fatalf(
+			"unexpected result start=%d (expected %d) n=%d (expected %d)",
+			start,
+			expectedStart,
+			n,
+			descriptorLen,
+		)
 	}
 }
 

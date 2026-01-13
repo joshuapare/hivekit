@@ -108,12 +108,12 @@ func TestViewContainsExpectedContent(t *testing.T) {
 
 	// Check that view contains expected elements
 	expectedStrings := []string{
-		"test.hive",     // Hive path in header
-		"Software",      // Key name
-		"System",        // Key name
-		"Keys",          // Pane title
-		"Values",        // Pane title
-		"Navigate",      // Help text
+		"test.hive", // Hive path in header
+		"Software",  // Key name
+		"System",    // Key name
+		"Keys",      // Pane title
+		"Values",    // Pane title
+		"Navigate",  // Help text
 	}
 
 	for _, expected := range expectedStrings {

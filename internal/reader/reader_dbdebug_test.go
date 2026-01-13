@@ -1,4 +1,4 @@
-// +build hivex
+//go:build hivex
 
 package reader
 
@@ -52,14 +52,23 @@ func TestDB_BlockInspection(t *testing.T) {
 
 	// Get the db record
 	dbCell, _ := rdr.cell(vk.DataOffset)
-	t.Logf("DB Cell: offset=0x%x, size=%d, data[:16]=%x", vk.DataOffset, dbCell.Size, dbCell.Data[:min(16, len(dbCell.Data))])
+	t.Logf(
+		"DB Cell: offset=0x%x, size=%d, data[:16]=%x",
+		vk.DataOffset,
+		dbCell.Size,
+		dbCell.Data[:min(16, len(dbCell.Data))],
+	)
 
 	db, _ := format.DecodeDB(dbCell.Data)
 	t.Logf("DB Record: NumBlocks=%d, BlocklistOffset=0x%x", db.NumBlocks, db.BlocklistOffset)
 
 	// Get the blocklist
 	blocklistCell, _ := rdr.cell(db.BlocklistOffset)
-	t.Logf("Blocklist Cell: size=%d, first 32 bytes=%x", blocklistCell.Size, blocklistCell.Data[:min(32, len(blocklistCell.Data))])
+	t.Logf(
+		"Blocklist Cell: size=%d, first 32 bytes=%x",
+		blocklistCell.Size,
+		blocklistCell.Data[:min(32, len(blocklistCell.Data))],
+	)
 
 	// Read block offsets
 	t.Logf("\n=== BLOCK OFFSETS AND SIZES ===")

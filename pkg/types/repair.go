@@ -9,28 +9,32 @@ import (
 	"time"
 )
 
-// RepairOptions configures how repairs are applied
+const (
+	defaultBackupSuffix = ".backup"
+)
+
+// RepairOptions configures how repairs are applied.
 type RepairOptions struct {
-	DryRun         bool   // Preview repairs without applying
-	AutoOnly       bool   // Only apply auto-repairable fixes
-	MaxRisk        RiskLevel // Maximum risk level to apply
-	BackupSuffix   string // Suffix for backup file (default: ".backup")
-	NoBackup       bool   // Skip creating backup (dangerous!)
-	Verbose        bool   // Enable verbose logging
+	DryRun       bool      // Preview repairs without applying
+	AutoOnly     bool      // Only apply auto-repairable fixes
+	MaxRisk      RiskLevel // Maximum risk level to apply
+	BackupSuffix string    // Suffix for backup file (default: defaultBackupSuffix)
+	NoBackup     bool      // Skip creating backup (dangerous!)
+	Verbose      bool      // Enable verbose logging
 }
 
-// RepairResult describes the outcome of a repair operation
+// RepairResult describes the outcome of a repair operation.
 type RepairResult struct {
-	Applied        int       // Number of repairs applied
-	Skipped        int       // Number of repairs skipped
-	Failed         int       // Number of repairs that failed
-	BackupPath     string    // Path to backup file
-	DryRun         bool      // Whether this was a dry-run
-	Duration       time.Duration
-	Diagnostics    []RepairDiagnostic
+	Applied     int    // Number of repairs applied
+	Skipped     int    // Number of repairs skipped
+	Failed      int    // Number of repairs that failed
+	BackupPath  string // Path to backup file
+	DryRun      bool   // Whether this was a dry-run
+	Duration    time.Duration
+	Diagnostics []RepairDiagnostic
 }
 
-// RepairDiagnostic describes what happened during a repair
+// RepairDiagnostic describes what happened during a repair.
 type RepairDiagnostic struct {
 	Offset      uint64
 	Description string
@@ -43,14 +47,14 @@ type RepairDiagnostic struct {
 // Note: This is a placeholder method. The actual implementation is in internal/reader.ApplyRepairs()
 // which should be called directly from CLI/application code to avoid import cycles.
 // This method is kept here for API documentation purposes.
-func (report *DiagnosticReport) ApplyRepairs(hivePath string, opts RepairOptions) (*RepairResult, error) {
+func (report *DiagnosticReport) ApplyRepairs(_ string, opts RepairOptions) (*RepairResult, error) {
 	return nil, errors.New("ApplyRepairs must be called through internal/reader.ApplyRepairs() - see documentation")
 }
 
-// RestoreFromBackup restores a hive from its backup file
+// RestoreFromBackup restores a hive from its backup file.
 func RestoreFromBackup(hivePath string, backupSuffix string) error {
 	if backupSuffix == "" {
-		backupSuffix = ".backup"
+		backupSuffix = defaultBackupSuffix
 	}
 	backupPath := hivePath + backupSuffix
 
@@ -67,7 +71,7 @@ func RestoreFromBackup(hivePath string, backupSuffix string) error {
 	return nil
 }
 
-// copyFile copies a file from src to dst
+// copyFile copies a file from src to dst.
 func copyFile(src, dst string) error {
 	// Open source file
 	srcFile, err := os.Open(src)
@@ -83,29 +87,29 @@ func copyFile(src, dst string) error {
 	}
 
 	// Create destination file
-	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
-	if err != nil {
-		return err
+	dstFile, createErr := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
+	if createErr != nil {
+		return createErr
 	}
 	defer dstFile.Close()
 
 	// Copy contents
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return err
+	if _, copyErr := io.Copy(dstFile, srcFile); copyErr != nil {
+		return copyErr
 	}
 
 	// Ensure all writes are flushed
-	if err := dstFile.Sync(); err != nil {
-		return err
+	if syncErr := dstFile.Sync(); syncErr != nil {
+		return syncErr
 	}
 
 	return nil
 }
 
-// ValidateBackup checks if a backup file exists and is valid
+// ValidateBackup checks if a backup file exists and is valid.
 func ValidateBackup(hivePath string, backupSuffix string) error {
 	if backupSuffix == "" {
-		backupSuffix = ".backup"
+		backupSuffix = defaultBackupSuffix
 	}
 	backupPath := hivePath + backupSuffix
 
@@ -131,7 +135,7 @@ func ValidateBackup(hivePath string, backupSuffix string) error {
 	return nil
 }
 
-// ListBackups finds all backup files for a given hive path
+// ListBackups finds all backup files for a given hive path.
 func ListBackups(hivePath string) ([]string, error) {
 	dir := filepath.Dir(hivePath)
 	base := filepath.Base(hivePath)
@@ -151,7 +155,7 @@ func ListBackups(hivePath string) ([]string, error) {
 		// Check if this is a backup of our hive
 		if len(name) > len(base) && name[:len(base)] == base && name[len(base)] == '.' {
 			suffix := name[len(base):]
-			if suffix == ".backup" || suffix[:7] == ".backup" {
+			if suffix == defaultBackupSuffix || suffix[:7] == defaultBackupSuffix {
 				backups = append(backups, filepath.Join(dir, name))
 			}
 		}

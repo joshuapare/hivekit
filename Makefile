@@ -99,6 +99,14 @@ lint: ## Run linters
 		go vet ./...; \
 	fi
 
+lint-fix: ## Run linters with auto-fix
+	@if which golangci-lint > /dev/null 2>&1; then \
+		golangci-lint run --fix ./...; \
+	else \
+		echo "Warning: golangci-lint not installed, using go fmt"; \
+		go fmt ./...; \
+	fi
+
 fmt: ## Format code
 	@go fmt ./...
 
@@ -155,6 +163,6 @@ ci: check-go build test lint ## Run CI pipeline
 	@echo "CI pipeline completed successfully!"
 
 .PHONY: check-go decompress-hives install-python-deps setup test test-unit test-integration test-hiveexplorer test-coverage
-.PHONY: build build-hiveexplorer install-hiveexplorer lint fmt
+.PHONY: build build-hiveexplorer install-hiveexplorer lint lint-fix fmt
 .PHONY: benchmark benchmark-compare benchmark-quick benchmark-list
 .PHONY: update-readme clean clean-hives list-hives ci

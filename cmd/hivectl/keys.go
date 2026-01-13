@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/joshuapare/hivekit/pkg/hive"
+	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/printer"
 	"github.com/spf13/cobra"
 )
 
@@ -48,39 +50,31 @@ func runKeys(args []string) error {
 
 	printVerbose("Opening hive: %s\n", hivePath)
 
-	// List keys using public API
-	keys, err := hive.ListKeys(hivePath, keyPath, keysRecursive, keysDepth)
+	// Open hive with new backend
+	h, err := hive.Open(hivePath)
 	if err != nil {
-		return fmt.Errorf("failed to list keys: %w", err)
+		return fmt.Errorf("failed to open hive: %w", err)
 	}
+	defer h.Close()
 
-	// Output as JSON if requested
-	if jsonOut {
-		result := map[string]interface{}{
-			"hive":  hivePath,
-			"path":  keyPath,
-			"keys":  keys,
-			"count": len(keys),
-		}
-		return printJSON(result)
-	}
+	// Configure printer options
+	opts := printer.DefaultOptions()
+	opts.ShowValues = false    // Keys only, no values
+	opts.PrintMetadata = false // No metadata, just names
 
-	// Text output
-	if keyPath != "" {
-		printInfo("\nKeys in %s:\n", keyPath)
+	// Set depth: non-recursive shows immediate children (depth 2), recursive uses user depth
+	if keysRecursive {
+		opts.MaxDepth = keysDepth
 	} else {
-		printInfo("\nKeys at root:\n")
+		opts.MaxDepth = 2 // Root + 1 level of children
 	}
 
-	for _, key := range keys {
-		if keysRecursive {
-			printInfo("  %s\n", key.Path)
-		} else {
-			printInfo("  %s\n", key.Name)
-		}
+	// Set format
+	if jsonOut {
+		opts.Format = printer.FormatJSON
+	} else {
+		opts.Format = printer.FormatText
 	}
 
-	printInfo("\nTotal: %d keys\n", len(keys))
-
-	return nil
+	return h.PrintTree(os.Stdout, keyPath, opts)
 }

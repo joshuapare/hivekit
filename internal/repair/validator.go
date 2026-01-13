@@ -14,7 +14,7 @@ type Validator struct {
 }
 
 // NewValidator creates a new validator with default critical regions.
-func NewValidator(dataSize uint64) *Validator {
+func NewValidator(_ uint64) *Validator {
 	v := &Validator{
 		criticalRegions: make([]Region, 0, 8),
 	}
@@ -60,10 +60,15 @@ func (v *Validator) ValidateRepairSafe(data []byte, d Diagnostic) error {
 	// Check repair won't overflow
 	if d.Offset+repairSize > uint64(len(data)) {
 		return &ValidationError{
-			Phase:   "pre",
-			Module:  "validator",
-			Offset:  d.Offset,
-			Message: fmt.Sprintf("repair would overflow buffer (offset=0x%X, size=%d, datalen=%d)", d.Offset, repairSize, len(data)),
+			Phase:  "pre",
+			Module: "validator",
+			Offset: d.Offset,
+			Message: fmt.Sprintf(
+				"repair would overflow buffer (offset=0x%X, size=%d, datalen=%d)",
+				d.Offset,
+				repairSize,
+				len(data),
+			),
 		}
 	}
 
@@ -79,9 +84,9 @@ func (v *Validator) ValidateRepairSafe(data []byte, d Diagnostic) error {
 // This is structure-specific validation that ensures the repair didn't break the format.
 func (v *Validator) ValidateStructureIntegrity(data []byte, offset uint64, structType string) error {
 	switch structType {
-	case "REGF":
+	case regfStructureName:
 		return v.validateREGFStructure(data, offset)
-	case "HBIN":
+	case hbinStructureName:
 		return v.validateHBINStructure(data, offset)
 	case "NK":
 		return v.validateNKStructure(data, offset)
@@ -141,10 +146,10 @@ func (v *Validator) ValidateNoSideEffects(before, after []byte, repairOffset, re
 // This is used for pre-validation checks.
 func (v *Validator) estimateRepairSize(d Diagnostic) uint64 {
 	switch d.Structure {
-	case "REGF":
+	case regfStructureName:
 		// REGF repairs typically modify 4-byte fields
 		return 4
-	case "HBIN":
+	case hbinStructureName:
 		// HBIN repairs typically modify 4-byte fields
 		return 4
 	case "NK":
@@ -165,7 +170,7 @@ func (v *Validator) estimateRepairSize(d Diagnostic) uint64 {
 // validateAlignment checks if the offset is properly aligned for the structure type.
 func (v *Validator) validateAlignment(d Diagnostic) error {
 	switch d.Structure {
-	case "REGF":
+	case regfStructureName:
 		// For field-level repairs, the offset points to a field within the REGF header
 		if d.Repair != nil && (d.Repair.Type == RepairDefault || d.Repair.Type == RepairReplace) {
 			// Field-level repair - check offset is within REGF header
@@ -188,7 +193,7 @@ func (v *Validator) validateAlignment(d Diagnostic) error {
 				Message: "REGF header must be at offset 0",
 			}
 		}
-	case "HBIN":
+	case hbinStructureName:
 		// For field-level repairs, the offset points to a field within the HBIN header
 		if d.Repair != nil && (d.Repair.Type == RepairDefault || d.Repair.Type == RepairReplace) {
 			// Field-level repair - check that the containing HBIN block is aligned

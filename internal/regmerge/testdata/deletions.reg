@@ -1,0 +1,78 @@
+Windows Registry Editor Version 5.00
+
+; Deletions test - Deep hierarchy with delete shadowing
+; Creates 5-level deep hierarchy with many values
+; Deletes subtree at level 2, which should shadow ~30 operations under it
+
+; Level 0 - Root
+[HKEY_LOCAL_MACHINE\Software\DeleteTest]
+"AppName"="DeleteTest"
+"Version"="1.0"
+"RootValue1"="root-1"
+"RootValue2"="root-2"
+
+; Level 1 - First child
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1]
+"L1Value1"="level1-1"
+"L1Value2"="level1-2"
+"L1Value3"="level1-3"
+"L1Value4"="level1-4"
+
+; Level 2 - Second child (THIS WILL BE DELETED - shadows all below)
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\Level2]
+"L2Value1"="level2-1"
+"L2Value2"="level2-2"
+"L2Value3"="level2-3"
+"L2Value4"="level2-4"
+"L2Value5"="level2-5"
+
+; Level 3 - Third child (SHADOWED by Level2 deletion)
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\Level2\Level3]
+"L3Value1"="level3-1"
+"L3Value2"="level3-2"
+"L3Value3"="level3-3"
+"L3Value4"="level3-4"
+"L3Value5"="level3-5"
+"L3Value6"="level3-6"
+
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\Level2\Level3\BranchA]
+"BranchAValue1"="branchA-1"
+"BranchAValue2"="branchA-2"
+"BranchAValue3"="branchA-3"
+
+; Level 4 - Fourth child (SHADOWED by Level2 deletion)
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\Level2\Level3\Level4]
+"L4Value1"="level4-1"
+"L4Value2"="level4-2"
+"L4Value3"="level4-3"
+"L4Value4"="level4-4"
+
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\Level2\Level3\BranchA\SubBranch]
+"SubValue1"="sub-1"
+"SubValue2"="sub-2"
+
+; Level 5 - Fifth child (SHADOWED by Level2 deletion)
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\Level2\Level3\Level4\Level5]
+"L5Value1"="level5-1"
+"L5Value2"="level5-2"
+"L5Value3"="level5-3"
+
+; Another branch at Level 2 (also SHADOWED)
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\Level2\AlternateBranch]
+"AltValue1"="alt-1"
+"AltValue2"="alt-2"
+"AltValue3"="alt-3"
+
+; DELETE LEVEL2 - All operations above under Level2 should be shadowed
+; Optimizer should remove ~32 operations (all SetValue/CreateKey under Level2)
+[-HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\Level2]
+
+; Operations outside the deleted subtree (NOT shadowed)
+[HKEY_LOCAL_MACHINE\Software\DeleteTest\Level1\OtherBranch]
+"OtherValue1"="other-1"
+"OtherValue2"="other-2"
+"OtherValue3"="other-3"
+
+[HKEY_LOCAL_MACHINE\Software\DeleteTest]
+"PostDeleteValue"="after-delete"
+

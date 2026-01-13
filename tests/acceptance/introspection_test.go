@@ -3,17 +3,18 @@ package acceptance
 import (
 	"testing"
 
-	"github.com/joshuapare/hivekit/bindings"
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/bindings"
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // Note: TestLastModified already exists in open_test.go and tests hivex_last_modified
 // It uses Info().LastWrite which is the gohivex equivalent
 
 // TestNodeNameLen tests hivex_node_name_len
-// Gets the UTF-8 decoded string length of a node name
+// Gets the UTF-8 decoded string length of a node name.
 func TestNodeNameLen(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -54,7 +55,7 @@ func TestNodeNameLen(t *testing.T) {
 			assert.Equal(t, int(hivexNameLen), goNameLen, "Name lengths should match")
 
 			// Verify we got a reasonable non-zero length
-			assert.Greater(t, goNameLen, 0, "Name length should be positive")
+			assert.Positive(t, goNameLen, "Name length should be positive")
 
 			t.Logf("Node '%s' decoded name length: %d bytes", tt.nodeName, goNameLen)
 		})
@@ -62,7 +63,7 @@ func TestNodeNameLen(t *testing.T) {
 }
 
 // TestValueKeyLen tests hivex_value_key_len
-// Gets the UTF-8 decoded string length of a value name
+// Gets the UTF-8 decoded string length of a value name.
 func TestValueKeyLen(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -110,7 +111,7 @@ func TestValueKeyLen(t *testing.T) {
 			assert.Equal(t, int(hivexValueNameLen), goValueNameLen, "Value name lengths should match")
 
 			// Verify we got a reasonable non-zero length
-			assert.Greater(t, goValueNameLen, 0, "Value name length should be positive")
+			assert.Positive(t, goValueNameLen, "Value name length should be positive")
 
 			t.Logf("Value '%s' decoded name length: %d bytes", tt.valueName, goValueNameLen)
 		})
@@ -118,7 +119,7 @@ func TestValueKeyLen(t *testing.T) {
 }
 
 // TestNodeStructLength tests hivex_node_struct_length
-// Gets the calculated minimum size of the NK record structure
+// Gets the calculated minimum size of the NK record structure.
 func TestNodeStructLength(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -149,8 +150,8 @@ func TestNodeStructLength(t *testing.T) {
 	hivexChildren := hivexHive.NodeChildren(hivexRoot)
 
 	if len(goChildren) > 0 {
-		goChildLen, err := goHive.NodeStructSizeCalculated(goChildren[0])
-		require.NoError(t, err)
+		goChildLen, childErr := goHive.NodeStructSizeCalculated(goChildren[0])
+		require.NoError(t, childErr)
 
 		hivexChildLen := hivexHive.NodeStructLength(hivexChildren[0])
 
@@ -160,7 +161,7 @@ func TestNodeStructLength(t *testing.T) {
 }
 
 // TestValueStructLength tests hivex_value_struct_length
-// Gets the calculated minimum size of the VK record structure
+// Gets the calculated minimum size of the VK record structure.
 func TestValueStructLength(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -187,8 +188,8 @@ func TestValueStructLength(t *testing.T) {
 
 	if len(goValues) > 0 {
 		// Get VK struct length using hivex-compatible method
-		goStructLen, err := goHive.ValueStructSizeCalculated(goValues[0])
-		require.NoError(t, err)
+		goStructLen, structErr := goHive.ValueStructSizeCalculated(goValues[0])
+		require.NoError(t, structErr)
 
 		hivexStructLen := hivexHive.ValueStructLength(hivexValues[0])
 
@@ -199,7 +200,7 @@ func TestValueStructLength(t *testing.T) {
 }
 
 // TestValueDataCellOffset tests hivex_value_data_cell_offset
-// Gets the file offset and length of the data cell for a value
+// Gets the file offset and length of the data cell for a value.
 func TestValueDataCellOffset(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -226,8 +227,8 @@ func TestValueDataCellOffset(t *testing.T) {
 
 	if len(goValues) > 0 {
 		// Get data cell offset using hivex-compatible method
-		goOffset, goLen, err := goHive.ValueDataCellOffsetHivex(goValues[0])
-		require.NoError(t, err)
+		goOffset, goLen, offsetErr := goHive.ValueDataCellOffsetHivex(goValues[0])
+		require.NoError(t, offsetErr)
 
 		hivexOffset, hivexLen := hivexHive.ValueDataCellOffset(hivexValues[0])
 
@@ -251,7 +252,7 @@ func TestValueDataCellOffset(t *testing.T) {
 }
 
 // TestIntrospectionRecursive tests all introspection functions recursively
-// This provides comprehensive coverage of all nodes/values in a hive
+// This provides comprehensive coverage of all nodes/values in a hive.
 func TestIntrospectionRecursive(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -278,14 +279,14 @@ func TestIntrospectionRecursive(t *testing.T) {
 		nodeCount++
 
 		// Test node introspection using hivex-compatible methods
-		goNameLen, err := goHive.KeyNameLenDecoded(goNode)
-		require.NoError(t, err)
+		goNameLen, nameLenErr := goHive.KeyNameLenDecoded(goNode)
+		require.NoError(t, nameLenErr)
 
 		hivexNameLen := hivexHive.NodeNameLen(hivexNode)
 		assert.Equal(t, int(hivexNameLen), goNameLen, "Name length mismatch at depth %d", depth)
 
-		goStructLen, err := goHive.NodeStructSizeCalculated(goNode)
-		require.NoError(t, err)
+		goStructLen, structErr := goHive.NodeStructSizeCalculated(goNode)
+		require.NoError(t, structErr)
 
 		hivexStructLen := hivexHive.NodeStructLength(hivexNode)
 		assert.Equal(t, int(hivexStructLen), goStructLen, "Struct length mismatch at depth %d", depth)
@@ -297,20 +298,20 @@ func TestIntrospectionRecursive(t *testing.T) {
 		for i, goVal := range goValues {
 			valueCount++
 
-			goValNameLen, err := goHive.ValueNameLenDecoded(goVal)
-			require.NoError(t, err)
+			goValNameLen, valNameLenErr := goHive.ValueNameLenDecoded(goVal)
+			require.NoError(t, valNameLenErr)
 
 			hivexValNameLen := hivexHive.ValueKeyLen(hivexValues[i])
 			assert.Equal(t, int(hivexValNameLen), goValNameLen, "Value name length mismatch")
 
-			goValStructLen, err := goHive.ValueStructSizeCalculated(goVal)
-			require.NoError(t, err)
+			goValStructLen, valStructErr := goHive.ValueStructSizeCalculated(goVal)
+			require.NoError(t, valStructErr)
 
 			hivexValStructLen := hivexHive.ValueStructLength(hivexValues[i])
 			assert.Equal(t, int(hivexValStructLen), goValStructLen, "Value struct length mismatch")
 
-			goOffset, goLen, err := goHive.ValueDataCellOffsetHivex(goVal)
-			require.NoError(t, err)
+			goOffset, goLen, offsetErr := goHive.ValueDataCellOffsetHivex(goVal)
+			require.NoError(t, offsetErr)
 
 			hivexOffset, hivexLen := hivexHive.ValueDataCellOffset(hivexValues[i])
 

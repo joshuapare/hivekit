@@ -3,16 +3,17 @@ package acceptance
 import (
 	"testing"
 
-	"github.com/joshuapare/hivekit/bindings"
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/bindings"
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // TestValueString tests hivex_value_string
 // Decodes REG_SZ and REG_EXPAND_SZ values (UTF-16LE → UTF-8)
 // Note: Our test hives don't have string values, so this test is skipped
-// In a real scenario, you'd test with a hive containing REG_SZ values
+// In a real scenario, you'd test with a hive containing REG_SZ values.
 func TestValueString(t *testing.T) {
 	t.Skip("Test hives don't contain REG_SZ values - they have REG_DWORD instead")
 
@@ -43,7 +44,7 @@ func TestValueString(t *testing.T) {
 }
 
 // TestValueDword tests hivex_value_dword
-// Decodes REG_DWORD values (32-bit integers)
+// Decodes REG_DWORD values (32-bit integers).
 func TestValueDword(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -100,7 +101,7 @@ func TestValueDword(t *testing.T) {
 }
 
 // TestValueQword tests hivex_value_qword
-// Decodes REG_QWORD values (64-bit integers)
+// Decodes REG_QWORD values (64-bit integers).
 func TestValueQword(t *testing.T) {
 	t.Skip("Test hives don't contain REG_QWORD values")
 
@@ -131,7 +132,7 @@ func TestValueQword(t *testing.T) {
 }
 
 // TestValueMultipleStrings tests hivex_value_multiple_strings
-// Decodes REG_MULTI_SZ values (string arrays)
+// Decodes REG_MULTI_SZ values (string arrays).
 func TestValueMultipleStrings(t *testing.T) {
 	t.Skip("Test hives don't contain REG_MULTI_SZ values")
 
@@ -166,7 +167,7 @@ func TestValueMultipleStrings(t *testing.T) {
 	*/
 }
 
-// TestTypedValuesAllTypes tests decoding all value types in a hive
+// TestTypedValuesAllTypes tests decoding all value types in a hive.
 func TestTypedValuesAllTypes(t *testing.T) {
 	t.Run("special_dword", func(t *testing.T) {
 		goHive := openGoHivex(t, TestHives.Special)
@@ -211,8 +212,14 @@ func TestTypedValuesAllTypes(t *testing.T) {
 	})
 }
 
-// testAllValuesInNode tests all values in a node
-func testAllValuesInNode(t *testing.T, goHive hive.Reader, hivexHive *bindings.Hive, goNode hive.NodeID, hivexNode bindings.NodeHandle) {
+// testAllValuesInNode tests all values in a node.
+func testAllValuesInNode(
+	t *testing.T,
+	goHive hive.Reader,
+	hivexHive *bindings.Hive,
+	goNode hive.NodeID,
+	hivexNode bindings.NodeHandle,
+) {
 	t.Helper()
 
 	// Get all values
@@ -225,8 +232,8 @@ func testAllValuesInNode(t *testing.T, goHive hive.Reader, hivexHive *bindings.H
 
 	// Try to decode each value based on its type
 	for i, goVal := range goValues {
-		goMeta, err := goHive.StatValue(goVal)
-		require.NoError(t, err)
+		goMeta, statErr := goHive.StatValue(goVal)
+		require.NoError(t, statErr)
 
 		typeCounts[goMeta.Type]++
 
@@ -235,55 +242,55 @@ func testAllValuesInNode(t *testing.T, goHive hive.Reader, hivexHive *bindings.H
 
 		switch goMeta.Type {
 		case hive.REG_SZ, hive.REG_EXPAND_SZ:
-			goStr, err := goHive.ValueString(goVal, hive.ReadOptions{})
-			require.NoError(t, err)
+			goStr, strErr := goHive.ValueString(goVal, hive.ReadOptions{})
+			require.NoError(t, strErr)
 
-			hivexStr, err := hivexHive.ValueString(hivexValues[i])
-			require.NoError(t, err)
+			hivexStr, hivexStrErr := hivexHive.ValueString(hivexValues[i])
+			require.NoError(t, hivexStrErr)
 
 			assertStringsEqual(t, goStr, hivexStr, "String value %d", i)
 			t.Logf("  -> String: %q", goStr)
 
 		case hive.REG_DWORD:
-			goDword, err := goHive.ValueDWORD(goVal)
-			require.NoError(t, err)
+			goDword, dwordErr := goHive.ValueDWORD(goVal)
+			require.NoError(t, dwordErr)
 
-			hivexDword, err := hivexHive.ValueDword(hivexValues[i])
-			require.NoError(t, err)
+			hivexDword, hivexDwordErr := hivexHive.ValueDword(hivexValues[i])
+			require.NoError(t, hivexDwordErr)
 
 			assert.Equal(t, goDword, uint32(hivexDword), "DWORD value %d", i)
 			t.Logf("  -> DWORD: %d (0x%08x)", goDword, goDword)
 
 		case hive.REG_QWORD:
-			goQword, err := goHive.ValueQWORD(goVal)
-			require.NoError(t, err)
+			goQword, qwordErr := goHive.ValueQWORD(goVal)
+			require.NoError(t, qwordErr)
 
-			hivexQword, err := hivexHive.ValueQword(hivexValues[i])
-			require.NoError(t, err)
+			hivexQword, hivexQwordErr := hivexHive.ValueQword(hivexValues[i])
+			require.NoError(t, hivexQwordErr)
 
 			assert.Equal(t, goQword, uint64(hivexQword), "QWORD value %d", i)
 			t.Logf("  -> QWORD: %d (0x%016x)", goQword, goQword)
 
 		case hive.REG_MULTI_SZ:
-			goStrs, err := goHive.ValueStrings(goVal, hive.ReadOptions{})
-			require.NoError(t, err)
+			goStrs, strsErr := goHive.ValueStrings(goVal, hive.ReadOptions{})
+			require.NoError(t, strsErr)
 
-			hivexStrs, err := hivexHive.ValueMultipleStrings(hivexValues[i])
-			require.NoError(t, err)
+			hivexStrs, hivexStrsErr := hivexHive.ValueMultipleStrings(hivexValues[i])
+			require.NoError(t, hivexStrsErr)
 
-			require.Equal(t, len(goStrs), len(hivexStrs), "MULTI_SZ count %d", i)
+			require.Len(t, hivexStrs, len(goStrs), "MULTI_SZ count %d", i)
 			for j := range goStrs {
 				assertStringsEqual(t, goStrs[j], hivexStrs[j], "MULTI_SZ[%d][%d]", i, j)
 			}
 			t.Logf("  -> MULTI_SZ: %v", goStrs)
 
-		case hive.REG_BINARY, hive.REG_NONE:
+		case hive.REG_BINARY, hive.REG_NONE, hive.REG_DWORD_BE, hive.REG_LINK:
 			// Just verify we can read raw bytes
-			goBytes, err := goHive.ValueBytes(goVal, hive.ReadOptions{})
-			require.NoError(t, err)
+			goBytes, bytesErr := goHive.ValueBytes(goVal, hive.ReadOptions{})
+			require.NoError(t, bytesErr)
 
-			hivexBytes, _, err := hivexHive.ValueValue(hivexValues[i])
-			require.NoError(t, err)
+			hivexBytes, _, hivexBytesErr := hivexHive.ValueValue(hivexValues[i])
+			require.NoError(t, hivexBytesErr)
 
 			assertBytesEqual(t, goBytes, hivexBytes, "Binary value %d", i)
 			t.Logf("  -> Binary: %d bytes", len(goBytes))
@@ -299,12 +306,12 @@ func testAllValuesInNode(t *testing.T, goHive hive.Reader, hivexHive *bindings.H
 	}
 }
 
-// TestValueStringWithSpecialChars tests string decoding with special characters
+// TestValueStringWithSpecialChars tests string decoding with special characters.
 func TestValueStringWithSpecialChars(t *testing.T) {
 	t.Skip("Test hives don't contain REG_SZ values - special hive has REG_DWORD instead")
 }
 
-// TestValueTypeError tests that decoding with wrong type fails appropriately
+// TestValueTypeError tests that decoding with wrong type fails appropriately.
 func TestValueTypeError(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()

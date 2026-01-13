@@ -1,13 +1,19 @@
 package repair
 
-// Severity classifies how serious a diagnostic issue is
+const (
+	unknownStatusString = "UNKNOWN"
+	hbinStructureName   = "HBIN"
+	regfStructureName   = "REGF"
+)
+
+// Severity classifies how serious a diagnostic issue is.
 type Severity int
 
 const (
 	SevInfo     Severity = iota // Informational (unusual but valid)
-	SevWarning                   // Non-critical issue, may affect performance
-	SevError                     // Data loss or access failure, key/value inaccessible
-	SevCritical                  // Structural corruption, prevents opening/parsing
+	SevWarning                  // Non-critical issue, may affect performance
+	SevError                    // Data loss or access failure, key/value inaccessible
+	SevCritical                 // Structural corruption, prevents opening/parsing
 )
 
 func (s Severity) String() string {
@@ -21,18 +27,18 @@ func (s Severity) String() string {
 	case SevCritical:
 		return "CRITICAL"
 	default:
-		return "UNKNOWN"
+		return unknownStatusString
 	}
 }
 
-// DiagCategory classifies the type of issue found
+// DiagCategory classifies the type of issue found.
 type DiagCategory int
 
 const (
 	DiagStructure   DiagCategory = iota // REGF/HBIN/cell structure problems
-	DiagData                             // Value data corruption or truncation
-	DiagIntegrity                        // Checksums, links, references broken
-	DiagPerformance                      // Fragmentation, inefficiency (info only)
+	DiagData                            // Value data corruption or truncation
+	DiagIntegrity                       // Checksums, links, references broken
+	DiagPerformance                     // Fragmentation, inefficiency (info only)
 )
 
 func (c DiagCategory) String() string {
@@ -46,19 +52,19 @@ func (c DiagCategory) String() string {
 	case DiagPerformance:
 		return "PERFORMANCE"
 	default:
-		return "UNKNOWN"
+		return unknownStatusString
 	}
 }
 
-// RepairType describes what kind of repair action is suggested
+// RepairType describes what kind of repair action is suggested.
 type RepairType int
 
 const (
 	RepairTruncate RepairType = iota // Reduce size to fit available data
-	RepairRebuild                     // Reconstruct index or structure
-	RepairRemove                      // Remove corrupt entry
-	RepairReplace                     // Replace with corrected value
-	RepairDefault                     // Use default/safe value
+	RepairRebuild                    // Reconstruct index or structure
+	RepairRemove                     // Remove corrupt entry
+	RepairReplace                    // Replace with corrected value
+	RepairDefault                    // Use default/safe value
 )
 
 func (r RepairType) String() string {
@@ -74,18 +80,18 @@ func (r RepairType) String() string {
 	case RepairDefault:
 		return "DEFAULT"
 	default:
-		return "UNKNOWN"
+		return unknownStatusString
 	}
 }
 
-// RiskLevel indicates how dangerous a repair action is
+// RiskLevel indicates how dangerous a repair action is.
 type RiskLevel int
 
 const (
 	RiskNone   RiskLevel = iota // No risk, purely metadata
-	RiskLow                      // Minimal risk, easy to undo
-	RiskMedium                   // Moderate risk, may lose data
-	RiskHigh                     // High risk, significant data loss possible
+	RiskLow                     // Minimal risk, easy to undo
+	RiskMedium                  // Moderate risk, may lose data
+	RiskHigh                    // High risk, significant data loss possible
 )
 
 func (r RiskLevel) String() string {
@@ -99,20 +105,20 @@ func (r RiskLevel) String() string {
 	case RiskHigh:
 		return "HIGH"
 	default:
-		return "UNKNOWN"
+		return unknownStatusString
 	}
 }
 
-// RepairAction describes how to fix the issue
+// RepairAction describes how to fix the issue.
 type RepairAction struct {
 	Type        RepairType `json:"type"`
 	Description string     `json:"description"`
-	Confidence  float32    `json:"confidence"`  // 0.0-1.0, how confident we are this will work
-	Risk        RiskLevel  `json:"risk"`        // Safety level of this repair
+	Confidence  float32    `json:"confidence"` // 0.0-1.0, how confident we are this will work
+	Risk        RiskLevel  `json:"risk"`       // Safety level of this repair
 	AutoApply   bool       `json:"auto_apply"` // Safe for automatic repair without user confirmation?
 }
 
-// Diagnostic represents a single issue found in the hive
+// Diagnostic represents a single issue found in the hive.
 type Diagnostic struct {
 	// Classification
 	Severity Severity     `json:"severity"`
@@ -135,7 +141,7 @@ type Diagnostic struct {
 	Repair *RepairAction `json:"repair,omitempty"`
 }
 
-// DiagContext provides hierarchical context for better reporting
+// DiagContext provides hierarchical context for better reporting.
 type DiagContext struct {
 	KeyPath      string `json:"key_path,omitempty"`      // e.g., "HKLM\Software\Microsoft"
 	ParentOffset uint32 `json:"parent_offset,omitempty"` // Parent NK offset

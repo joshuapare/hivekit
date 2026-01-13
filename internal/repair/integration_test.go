@@ -12,24 +12,24 @@ import (
 
 // RepairTestCase describes a single repair integration test.
 type RepairTestCase struct {
-	Name              string   // Test case name
-	HivePath          string   // Path to corrupted hive file
-	ExpectedIssues    int      // Expected number of issues found
-	ExpectedRepairable int     // Expected number of repairable issues
-	ExpectedApplied   int      // Expected number of repairs applied
+	Name                string   // Test case name
+	HivePath            string   // Path to corrupted hive file
+	ExpectedIssues      int      // Expected number of issues found
+	ExpectedRepairable  int      // Expected number of repairable issues
+	ExpectedApplied     int      // Expected number of repairs applied
 	ExpectedDiagnostics []string // Expected diagnostic issue substrings (optional)
-	ShouldSucceed     bool     // Whether repair should succeed
-	VerifyParseable   bool     // Whether to verify hive is parseable after repair
+	ShouldSucceed       bool     // Whether repair should succeed
+	VerifyParseable     bool     // Whether to verify hive is parseable after repair
 }
 
 func TestRepairEngine_Integration(t *testing.T) {
 	testCases := []RepairTestCase{
 		{
-			Name:              "corrupt_cell_offset_overflow",
-			HivePath:          "../../testdata/corrupted/corrupt_cell_offset_overflow",
-			ExpectedIssues:    1, // Should find the dangling subkey list offset
+			Name:               "corrupt_cell_offset_overflow",
+			HivePath:           "../../testdata/corrupted/corrupt_cell_offset_overflow",
+			ExpectedIssues:     1, // Should find the dangling subkey list offset
 			ExpectedRepairable: 1,
-			ExpectedApplied:   1,
+			ExpectedApplied:    1,
 			ExpectedDiagnostics: []string{
 				"Subkey count is 0 but list offset",
 			},
@@ -37,11 +37,11 @@ func TestRepairEngine_Integration(t *testing.T) {
 			VerifyParseable: true,
 		},
 		{
-			Name:              "corrupt_regf_sequence_mismatch",
-			HivePath:          "../../testdata/corrupted/corrupt_regf_sequence_mismatch",
-			ExpectedIssues:    1,
+			Name:               "corrupt_regf_sequence_mismatch",
+			HivePath:           "../../testdata/corrupted/corrupt_regf_sequence_mismatch",
+			ExpectedIssues:     1,
 			ExpectedRepairable: 1,
-			ExpectedApplied:   0, // Not auto-applied (AutoApply: false)
+			ExpectedApplied:    0, // Not auto-applied (AutoApply: false)
 			ExpectedDiagnostics: []string{
 				"sequence numbers differ",
 			},
@@ -49,11 +49,11 @@ func TestRepairEngine_Integration(t *testing.T) {
 			VerifyParseable: true,
 		},
 		{
-			Name:              "corrupt_hbin_file_offset_mismatch",
-			HivePath:          "../../testdata/corrupted/corrupt_hbin_file_offset_mismatch",
-			ExpectedIssues:    1,
+			Name:               "corrupt_hbin_file_offset_mismatch",
+			HivePath:           "../../testdata/corrupted/corrupt_hbin_file_offset_mismatch",
+			ExpectedIssues:     1,
 			ExpectedRepairable: 1,
-			ExpectedApplied:   1,
+			ExpectedApplied:    1,
 			ExpectedDiagnostics: []string{
 				"HBIN",
 				"file offset mismatch",
@@ -62,11 +62,11 @@ func TestRepairEngine_Integration(t *testing.T) {
 			VerifyParseable: true,
 		},
 		{
-			Name:              "corrupt_nk_subkey_count_orphaned",
-			HivePath:          "../../testdata/corrupted/corrupt_nk_subkey_count_orphaned",
-			ExpectedIssues:    1,
+			Name:               "corrupt_nk_subkey_count_orphaned",
+			HivePath:           "../../testdata/corrupted/corrupt_nk_subkey_count_orphaned",
+			ExpectedIssues:     1,
 			ExpectedRepairable: 1,
-			ExpectedApplied:   1,
+			ExpectedApplied:    1,
 			ExpectedDiagnostics: []string{
 				"Subkey count > 0 but list offset is invalid",
 			},
@@ -74,11 +74,11 @@ func TestRepairEngine_Integration(t *testing.T) {
 			VerifyParseable: true,
 		},
 		{
-			Name:              "corrupt_nk_value_count_orphaned",
-			HivePath:          "../../testdata/corrupted/corrupt_nk_value_count_orphaned",
-			ExpectedIssues:    1,
+			Name:               "corrupt_nk_value_count_orphaned",
+			HivePath:           "../../testdata/corrupted/corrupt_nk_value_count_orphaned",
+			ExpectedIssues:     1,
 			ExpectedRepairable: 1,
-			ExpectedApplied:   1,
+			ExpectedApplied:    1,
 			ExpectedDiagnostics: []string{
 				"Value count > 0 but list offset is invalid",
 			},
@@ -86,11 +86,11 @@ func TestRepairEngine_Integration(t *testing.T) {
 			VerifyParseable: true,
 		},
 		{
-			Name:              "corrupt_nk_value_list_dangling",
-			HivePath:          "../../testdata/corrupted/corrupt_nk_value_list_dangling",
-			ExpectedIssues:    1,
+			Name:               "corrupt_nk_value_list_dangling",
+			HivePath:           "../../testdata/corrupted/corrupt_nk_value_list_dangling",
+			ExpectedIssues:     1,
 			ExpectedRepairable: 1,
-			ExpectedApplied:   1,
+			ExpectedApplied:    1,
 			ExpectedDiagnostics: []string{
 				"Value count is 0 but list offset is set",
 			},
@@ -220,7 +220,6 @@ func runRepairTest(t *testing.T, tc RepairTestCase) {
 
 		// Show transaction log
 		t.Logf("\nTransaction Log:\n%s", engine.ExportLog())
-
 	} else {
 		if err == nil {
 			t.Error("repair should have failed but succeeded")
@@ -236,24 +235,24 @@ func runRepairTest(t *testing.T, tc RepairTestCase) {
 
 		// Save repaired data to temp file for reader to open
 		tmpFile := filepath.Join(os.TempDir(), tc.Name+"_repaired_verify.tmp")
-		if err := os.WriteFile(tmpFile, repairData, 0644); err != nil {
-			t.Fatalf("failed to write temp file: %v", err)
+		if writeErr := os.WriteFile(tmpFile, repairData, 0644); writeErr != nil {
+			t.Fatalf("failed to write temp file: %v", writeErr)
 		}
 		defer os.Remove(tmpFile)
 
-		repairedReader, err := reader.Open(tmpFile, types.OpenOptions{
+		repairedReader, openErr := reader.Open(tmpFile, types.OpenOptions{
 			Tolerant: true,
 		})
 
-		if err != nil {
-			t.Errorf("failed to open repaired hive: %v", err)
+		if openErr != nil {
+			t.Errorf("failed to open repaired hive: %v", openErr)
 		} else {
 			defer repairedReader.Close()
 
 			// Check if issues were fixed
-			repairedReport, err := repairedReader.Diagnose()
-			if err != nil {
-				t.Logf("Warning: failed to run diagnostics on repaired hive: %v", err)
+			repairedReport, diagnoseErr := repairedReader.Diagnose()
+			if diagnoseErr != nil {
+				t.Logf("Warning: failed to run diagnostics on repaired hive: %v", diagnoseErr)
 			} else if repairedReport != nil {
 				repairedDiags := repairedReport.Diagnostics
 				t.Logf("After repair: %d diagnostic issues remain", len(repairedDiags))
@@ -275,21 +274,21 @@ func runRepairTest(t *testing.T, tc RepairTestCase) {
 			}
 
 			// Try to walk the registry tree
-			rootID, err := repairedReader.Root()
-			if err != nil {
-				t.Errorf("failed to get root key after repair: %v", err)
+			rootID, rootErr := repairedReader.Root()
+			if rootErr != nil {
+				t.Errorf("failed to get root key after repair: %v", rootErr)
 			} else {
-				rootName, err := repairedReader.KeyName(rootID)
-				if err != nil {
-					t.Logf("Warning: could not get root name: %v", err)
+				rootName, nameErr := repairedReader.KeyName(rootID)
+				if nameErr != nil {
+					t.Logf("Warning: could not get root name: %v", nameErr)
 				} else {
 					t.Logf("Successfully accessed root key: %s", rootName)
 				}
 
 				// Try to list subkeys
-				subkeyCount, err := repairedReader.KeySubkeyCount(rootID)
-				if err != nil {
-					t.Logf("Warning: could not get subkey count: %v", err)
+				subkeyCount, countErr := repairedReader.KeySubkeyCount(rootID)
+				if countErr != nil {
+					t.Logf("Warning: could not get subkey count: %v", countErr)
 				} else {
 					t.Logf("Root has %d subkeys", subkeyCount)
 				}
@@ -300,8 +299,8 @@ func runRepairTest(t *testing.T, tc RepairTestCase) {
 	// Step 7: Optionally save repaired hive for manual inspection
 	if os.Getenv("SAVE_REPAIRED_HIVES") == "1" {
 		repairedPath := filepath.Join(os.TempDir(), tc.Name+"_repaired")
-		if err := os.WriteFile(repairedPath, repairData, 0644); err != nil {
-			t.Logf("Warning: failed to save repaired hive: %v", err)
+		if saveErr := os.WriteFile(repairedPath, repairData, 0644); saveErr != nil {
+			t.Logf("Warning: failed to save repaired hive: %v", saveErr)
 		} else {
 			t.Logf("Saved repaired hive to: %s", repairedPath)
 		}
@@ -329,7 +328,7 @@ func containsSubstring(s, substr string) bool {
 func findSubstring(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		match := true
-		for j := 0; j < len(substr); j++ {
+		for j := range len(substr) {
 			if s[i+j] != substr[j] {
 				match = false
 				break

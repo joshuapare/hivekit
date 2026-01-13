@@ -1,0 +1,53 @@
+Windows Registry Editor Version 5.00
+
+; Patch 1 - Updates and additions to base configuration
+; Tests: Cross-file deduplication, value updates, deletions
+
+; Update existing values from base.reg (tests deduplication)
+[HKEY_LOCAL_MACHINE\Software\TestApp]
+"Version"="1.1.0"
+"InstallDate"="2025-01-20"
+"Enabled"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Config]
+"Timeout"=dword:00001f40
+"MaxConnections"=dword:000000c8
+"LogLevel"="DEBUG"
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\UI]
+"Theme"="Light"
+"FontSize"=dword:0000000e
+"WindowWidth"=dword:00000500
+
+; Delete some values (tests OpDeleteValue)
+[HKEY_LOCAL_MACHINE\Software\TestApp\Features]
+"EnableCrashReports"=-
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Network]
+"ProxyHost"=-
+"ProxyPort"=-
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Advanced]
+"VerboseLogging"=-
+"DebugMode"=-
+
+; Add new keys and values
+[HKEY_LOCAL_MACHINE\Software\TestApp\Monitoring]
+"Enabled"=dword:00000001
+"Interval"=dword:0000003c
+"Endpoint"="https://monitor.example.com"
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Cache]
+"Enabled"=dword:00000001
+"MaxSize"=dword:00400000
+"ExpiryDays"=dword:00000007
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Notifications]
+"Enabled"=dword:00000001
+"Sound"=dword:00000001
+"Popup"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Backup]
+"Enabled"=dword:00000000
+"BackupPath"="C:\\Backups\\TestApp"
+"Retention"=dword:0000001e

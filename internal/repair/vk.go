@@ -67,6 +67,12 @@ func (m *VKModule) Validate(data []byte, d Diagnostic) error {
 	case RepairTruncate:
 		// Truncating data lengths is safe
 		return nil
+	case RepairRebuild, RepairRemove:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
+		}
 	default:
 		return &RepairError{
 			Module:  m.name,
@@ -85,6 +91,12 @@ func (m *VKModule) Apply(data []byte, d Diagnostic) error {
 		return m.applyReplaceRepair(data, d)
 	case RepairTruncate:
 		return m.applyTruncateRepair(data, d)
+	case RepairRebuild, RepairRemove:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
+		}
 	default:
 		return &RepairError{
 			Module:  m.name,
@@ -141,6 +153,12 @@ func (m *VKModule) Verify(data []byte, d Diagnostic) error {
 				Offset:  d.Offset,
 				Message: fmt.Sprintf("verification failed: expected 0x%X, got 0x%X", expectedValue, actualValue),
 			}
+		}
+	case RepairRebuild, RepairRemove:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
 		}
 	}
 
@@ -251,7 +269,13 @@ func (m *VKModule) calculateVKStart(fieldOffset uint64) uint64 {
 	cellStart := (relativeToData / uint64(format.CellAlignment)) * uint64(format.CellAlignment)
 
 	// VK signature is at cellStart + CellHeaderSize
-	vkSigOffset := uint64(format.HeaderSize) + ((fieldOffset - uint64(format.HeaderSize)) / uint64(format.HBINAlignment) * uint64(format.HBINAlignment)) + uint64(format.HBINHeaderSize) + cellStart + uint64(format.CellHeaderSize)
+	vkSigOffset := uint64(
+		format.HeaderSize,
+	) + ((fieldOffset - uint64(format.HeaderSize)) / uint64(format.HBINAlignment) * uint64(format.HBINAlignment)) + uint64(
+		format.HBINHeaderSize,
+	) + cellStart + uint64(
+		format.CellHeaderSize,
+	)
 
 	return vkSigOffset
 }

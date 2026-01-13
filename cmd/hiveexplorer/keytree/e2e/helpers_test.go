@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree"
-	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // Test helper functions for e2e tests
@@ -98,11 +97,10 @@ type ItemOption func(*keytree.Item)
 // newTestItem creates a test Item with sensible defaults
 func newTestItem(name string, opts ...ItemOption) keytree.Item {
 	item := keytree.Item{
-		Name:       name,
-		Path:       "TEST\\" + name,
-		Depth:      0,
-		DiffStatus: hive.DiffUnchanged,
-		NodeID:     1,
+		Name:   name,
+		Path:   "TEST\\" + name,
+		Depth:  0,
+		NodeID: 1,
 	}
 
 	for _, opt := range opts {
@@ -125,13 +123,6 @@ func withChildren(count int, expanded bool) ItemOption {
 		i.HasChildren = true
 		i.SubkeyCount = count
 		i.Expanded = expanded
-	}
-}
-
-// withDiffStatus sets the DiffStatus
-func withDiffStatus(status hive.DiffStatus) ItemOption {
-	return func(i *keytree.Item) {
-		i.DiffStatus = status
 	}
 }
 

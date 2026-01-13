@@ -1,22 +1,10 @@
 package hive
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
-
 )
-
-// bufWriter implements Writer for in-memory buffers.
-type bufWriter struct {
-	buf *bytes.Buffer
-}
-
-func (w *bufWriter) WriteHive(data []byte) error {
-	_, err := w.buf.Write(data)
-	return err
-}
 
 // copyFile copies a file from src to dst.
 func copyFile(src, dst string) error {
@@ -32,8 +20,8 @@ func copyFile(src, dst string) error {
 	}
 	defer dstFile.Close()
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("failed to copy data: %w", err)
+	if _, copyErr := io.Copy(dstFile, srcFile); copyErr != nil {
+		return fmt.Errorf("failed to copy data: %w", copyErr)
 	}
 
 	return dstFile.Close()
@@ -46,24 +34,4 @@ func fileExists(path string) bool {
 		return false
 	}
 	return !info.IsDir()
-}
-
-// applyOperation applies a single edit operation to a transaction.
-func applyOperation(tx Tx, op EditOp) error {
-	switch op := op.(type) {
-	case OpCreateKey:
-		return tx.CreateKey(op.Path, CreateKeyOptions{CreateParents: true})
-
-	case OpSetValue:
-		return tx.SetValue(op.Path, op.Name, op.Type, op.Data)
-
-	case OpDeleteKey:
-		return tx.DeleteKey(op.Path, DeleteKeyOptions{Recursive: op.Recursive})
-
-	case OpDeleteValue:
-		return tx.DeleteValue(op.Path, op.Name)
-
-	default:
-		return fmt.Errorf("unknown operation type: %T", op)
-	}
 }

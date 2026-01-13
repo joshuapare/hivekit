@@ -40,9 +40,9 @@ func TestREGNONE_Investigation(t *testing.T) {
 
 	for _, valID := range values {
 		meta, _ := r.StatValue(valID)
-		valueData, err := r.ValueBytes(valID, types.ReadOptions{})
-		if err != nil {
-			t.Logf("  %s: ERROR: %v", meta.Name, err)
+		valueData, readErr := r.ValueBytes(valID, types.ReadOptions{})
+		if readErr != nil {
+			t.Logf("  %s: ERROR: %v", meta.Name, readErr)
 		} else {
 			t.Logf("  %s: type=%d, size=%d bytes, data=%x...",
 				meta.Name, meta.Type, len(valueData), valueData[:min(8, len(valueData))])

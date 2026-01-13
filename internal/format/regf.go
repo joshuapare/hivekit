@@ -46,13 +46,13 @@ func ParseHeader(b []byte) (Header, error) {
 	}
 	pseq := buf.U32LE(b[REGFPrimarySeqOffset:])
 	sseq := buf.U32LE(b[REGFSecondarySeqOffset:])
-	lastWrite := buf.U64LE(b[REGFLastWriteOffset:])
+	lastWrite := buf.U64LE(b[REGFTimeStampOffset:])
 	major := buf.U32LE(b[REGFMajorVersionOffset:])
 	minor := buf.U32LE(b[REGFMinorVersionOffset:])
 	hType := buf.U32LE(b[REGFTypeOffset:])
 	rootOff := buf.U32LE(b[REGFRootCellOffset:])
 	hbinsSize := buf.U32LE(b[REGFDataSizeOffset:])
-	cluster := buf.U32LE(b[REGFClusteringOffset:])
+	cluster := buf.U32LE(b[REGFClusterOffset:])
 	return Header{
 		PrimarySequence:   pseq,
 		SecondarySequence: sseq,

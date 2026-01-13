@@ -1,17 +1,14 @@
 package hive
 
 import (
-	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
-	"github.com/joshuapare/hivekit/internal/edit"
-	"github.com/joshuapare/hivekit/internal/reader"
-	"github.com/joshuapare/hivekit/pkg/types"
+	"github.com/joshuapare/hivekit/hive/merge"
 )
 
 // SetValue sets a registry value at the specified path.
@@ -20,7 +17,14 @@ import (
 // Example:
 //
 //	err := ops.SetValue("system.hive", "Software\\MyApp", "Version", REG_SZ, []byte("1.0.0"), nil)
-func SetValue(hivePath string, keyPath string, valueName string, valueType RegType, data []byte, opts *OperationOptions) error {
+func SetValue(
+	hivePath string,
+	keyPath string,
+	valueName string,
+	valueType RegType,
+	data []byte,
+	opts *OperationOptions,
+) error {
 	if !fileExists(hivePath) {
 		return fmt.Errorf("hive file not found: %s", hivePath)
 	}
@@ -42,57 +46,25 @@ func SetValue(hivePath string, keyPath string, valueName string, valueType RegTy
 		}
 	}
 
-	// Open hive
-	hiveData, err := os.ReadFile(hivePath)
-	if err != nil {
-		return fmt.Errorf("failed to read hive %s: %w", hivePath, err)
-	}
+	// Create merge plan
+	plan := merge.NewPlan()
 
-	r, err := reader.OpenBytes(hiveData, OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open hive %s: %w", hivePath, err)
-	}
-	defer r.Close()
-
-	// Start transaction
-	ed := edit.NewEditor(r)
-	tx := ed.BeginWithLimits(*opts.Limits)
+	// Split key path into segments
+	keyPath = strings.TrimPrefix(keyPath, "\\")
+	pathSegments := splitPath(keyPath)
 
 	// Create key if requested
 	if opts.CreateKey {
-		if err := tx.CreateKey(keyPath, CreateKeyOptions{CreateParents: true}); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to create key: %w", err)
-		}
+		plan.AddEnsureKey(pathSegments)
 	}
 
 	// Set value
-	if err := tx.SetValue(keyPath, valueName, valueType, data); err != nil {
-		tx.Rollback()
+	plan.AddSetValue(pathSegments, valueName, uint32(valueType), data)
+
+	// Apply plan
+	_, err := merge.MergePlan(context.Background(), hivePath, plan, nil)
+	if err != nil {
 		return fmt.Errorf("failed to set value: %w", err)
-	}
-
-	// Dry run? Don't commit
-	if opts.DryRun {
-		return tx.Rollback()
-	}
-
-	// Commit to buffer
-	buf := &bytes.Buffer{}
-	writeOpts := types.WriteOptions{Repack: opts.Defragment}
-	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
-	}
-
-	// Write to file atomically
-	tempPath := hivePath + ".tmp"
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file: %w", err)
-	}
-
-	if err := os.Rename(tempPath, hivePath); err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive: %w", err)
 	}
 
 	return nil
@@ -119,7 +91,7 @@ func SetQWORDValue(hivePath string, keyPath string, valueName string, value uint
 	return SetValue(hivePath, keyPath, valueName, REG_QWORD, data, opts)
 }
 
-// DeleteKey deletes a registry key from the 
+// DeleteKey deletes a registry key from the
 //
 // Example:
 //
@@ -146,49 +118,20 @@ func DeleteKey(hivePath string, keyPath string, recursive bool, opts *OperationO
 		}
 	}
 
-	// Open hive
-	hiveData, err := os.ReadFile(hivePath)
+	// Create merge plan
+	plan := merge.NewPlan()
+
+	// Split key path into segments
+	keyPath = strings.TrimPrefix(keyPath, "\\")
+	pathSegments := splitPath(keyPath)
+
+	// Delete key (merge API always deletes recursively)
+	plan.AddDeleteKey(pathSegments)
+
+	// Apply plan
+	_, err := merge.MergePlan(context.Background(), hivePath, plan, nil)
 	if err != nil {
-		return fmt.Errorf("failed to read hive %s: %w", hivePath, err)
-	}
-
-	r, err := reader.OpenBytes(hiveData, OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open hive %s: %w", hivePath, err)
-	}
-	defer r.Close()
-
-	// Start transaction
-	ed := edit.NewEditor(r)
-	tx := ed.BeginWithLimits(*opts.Limits)
-
-	// Delete key
-	if err := tx.DeleteKey(keyPath, DeleteKeyOptions{Recursive: recursive}); err != nil {
-		tx.Rollback()
 		return fmt.Errorf("failed to delete key: %w", err)
-	}
-
-	// Dry run? Don't commit
-	if opts.DryRun {
-		return tx.Rollback()
-	}
-
-	// Commit to buffer
-	buf := &bytes.Buffer{}
-	writeOpts := types.WriteOptions{Repack: opts.Defragment}
-	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
-	}
-
-	// Write to file atomically
-	tempPath := hivePath + ".tmp"
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file: %w", err)
-	}
-
-	if err := os.Rename(tempPath, hivePath); err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive: %w", err)
 	}
 
 	return nil
@@ -221,55 +164,35 @@ func DeleteValue(hivePath string, keyPath string, valueName string, opts *Operat
 		}
 	}
 
-	// Open hive
-	hiveData, err := os.ReadFile(hivePath)
-	if err != nil {
-		return fmt.Errorf("failed to read hive %s: %w", hivePath, err)
-	}
+	// Create merge plan
+	plan := merge.NewPlan()
 
-	r, err := reader.OpenBytes(hiveData, OpenOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to open hive %s: %w", hivePath, err)
-	}
-	defer r.Close()
-
-	// Start transaction
-	ed := edit.NewEditor(r)
-	tx := ed.BeginWithLimits(*opts.Limits)
+	// Split key path into segments
+	keyPath = strings.TrimPrefix(keyPath, "\\")
+	pathSegments := splitPath(keyPath)
 
 	// Delete value
-	if err := tx.DeleteValue(keyPath, valueName); err != nil {
-		tx.Rollback()
+	plan.AddDeleteValue(pathSegments, valueName)
+
+	// Apply plan
+	_, err := merge.MergePlan(context.Background(), hivePath, plan, nil)
+	if err != nil {
 		return fmt.Errorf("failed to delete value: %w", err)
-	}
-
-	// Dry run? Don't commit
-	if opts.DryRun {
-		return tx.Rollback()
-	}
-
-	// Commit to buffer
-	buf := &bytes.Buffer{}
-	writeOpts := types.WriteOptions{Repack: opts.Defragment}
-	if err := tx.Commit(&bufWriter{buf}, writeOpts); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
-	}
-
-	// Write to file atomically
-	tempPath := hivePath + ".tmp"
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write temporary file: %w", err)
-	}
-
-	if err := os.Rename(tempPath, hivePath); err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to replace hive: %w", err)
 	}
 
 	return nil
 }
 
-// encodeUTF16LEString encodes a UTF-8 string to UTF-16LE with null terminator
+// splitPath splits a registry path into segments.
+// Example: "Software\\Microsoft\\Windows" → ["Software", "Microsoft", "Windows"]
+func splitPath(path string) []string {
+	if path == "" {
+		return nil
+	}
+	return strings.Split(path, "\\")
+}
+
+// encodeUTF16LEString encodes a UTF-8 string to UTF-16LE with null terminator.
 func encodeUTF16LEString(s string) []byte {
 	// Convert to UTF-16
 	runes := []rune(s)
@@ -325,7 +248,7 @@ func ParseValueString(valueStr string, valueType string) (RegType, []byte, error
 	}
 }
 
-// parseHexString parses a hex string (with or without 0x prefix, with or without spaces)
+// parseHexString parses a hex string (with or without 0x prefix, with or without spaces).
 func parseHexString(s string) ([]byte, error) {
 	// Remove common separators and prefix
 	s = strings.TrimPrefix(s, "0x")

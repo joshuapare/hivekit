@@ -73,19 +73,23 @@ type (
 type RegType uint32
 
 const (
-	REG_NONE      RegType = 0
-	REG_SZ        RegType = 1
-	REG_EXPAND_SZ RegType = 2
-	REG_BINARY    RegType = 3
-	REG_DWORD     RegType = 4
-	REG_DWORD_LE  RegType = 4 // alias for clarity
-	REG_DWORD_BE  RegType = 5
-	REG_LINK      RegType = 6
-	REG_MULTI_SZ  RegType = 7
-	REG_QWORD     RegType = 11
+	REG_NONE                       RegType = 0
+	REG_SZ                         RegType = 1
+	REG_EXPAND_SZ                  RegType = 2
+	REG_BINARY                     RegType = 3
+	REG_DWORD                      RegType = 4
+	REG_DWORD_LE                   RegType = 4  // alias for clarity
+	REG_DWORD_BE                   RegType = 5
+	REG_LINK                       RegType = 6
+	REG_MULTI_SZ                   RegType = 7
+	REG_RESOURCE_LIST              RegType = 8  // Device driver resource list
+	REG_FULL_RESOURCE_DESCRIPTOR   RegType = 9  // Hardware resource descriptor
+	REG_RESOURCE_REQUIREMENTS_LIST RegType = 10 // Hardware resource requirements list
+	REG_QWORD                      RegType = 11
+	REG_QWORD_LE                   RegType = 11 // alias for clarity
 )
 
-// String implements the Stringer interface for RegType
+// String implements the Stringer interface for RegType.
 func (t RegType) String() string {
 	switch t {
 	case REG_NONE:
@@ -104,6 +108,12 @@ func (t RegType) String() string {
 		return "REG_LINK"
 	case REG_MULTI_SZ:
 		return "REG_MULTI_SZ"
+	case REG_RESOURCE_LIST:
+		return "REG_RESOURCE_LIST"
+	case REG_FULL_RESOURCE_DESCRIPTOR:
+		return "REG_FULL_RESOURCE_DESCRIPTOR"
+	case REG_RESOURCE_REQUIREMENTS_LIST:
+		return "REG_RESOURCE_REQUIREMENTS_LIST"
 	case REG_QWORD:
 		return "REG_QWORD"
 	default:
@@ -134,18 +144,19 @@ type KeyMeta struct {
 
 // KeyDetail exposes detailed NK record metadata for inspection/forensics.
 type KeyDetail struct {
-	KeyMeta                      // Embedded basic metadata
-	Flags              uint16    // NK flags (compressed name, root key, etc.)
-	ParentOffset       uint32    // Cell offset of parent NK
-	SubkeyListOffset   uint32    // Cell offset of subkey list
-	ValueListOffset    uint32    // Cell offset of value list
-	SecurityOffset     uint32    // Cell offset of security descriptor (SK)
-	ClassNameOffset    uint32    // Cell offset of class name
-	MaxNameLength      uint32    // Maximum subkey name length
-	MaxClassLength     uint32    // Maximum class length
-	MaxValueNameLength uint32    // Maximum value name length
-	MaxValueDataLength uint32    // Maximum value data length
-	ClassName          string    // Class name (if present)
+	KeyMeta // Embedded basic metadata
+
+	Flags              uint16 // NK flags (compressed name, root key, etc.)
+	ParentOffset       uint32 // Cell offset of parent NK
+	SubkeyListOffset   uint32 // Cell offset of subkey list
+	ValueListOffset    uint32 // Cell offset of value list
+	SecurityOffset     uint32 // Cell offset of security descriptor (SK)
+	ClassNameOffset    uint32 // Cell offset of class name
+	MaxNameLength      uint32 // Maximum subkey name length
+	MaxClassLength     uint32 // Maximum class length
+	MaxValueNameLength uint32 // Maximum value name length
+	MaxValueDataLength uint32 // Maximum value data length
+	ClassName          string // Class name (if present)
 }
 
 // HiveInfo exposes registry hive header (REGF) metadata.
@@ -283,6 +294,10 @@ type Reader interface {
 	// Path helpers for ergonomics (not performance critical):
 	// Path syntax mirrors Windows-style roots (e.g., "HKLM\\Software\\Vendor").
 	Find(path string) (NodeID, error)
+
+	// FindParts locates a key by pre-split path components (case-insensitive).
+	// Useful when you already have path parts to avoid join+parse overhead.
+	FindParts(parts []string) (NodeID, error)
 
 	// Walk performs pre-order traversal starting at n. Returning a non-nil error
 	// aborts the traversal; return a sentinel (implementation-defined) to skip children.
@@ -514,6 +529,11 @@ type RegParseOptions struct {
 	// InputEncoding declares the .reg text encoding (e.g., "UTF-16LE").
 	// Implementations may transcode to UTF-8 internally.
 	InputEncoding string
+
+	// AllowMissingHeader permits parsing .reg text without the standard header.
+	// When true, the parser will not require "Windows Registry Editor Version 5.00".
+	// Default is false (header required).
+	AllowMissingHeader bool
 }
 
 type RegExportOptions struct {

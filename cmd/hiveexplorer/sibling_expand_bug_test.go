@@ -8,12 +8,12 @@ import (
 )
 
 // TestSiblingExpandAfterCollapsingExpandedDescendants tests this specific scenario:
-// 1. Expand A > B > C > D > E (5 levels)
-// 2. Navigate back to B (level 1)
-// 3. Collapse B - this removes C, D, E from view
-// 4. Navigate to B's sibling (B2)
-// 5. Try to expand B2 - BUG: if B2 was previously expanded and then hidden by a parent collapse,
-//    it might take multiple Enter presses
+//  1. Expand A > B > C > D > E (5 levels)
+//  2. Navigate back to B (level 1)
+//  3. Collapse B - this removes C, D, E from view
+//  4. Navigate to B's sibling (B2)
+//  5. Try to expand B2 - BUG: if B2 was previously expanded and then hidden by a parent collapse,
+//     it might take multiple Enter presses
 func TestSiblingExpandAfterCollapsingExpandedDescendants(t *testing.T) {
 	helper := NewTestHelper("test.hive")
 
@@ -39,7 +39,7 @@ func TestSiblingExpandAfterCollapsingExpandedDescendants(t *testing.T) {
 
 	// Expand A1 (first child)
 	t.Log("Navigating to A1 and expanding")
-	helper.SendKey(tea.KeyDown) // Move to A1
+	helper.SendKey(tea.KeyDown)  // Move to A1
 	helper.SendKey(tea.KeyEnter) // Expand A1
 	childrenA1 := []keytree.KeyInfo{
 		{Path: "A\\A1\\A1a", Name: "A1a", SubkeyN: 1, ValueN: 0},
@@ -54,7 +54,7 @@ func TestSiblingExpandAfterCollapsingExpandedDescendants(t *testing.T) {
 
 	// Expand A1a (going deeper)
 	t.Log("Navigating to A1a and expanding")
-	helper.SendKey(tea.KeyDown) // Move to A1a
+	helper.SendKey(tea.KeyDown)  // Move to A1a
 	helper.SendKey(tea.KeyEnter) // Expand A1a
 	childrenA1a := []keytree.KeyInfo{
 		{Path: "A\\A1\\A1a\\Deep", Name: "Deep", SubkeyN: 0, ValueN: 1},
@@ -72,9 +72,9 @@ func TestSiblingExpandAfterCollapsingExpandedDescendants(t *testing.T) {
 	// Also expand A2 for good measure
 	t.Log("Navigating to A2 and expanding")
 	// Current position: A1a, need to go: Deep, A1b, A2
-	helper.SendKey(tea.KeyDown) // Deep
-	helper.SendKey(tea.KeyDown) // A1b
-	helper.SendKey(tea.KeyDown) // A2
+	helper.SendKey(tea.KeyDown)  // Deep
+	helper.SendKey(tea.KeyDown)  // A1b
+	helper.SendKey(tea.KeyDown)  // A2
 	helper.SendKey(tea.KeyEnter) // Expand A2
 	childrenA2 := []keytree.KeyInfo{
 		{Path: "A\\A2\\A2a", Name: "A2a", SubkeyN: 0, ValueN: 1},
@@ -185,7 +185,7 @@ func TestMultipleEnterPressesNeeded(t *testing.T) {
 	helper.LoadChildKeys("A", childrenA)
 
 	// Expand B
-	helper.SendKey(tea.KeyDown) // Move to B
+	helper.SendKey(tea.KeyDown)  // Move to B
 	helper.SendKey(tea.KeyEnter) // Expand B
 	childrenB := []keytree.KeyInfo{
 		{Path: "A\\B\\B1", Name: "B1", SubkeyN: 0, ValueN: 1},
@@ -195,7 +195,7 @@ func TestMultipleEnterPressesNeeded(t *testing.T) {
 	t.Logf("Tree: [A, B (expanded), B1, C]")
 
 	// Navigate back to A and collapse
-	helper.SendKey(tea.KeyUp) // B -> A
+	helper.SendKey(tea.KeyUp)    // B -> A
 	helper.SendKey(tea.KeyEnter) // Collapse A
 
 	t.Logf("After collapsing A, tree has %d items", helper.GetTreeItemCount())

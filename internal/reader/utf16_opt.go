@@ -2,7 +2,6 @@ package reader
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"github.com/joshuapare/hivekit/internal/format"
 )
@@ -73,39 +72,4 @@ func estimateUTF8Size(data []byte) int {
 	// For worst case (Chinese/Japanese): similar size
 	// Safe estimate: same size as UTF-16 input
 	return len(data)
-}
-
-// decodeUTF16LEToBuilder is an optimized version that writes directly to a strings.Builder
-// to avoid intermediate allocations. However, strings.Builder requires more complex code
-// and may not be worth it for short strings. This is here for future optimization if needed.
-func decodeUTF16LEToUTF8Bytes(data []byte, out []byte) int {
-	if len(data) == 0 {
-		return 0
-	}
-
-	outIdx := 0
-	for i := 0; i+1 < len(data); i += 2 {
-		// Read UTF-16LE code unit
-		r := rune(data[i]) | rune(data[i+1])<<8
-
-		// Check if it's a surrogate pair (U+D800 to U+DFFF)
-		if r >= format.UTF16HighSurrogateStart && r <= format.UTF16HighSurrogateEnd && i+3 < len(data) {
-			// High surrogate, need to read low surrogate
-			r2 := rune(data[i+2]) | rune(data[i+3])<<8
-			if r2 >= format.UTF16LowSurrogateStart && r2 <= format.UTF16LowSurrogateEnd {
-				// Valid surrogate pair
-				r = format.UTF16SurrogateBase + ((r-format.UTF16HighSurrogateStart)<<10 | (r2 - format.UTF16LowSurrogateStart))
-				i += 2 // Skip the low surrogate
-			}
-		}
-
-		// Encode to UTF-8
-		if outIdx+utf8.RuneLen(r) > len(out) {
-			// Buffer too small
-			break
-		}
-		outIdx += utf8.EncodeRune(out[outIdx:], r)
-	}
-
-	return outIdx
 }

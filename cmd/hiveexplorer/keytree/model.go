@@ -2,8 +2,6 @@ package keytree
 
 import (
 	"fmt"
-	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keyselection"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree/adapter"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree/display"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/virtuallist"
 	"github.com/joshuapare/hivekit/internal/reader"
 	"github.com/joshuapare/hivekit/pkg/hive"
@@ -73,7 +72,7 @@ func (m *Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	// Initialize renderer early to avoid nil pointer panics
 	if m.renderer == nil {
 		m.renderer = virtuallist.New(m)
-		fmt.Fprintf(os.Stderr, "[UPDATE] Created new renderer: m.renderer=%p\n", m.renderer)
+		logger.Debug("created new renderer", "renderer", fmt.Sprintf("%p", m.renderer))
 	}
 
 	var cmd tea.Cmd
@@ -98,7 +97,7 @@ func (m *Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.state.SetItems(rootItems)
 
-		fmt.Fprintf(os.Stderr, "[DEBUG] Tree loaded: %d total items, %d root items visible\n", len(msg.Items), len(rootItems))
+		logger.Debug("tree loaded", "total_items", len(msg.Items), "root_items", len(rootItems))
 
 		m.updateViewport()
 
@@ -148,7 +147,7 @@ func (m *Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			parent := items[parentIdx]
 
 			// Mark parent as expanded BEFORE copying to newItems
-			fmt.Fprintf(os.Stderr, "[DEBUG] children loaded: setting Expanded=true for parent %q\n", msg.Parent)
+			logger.Debug("children loaded: setting expanded", "parent", msg.Parent)
 			items[parentIdx].Expanded = true
 			m.state.SetExpanded(msg.Parent, true)
 
@@ -180,12 +179,13 @@ func (m *Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			oldCursor := m.nav.Cursor()
 			if oldCursor > parentIdx {
 				m.nav.SetCursor(oldCursor + len(children))
-				fmt.Fprintf(os.Stderr, "[DEBUG] children loaded: adjusted cursor %d -> %d (inserted %d after idx=%d)\n",
-					oldCursor, m.nav.Cursor(), len(children), parentIdx)
+				logger.Debug("children loaded: adjusted cursor",
+					"old_cursor", oldCursor, "new_cursor", m.nav.Cursor(),
+					"children_count", len(children), "parent_idx", parentIdx)
 			}
 
-			fmt.Fprintf(os.Stderr, "[DEBUG] children loaded: parent=%q, %d children, tree now has %d items\n",
-				msg.Parent, len(children), len(newItems))
+			logger.Debug("children loaded", "parent", msg.Parent,
+				"children_count", len(children), "total_items", len(newItems))
 			m.state.SetLoaded(msg.Parent, true)
 
 			m.updateViewport()
@@ -193,14 +193,14 @@ func (m *Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			// Check if we have a pending navigation to complete
 			pendingTarget := m.nav.PendingNavigationTarget()
 			if pendingTarget != "" {
-				fmt.Fprintf(os.Stderr, "[DEBUG] childKeysLoadedMsg: checking pending navigation to %q\n", pendingTarget)
+				logger.Debug("childKeysLoadedMsg: checking pending navigation", "target", pendingTarget)
 				// Try to find and navigate to the pending target
 				found := false
 				currentItems := m.state.Items()
 				for i := range currentItems {
 					if currentItems[i].Path == pendingTarget {
 						m.MoveTo(i)
-						fmt.Fprintf(os.Stderr, "[DEBUG] childKeysLoadedMsg: completed pending navigation to %q at index %d\n", pendingTarget, i)
+						logger.Debug("childKeysLoadedMsg: completed pending navigation", "target", pendingTarget, "index", i)
 						m.nav.ClearPendingNavigationTarget()
 						found = true
 						break
@@ -209,7 +209,7 @@ func (m *Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 				// If target still not found, continue expanding parents
 				if !found {
-					fmt.Fprintf(os.Stderr, "[DEBUG] childKeysLoadedMsg: target not found yet, continuing parent expansion\n")
+					logger.Debug("childKeysLoadedMsg: target not found yet, continuing parent expansion")
 					cmd = m.ExpandParents(pendingTarget)
 				}
 			}
@@ -239,33 +239,31 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Up):
 		m.MoveUp()
 		if item := m.CurrentItem(); item != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Up key: cursor=%d, path=%q\n",
-				m.GetCursor(), item.Path)
+			logger.Debug("up key", "cursor", m.GetCursor(), "path", item.Path)
 		}
 
 	case key.Matches(msg, m.keys.Down):
 		m.MoveDown()
 		if item := m.CurrentItem(); item != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Down key: cursor=%d, path=%q\n",
-				m.GetCursor(), item.Path)
+			logger.Debug("down key", "cursor", m.GetCursor(), "path", item.Path)
 		}
 
 	case key.Matches(msg, m.keys.Enter):
 		// Enter toggles expand/collapse
 		if item := m.CurrentItem(); item != nil && item.Expanded {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Enter: collapsing %q\n", item.Path)
+			logger.Debug("enter: collapsing", "path", item.Path)
 			m.Collapse()
 			return *m, nil
 		}
 		if item := m.CurrentItem(); item != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Enter: expanding %q\n", item.Path)
+			logger.Debug("enter: expanding", "path", item.Path)
 		}
 		return *m, m.Expand()
 
 	case key.Matches(msg, m.keys.Right):
 		// Right arrow only expands
 		if item := m.CurrentItem(); item != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Right: expanding %q\n", item.Path)
+			logger.Debug("right: expanding", "path", item.Path)
 		}
 		return *m, m.Expand()
 
@@ -345,14 +343,13 @@ func (m *Model) View() string {
 	// Lazy-initialize renderer to avoid dangling pointer from constructor
 	if m.renderer == nil {
 		m.renderer = virtuallist.New(m)
-		fmt.Fprintf(
-			os.Stderr,
-			"[VIEW] Created new renderer: m.renderer=%p, model=%p\n",
-			m.renderer,
-			m,
-		)
+		logger.Debug("view: created new renderer",
+			"renderer", fmt.Sprintf("%p", m.renderer),
+			"model", fmt.Sprintf("%p", m))
 	} else {
-		fmt.Fprintf(os.Stderr, "[VIEW] Using existing renderer: m.renderer=%p, model=%p\n", m.renderer, m)
+		logger.Debug("view: using existing renderer",
+			"renderer", fmt.Sprintf("%p", m.renderer),
+			"model", fmt.Sprintf("%p", m))
 	}
 	return m.renderer.View()
 }
@@ -453,16 +450,6 @@ func (m *Model) ExpandAllChildren() tea.Cmd {
 	// Store the starting cursor position
 	startCursor := m.nav.Cursor()
 
-	// In diff mode, use diffMap which is already in memory
-	if len(m.state.diffMap) > 0 {
-		m.expandAllFromDiffMap(item.Path)
-		m.nav.SetCursor(startCursor)
-		if m.renderer != nil {
-			m.renderer.SetCursor(startCursor)
-		}
-		return nil
-	}
-
 	// If allItems is loaded (upfront tree load), use in-memory expansion
 	allItems := m.state.AllItems()
 	if len(allItems) > 0 {
@@ -488,7 +475,7 @@ func (m *Model) ExpandAllChildren() tea.Cmd {
 
 // expandAllSync synchronously loads and expands all descendants in normal mode
 func (m *Model) expandAllSync(rootPath string) {
-	fmt.Fprintf(os.Stderr, "[DEBUG] expandAllSync: expanding all descendants of %q\n", rootPath)
+	logger.Debug("expandAllSync: expanding all descendants", "root", rootPath)
 
 	// Queue of paths to expand
 	toExpand := []string{rootPath}
@@ -516,11 +503,7 @@ func (m *Model) expandAllSync(rootPath string) {
 		}
 
 		if !found {
-			fmt.Fprintf(
-				os.Stderr,
-				"[DEBUG] expandAllSync: path %q not found in tree\n",
-				currentPath,
-			)
+			logger.Debug("expandAllSync: path not found in tree", "path", currentPath)
 			continue
 		}
 
@@ -531,13 +514,13 @@ func (m *Model) expandAllSync(rootPath string) {
 
 		// Load children if not already loaded
 		if !m.state.IsLoaded(currentPath) {
-			fmt.Fprintf(os.Stderr, "[DEBUG] expandAllSync: loading children for %q\n", currentPath)
+			logger.Debug("expandAllSync: loading children", "path", currentPath)
 
 			// Open reader if not already open
 			if m.reader == nil {
 				r, err := reader.Open(m.hivePath, hive.OpenOptions{})
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "[DEBUG] expandAllSync: error opening reader: %v\n", err)
+					logger.Error("expandAllSync: error opening reader", "error", err)
 					return
 				}
 				m.reader = r
@@ -546,10 +529,7 @@ func (m *Model) expandAllSync(rootPath string) {
 			// Get the hive.Reader interface
 			r, ok := m.reader.(hive.Reader)
 			if !ok {
-				fmt.Fprintf(
-					os.Stderr,
-					"[DEBUG] expandAllSync: reader does not implement hive.Reader\n",
-				)
+				logger.Error("expandAllSync: reader does not implement hive.Reader")
 				return
 			}
 
@@ -562,24 +542,14 @@ func (m *Model) expandAllSync(rootPath string) {
 				node, err = r.Find(currentPath)
 			}
 			if err != nil {
-				fmt.Fprintf(
-					os.Stderr,
-					"[DEBUG] expandAllSync: error finding key %q: %v\n",
-					currentPath,
-					err,
-				)
+				logger.Debug("expandAllSync: error finding key", "path", currentPath, "error", err)
 				continue
 			}
 
 			// Get children using the reader
 			childIDs, err := r.Subkeys(node)
 			if err != nil {
-				fmt.Fprintf(
-					os.Stderr,
-					"[DEBUG] expandAllSync: error getting subkeys for %q: %v\n",
-					currentPath,
-					err,
-				)
+				logger.Debug("expandAllSync: error getting subkeys", "path", currentPath, "error", err)
 				continue
 			}
 
@@ -619,12 +589,7 @@ func (m *Model) expandAllSync(rootPath string) {
 			m.state.SetItems(newItems)
 
 			m.state.SetLoaded(currentPath, true)
-			fmt.Fprintf(
-				os.Stderr,
-				"[DEBUG] expandAllSync: inserted %d children for %q\n",
-				len(children),
-				currentPath,
-			)
+			logger.Debug("expandAllSync: inserted children", "count", len(children), "path", currentPath)
 		}
 
 		// Mark as expanded (must be after potential slice rebuild)
@@ -644,94 +609,17 @@ func (m *Model) expandAllSync(rootPath string) {
 	}
 
 	m.updateViewport()
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] expandAllSync: complete, tree now has %d items\n",
-		m.state.ItemCount(),
-	)
-}
-
-// expandAllFromDiffMap expands all descendants using data from diffMap (diff mode)
-func (m *Model) expandAllFromDiffMap(rootPath string) {
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] expandAllFromDiffMap: expanding all descendants of %q\n",
-		rootPath,
-	)
-
-	// Queue of paths to expand
-	toExpand := []string{rootPath}
-	expanded := make(map[string]bool)
-
-	for len(toExpand) > 0 {
-		// Pop the first path
-		currentPath := toExpand[0]
-		toExpand = toExpand[1:]
-
-		if expanded[currentPath] {
-			continue
-		}
-
-		// Find the item in the tree
-		items := m.state.Items()
-		var currentIdx int
-		var found bool
-		for i, item := range items {
-			if item.Path == currentPath {
-				currentIdx = i
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			continue
-		}
-
-		currentItem := &items[currentIdx]
-		if !currentItem.HasChildren {
-			continue
-		}
-
-		// Expand from diffMap if not already loaded
-		if !m.state.IsLoaded(currentPath) {
-			m.nav.SetCursor(currentIdx)
-			m.expandFromDiffMap(currentItem)
-		} else {
-			// Just mark as expanded
-			items = m.state.Items()
-			items[currentIdx].Expanded = true
-			m.state.SetExpanded(currentPath, true)
-			m.state.SetItems(items)
-		}
-
-		expanded[currentPath] = true
-
-		// Add all children to the expansion queue
-		items = m.state.Items()
-		for _, item := range items {
-			if item.Parent == currentPath && item.HasChildren {
-				toExpand = append(toExpand, item.Path)
-			}
-		}
-	}
-
-	m.updateViewport()
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] expandAllFromDiffMap: complete, tree now has %d items\n",
-		m.state.ItemCount(),
-	)
+	logger.Debug("expandAllSync: complete", "total_items", m.state.ItemCount())
 }
 
 // expandAllFromAllItems recursively expands all descendants using preloaded allItems (in-memory)
 func (m *Model) expandAllFromAllItems(rootPath string) {
 	startTime := time.Now()
-	fmt.Fprintf(os.Stderr, "[TIMING] expandAllFromAllItems: START expanding %q\n", rootPath)
+	logger.Debug("expandAllFromAllItems: START", "root", rootPath)
 
 	allItems := m.state.AllItems()
 	if len(allItems) == 0 {
-		fmt.Fprintf(os.Stderr, "[DEBUG] expandAllFromAllItems: no allItems available\n")
+		logger.Debug("expandAllFromAllItems: no allItems available")
 		return
 	}
 
@@ -742,12 +630,8 @@ func (m *Model) expandAllFromAllItems(rootPath string) {
 		childrenMap[item.Parent] = append(childrenMap[item.Parent], item)
 	}
 	step0Duration := time.Since(step0Start)
-	fmt.Fprintf(
-		os.Stderr,
-		"[TIMING] expandAllFromAllItems: Step 0 (build children map) took %v for %d items\n",
-		step0Duration,
-		len(allItems),
-	)
+	logger.Debug("expandAllFromAllItems: Step 0 (build children map)",
+		"duration", step0Duration, "items", len(allItems))
 
 	// Step 1: Find all descendants of rootPath that should be expanded
 	step1Start := time.Now()
@@ -774,13 +658,8 @@ func (m *Model) expandAllFromAllItems(rootPath string) {
 	}
 
 	step1Duration := time.Since(step1Start)
-	fmt.Fprintf(
-		os.Stderr,
-		"[TIMING] expandAllFromAllItems: Step 1 (BFS) took %v, found %d paths to expand, %d iterations\n",
-		step1Duration,
-		len(toExpand),
-		bfsIterations,
-	)
+	logger.Debug("expandAllFromAllItems: Step 1 (BFS)",
+		"duration", step1Duration, "paths_to_expand", len(toExpand), "iterations", bfsIterations)
 
 	// Step 2: Mark all paths as expanded in state
 	step2Start := time.Now()
@@ -788,11 +667,7 @@ func (m *Model) expandAllFromAllItems(rootPath string) {
 		m.state.SetExpanded(path, true)
 	}
 	step2Duration := time.Since(step2Start)
-	fmt.Fprintf(
-		os.Stderr,
-		"[TIMING] expandAllFromAllItems: Step 2 (mark expanded) took %v\n",
-		step2Duration,
-	)
+	logger.Debug("expandAllFromAllItems: Step 2 (mark expanded)", "duration", step2Duration)
 
 	// Step 3: Rebuild the entire visible tree in ONE operation
 	step3Start := time.Now()
@@ -837,151 +712,24 @@ func (m *Model) expandAllFromAllItems(rootPath string) {
 	}
 
 	step3Duration := time.Since(step3Start)
-	fmt.Fprintf(
-		os.Stderr,
-		"[TIMING] expandAllFromAllItems: Step 3 (rebuild tree) took %v, %d recursive calls, built %d items\n",
-		step3Duration,
-		recursiveCalls,
-		len(newVisibleItems),
-	)
+	logger.Debug("expandAllFromAllItems: Step 3 (rebuild tree)",
+		"duration", step3Duration, "recursive_calls", recursiveCalls, "items_built", len(newVisibleItems))
 
 	// Step 4: Set the new items list ONCE
 	step4Start := time.Now()
 	m.state.SetItems(newVisibleItems)
 	step4Duration := time.Since(step4Start)
-	fmt.Fprintf(
-		os.Stderr,
-		"[TIMING] expandAllFromAllItems: Step 4 (set items) took %v\n",
-		step4Duration,
-	)
+	logger.Debug("expandAllFromAllItems: Step 4 (set items)", "duration", step4Duration)
 
 	// Update viewport
 	step5Start := time.Now()
 	m.updateViewport()
 	step5Duration := time.Since(step5Start)
-	fmt.Fprintf(
-		os.Stderr,
-		"[TIMING] expandAllFromAllItems: Step 5 (updateViewport) took %v\n",
-		step5Duration,
-	)
+	logger.Debug("expandAllFromAllItems: Step 5 (updateViewport)", "duration", step5Duration)
 
 	totalDuration := time.Since(startTime)
-	fmt.Fprintf(
-		os.Stderr,
-		"[TIMING] expandAllFromAllItems: TOTAL took %v (expanded %d paths -> %d visible items)\n",
-		totalDuration,
-		len(toExpand),
-		m.state.ItemCount(),
-	)
-}
-
-// expandFromDiffMap expands a key using children from the diffMap
-func (m *Model) expandFromDiffMap(item *Item) {
-	if m.state.IsLoaded(item.Path) {
-		// Already loaded, just expand
-		items := m.state.Items()
-		for i := range items {
-			if items[i].Path == item.Path {
-				items[i].Expanded = true
-				m.state.SetExpanded(item.Path, true)
-				m.state.SetItems(items)
-				break
-			}
-		}
-		return
-	}
-
-	fmt.Fprintf(os.Stderr, "[DEBUG] expandFromDiffMap: expanding %q from diffMap\n", item.Path)
-
-	// Find all direct children of this key in the diffMap
-	children := make([]Item, 0)
-	expectedPrefix := item.Path + "\\"
-
-	for path, keyDiff := range m.state.diffMap {
-		// Check if this is a direct child (not a grandchild)
-		if !strings.HasPrefix(path, expectedPrefix) {
-			continue
-		}
-
-		// Make sure it's a direct child by checking there are no more separators after the prefix
-		remainder := path[len(expectedPrefix):]
-		if strings.Contains(remainder, "\\") {
-			continue
-		}
-
-		// This is a direct child - look up both NodeIDs
-		oldNodeID, newNodeID, err := m.state.GetNodeIDsForDiffKey(keyDiff.Path, keyDiff.Status)
-		if err != nil {
-			// Failed to get NodeIDs - log and skip this child
-			fmt.Fprintf(
-				os.Stderr,
-				"[DEBUG] expandFromDiffMap: failed to get NodeIDs for %q (status=%d): %v\n",
-				keyDiff.Path,
-				keyDiff.Status,
-				err,
-			)
-			continue
-		}
-
-		child := Item{
-			OldNodeID:   oldNodeID,
-			NewNodeID:   newNodeID,
-			Path:        keyDiff.Path,
-			Name:        keyDiff.Name,
-			Depth:       item.Depth + 1,
-			HasChildren: keyDiff.SubkeyN > 0,
-			SubkeyCount: keyDiff.SubkeyN,
-			ValueCount:  keyDiff.ValueN,
-			LastWrite:   keyDiff.LastWrite,
-			Expanded:    false,
-			Parent:      item.Path,
-			DiffStatus:  keyDiff.Status,
-		}
-		children = append(children, child)
-	}
-
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] expandFromDiffMap: found %d children for %q\n",
-		len(children),
-		item.Path,
-	)
-
-	// Sort children by name
-	sort.Slice(children, func(i, j int) bool {
-		return children[i].Name < children[j].Name
-	})
-
-	// Find parent index in current items
-	items := m.state.Items()
-	parentIdx := -1
-	for i := range items {
-		if items[i].Path == item.Path {
-			parentIdx = i
-			break
-		}
-	}
-
-	if parentIdx >= 0 {
-		// Mark parent as expanded and loaded
-		items[parentIdx].Expanded = true
-		m.state.SetExpanded(item.Path, true)
-		m.state.SetLoaded(item.Path, true)
-
-		// Insert children after parent
-		newItems := make([]Item, 0, len(items)+len(children))
-		newItems = append(newItems, items[:parentIdx+1]...)
-		newItems = append(newItems, children...)
-		newItems = append(newItems, items[parentIdx+1:]...)
-		m.state.SetItems(newItems)
-
-		// Adjust cursor if needed
-		if m.nav.Cursor() > parentIdx {
-			m.nav.SetCursor(m.nav.Cursor() + len(children))
-		}
-	}
-
-	m.updateViewport()
+	logger.Debug("expandAllFromAllItems: TOTAL",
+		"duration", totalDuration, "paths_expanded", len(toExpand), "visible_items", m.state.ItemCount())
 }
 
 // CollapseAll collapses all expanded items in the tree
@@ -1038,10 +786,8 @@ func (m *Model) ExpandCurrentLevel() tea.Cmd {
 			oldCursor := m.nav.Cursor()
 			m.nav.SetCursor(i)
 
-			// Expand this item
-			if len(m.state.diffMap) > 0 {
-				m.expandFromDiffMap(levelItem)
-			} else if m.state.IsLoaded(levelItem.Path) {
+			// Expand this item if already loaded
+			if m.state.IsLoaded(levelItem.Path) {
 				items := m.state.Items()
 				items[i].Expanded = true
 				m.state.SetExpanded(levelItem.Path, true)
@@ -1110,7 +856,7 @@ func (m *Model) CopyCurrentPath() error {
 
 // ExpandParents expands all parent keys of a given path to make it visible
 func (m *Model) ExpandParents(targetPath string) tea.Cmd {
-	fmt.Fprintf(os.Stderr, "[DEBUG] ExpandParents: expanding parents of %q\n", targetPath)
+	logger.Debug("ExpandParents: expanding parents", "target", targetPath)
 
 	// Build list of parent paths from root to target
 	var parents []string
@@ -1120,7 +866,7 @@ func (m *Model) ExpandParents(targetPath string) tea.Cmd {
 		parents = append(parents, parentPath)
 	}
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] ExpandParents: parent paths: %v\n", parents)
+	logger.Debug("ExpandParents: parent paths", "paths", parents)
 
 	// Expand each parent from root to target
 	var cmds []tea.Cmd
@@ -1129,14 +875,9 @@ func (m *Model) ExpandParents(targetPath string) tea.Cmd {
 		items := m.state.Items()
 		for i := range items {
 			if items[i].Path == parentPath {
-				fmt.Fprintf(
-					os.Stderr,
-					"[DEBUG] ExpandParents: found parent %q at index %d, expanded=%v, loaded=%v\n",
-					parentPath,
-					i,
-					items[i].Expanded,
-					m.state.IsLoaded(parentPath),
-				)
+				logger.Debug("ExpandParents: found parent",
+					"path", parentPath, "index", i,
+					"expanded", items[i].Expanded, "loaded", m.state.IsLoaded(parentPath))
 
 				// Check if children are actually visible (verify expanded state is consistent)
 				childrenVisible := false
@@ -1147,22 +888,16 @@ func (m *Model) ExpandParents(targetPath string) tea.Cmd {
 				// If not already expanded OR children not visible (inconsistent state), expand it
 				if !items[i].Expanded || !childrenVisible {
 					if !childrenVisible && items[i].Expanded {
-						fmt.Fprintf(
-							os.Stderr,
-							"[DEBUG] ExpandParents: WARNING - parent marked as expanded but children not visible!\n",
-						)
+						logger.Warn("ExpandParents: parent marked as expanded but children not visible")
 					}
 					// Check if children are already loaded (from previous expansion)
 					if m.state.IsLoaded(parentPath) {
 						// Synchronously re-insert children that were hidden by collapse
-						fmt.Fprintf(
-							os.Stderr,
-							"[DEBUG] ExpandParents: re-expanding loaded children\n",
-						)
+						logger.Debug("ExpandParents: re-expanding loaded children")
 						m.expandLoadedChildren(parentPath)
 					} else {
 						// Async load needed
-						fmt.Fprintf(os.Stderr, "[DEBUG] ExpandParents: async loading children\n")
+						logger.Debug("ExpandParents: async loading children")
 						oldCursor := m.nav.Cursor()
 						m.nav.SetCursor(i)
 						cmd := m.Expand()
@@ -1173,7 +908,7 @@ func (m *Model) ExpandParents(targetPath string) tea.Cmd {
 						}
 					}
 				} else {
-					fmt.Fprintf(os.Stderr, "[DEBUG] ExpandParents: children already visible, skipping\n")
+					logger.Debug("ExpandParents: children already visible, skipping")
 				}
 				break
 			}
@@ -1188,7 +923,7 @@ func (m *Model) ExpandParents(targetPath string) tea.Cmd {
 
 // expandLoadedChildren re-inserts children that were previously loaded but hidden by collapse
 func (m *Model) expandLoadedChildren(parentPath string) {
-	fmt.Fprintf(os.Stderr, "[DEBUG] expandLoadedChildren: re-expanding %q\n", parentPath)
+	logger.Debug("expandLoadedChildren: re-expanding", "path", parentPath)
 
 	// Find parent index
 	items := m.state.Items()
@@ -1212,86 +947,20 @@ func (m *Model) expandLoadedChildren(parentPath string) {
 	// Get cached children
 	children := m.state.GetChildren(parentPath)
 	if len(children) == 0 {
-		fmt.Fprintf(
-			os.Stderr,
-			"[DEBUG] expandLoadedChildren: no cached children found for %q\n",
-			parentPath,
-		)
+		logger.Debug("expandLoadedChildren: no cached children found", "path", parentPath)
 		return
 	}
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] expandLoadedChildren: found %d cached children\n",
-		len(children),
-	)
+	logger.Debug("expandLoadedChildren: found cached children", "count", len(children))
 
-	// In diff mode, use diffMap to get children
-	if len(m.state.diffMap) > 0 {
-		// Find children in diffMap (parent is determined by path prefix)
-		var childItems []Item
-		for path, keyDiff := range m.state.diffMap {
-			// Check if this is a direct child of parentPath
-			if isDirectChild(path, parentPath) {
-				// Look up both NodeIDs for this child
-				oldNodeID, newNodeID, err := m.state.GetNodeIDsForDiffKey(path, keyDiff.Status)
-				if err != nil {
-					// Failed to get NodeIDs - log and skip this child
-					fmt.Fprintf(
-						os.Stderr,
-						"[DEBUG] expandLoadedChildren: failed to get NodeIDs for %q (status=%d): %v\n",
-						path,
-						keyDiff.Status,
-						err,
-					)
-					continue
-				}
+	// Insert cached children
+	items = m.state.Items()
+	newItems := make([]Item, 0, len(items)+len(children))
+	newItems = append(newItems, items[:parentIdx+1]...)
+	newItems = append(newItems, children...)
+	newItems = append(newItems, items[parentIdx+1:]...)
+	m.state.SetItems(newItems)
 
-				childItems = append(childItems, Item{
-					OldNodeID:   oldNodeID,
-					NewNodeID:   newNodeID,
-					Path:        path,
-					Name:        keyDiff.Name,
-					Depth:       items[parentIdx].Depth + 1,
-					HasChildren: keyDiff.SubkeyN > 0,
-					SubkeyCount: keyDiff.SubkeyN,
-					ValueCount:  keyDiff.ValueN,
-					LastWrite:   keyDiff.LastWrite,
-					Expanded:    m.state.IsExpanded(path),
-					Parent:      parentPath,
-					DiffStatus:  keyDiff.Status,
-				})
-			}
-		}
-
-		// Sort children
-		sort.Slice(childItems, func(i, j int) bool {
-			return strings.ToLower(childItems[i].Name) < strings.ToLower(childItems[j].Name)
-		})
-
-		// Insert children after parent
-		items = m.state.Items()
-		newItems := make([]Item, 0, len(items)+len(childItems))
-		newItems = append(newItems, items[:parentIdx+1]...)
-		newItems = append(newItems, childItems...)
-		newItems = append(newItems, items[parentIdx+1:]...)
-		m.state.SetItems(newItems)
-
-		fmt.Fprintf(
-			os.Stderr,
-			"[DEBUG] expandLoadedChildren: inserted %d children from diffMap\n",
-			len(childItems),
-		)
-	} else {
-		// Normal mode - insert cached children
-		items = m.state.Items()
-		newItems := make([]Item, 0, len(items)+len(children))
-		newItems = append(newItems, items[:parentIdx+1]...)
-		newItems = append(newItems, children...)
-		newItems = append(newItems, items[parentIdx+1:]...)
-		m.state.SetItems(newItems)
-
-		fmt.Fprintf(os.Stderr, "[DEBUG] expandLoadedChildren: inserted %d cached children\n", len(children))
-	}
+	logger.Debug("expandLoadedChildren: inserted cached children", "count", len(children))
 
 	m.updateViewport()
 }
@@ -1316,47 +985,35 @@ func isDirectChild(childPath, parentPath string) bool {
 
 // NavigateToPath expands all parents and navigates to the given path
 func (m *Model) NavigateToPath(targetPath string) tea.Cmd {
-	fmt.Fprintf(os.Stderr, "[DEBUG] NavigateToPath: navigating to %q\n", targetPath)
+	logger.Debug("NavigateToPath: navigating", "target", targetPath)
 
 	// First, expand all parents
 	cmd := m.ExpandParents(targetPath)
 
 	// Try to find and navigate to the target immediately
 	items := m.state.Items()
-	fmt.Fprintf(os.Stderr, "[DEBUG] NavigateToPath: searching %d items for target\n", len(items))
+	logger.Debug("NavigateToPath: searching items for target", "item_count", len(items))
 	found := false
 	for i := range items {
 		if items[i].Path == targetPath {
 			m.MoveTo(i)
-			fmt.Fprintf(os.Stderr, "[DEBUG] NavigateToPath: found target at index %d\n", i)
+			logger.Debug("NavigateToPath: found target", "index", i)
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		fmt.Fprintf(
-			os.Stderr,
-			"[DEBUG] NavigateToPath: target NOT FOUND in items list, cmd=%v\n",
-			cmd != nil,
-		)
-		// Show first few items for debugging
-		for i := 0; i < min(10, len(items)); i++ {
-			fmt.Fprintf(os.Stderr, "[DEBUG]   items[%d]: %q\n", i, items[i].Path)
-		}
+		logger.Debug("NavigateToPath: target NOT FOUND in items list", "has_cmd", cmd != nil)
 	}
 
 	// If we have async commands and didn't find the target,
 	// store it for completion after loading
 	if cmd != nil && !found {
 		m.nav.SetPendingNavigationTarget(targetPath)
-		fmt.Fprintf(
-			os.Stderr,
-			"[DEBUG] NavigateToPath: storing pending navigation to %q\n",
-			targetPath,
-		)
+		logger.Debug("NavigateToPath: storing pending navigation", "target", targetPath)
 	} else if cmd == nil && !found {
-		fmt.Fprintf(os.Stderr, "[DEBUG] NavigateToPath: WARNING - target not found and no async cmd, navigation will fail!\n")
+		logger.Warn("NavigateToPath: target not found and no async cmd, navigation will fail!")
 	}
 
 	return cmd
@@ -1433,21 +1090,6 @@ func (m *Model) FilterByPaths(paths []string) {
 	}
 }
 
-// SetDiffMap sets the diff map
-func (m *Model) SetDiffMap(diffMap map[string]hive.KeyDiff) {
-	m.state.SetDiffMap(diffMap)
-}
-
-// SetDiffReaders sets the diff readers for NodeID lookups
-func (m *Model) SetDiffReaders(oldReader, newReader hive.Reader) {
-	m.state.SetDiffReaders(oldReader, newReader)
-}
-
-// ClearDiffReaders clears the diff readers
-func (m *Model) ClearDiffReaders() {
-	m.state.ClearDiffReaders()
-}
-
 // SetWidth sets the width
 func (m *Model) SetWidth(width int) {
 	// Initialize renderer if needed
@@ -1499,15 +1141,11 @@ func (m *Model) GetViewport() *viewport.Model {
 func (m *Model) GetRendererCursor() int {
 	if m.renderer != nil {
 		cursor := m.renderer.Cursor()
-		fmt.Fprintf(
-			os.Stderr,
-			"[GET] GetRendererCursor: m.renderer=%p, cursor=%d\n",
-			m.renderer,
-			cursor,
-		)
+		logger.Debug("GetRendererCursor",
+			"renderer", fmt.Sprintf("%p", m.renderer), "cursor", cursor)
 		return cursor
 	}
-	fmt.Fprintf(os.Stderr, "[GET] GetRendererCursor: m.renderer is NIL\n")
+	logger.Warn("GetRendererCursor: renderer is nil")
 	return 0
 }
 
@@ -1572,7 +1210,6 @@ func (m *Model) RenderItem(index int, isCursor bool, width int) string {
 		HasChildren: item.HasChildren,
 		Expanded:    item.Expanded,
 		SubkeyCount: item.SubkeyCount,
-		DiffStatus:  item.DiffStatus,
 	}
 
 	// Format timestamp
@@ -1621,11 +1258,7 @@ func (m *Model) RestoreExpandedKeys(expandedKeys map[string]bool) {
 		return
 	}
 
-	fmt.Fprintf(
-		os.Stderr,
-		"[DEBUG] RestoreExpandedKeys: restoring %d expanded keys\n",
-		len(expandedKeys),
-	)
+	logger.Debug("RestoreExpandedKeys: restoring expanded keys", "count", len(expandedKeys))
 
 	// Set expanded state
 	m.state.SetExpandedKeys(expandedKeys)
@@ -1643,5 +1276,5 @@ func (m *Model) RestoreExpandedKeys(expandedKeys map[string]bool) {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] RestoreExpandedKeys: completed restoration\n")
+	logger.Debug("RestoreExpandedKeys: completed restoration")
 }

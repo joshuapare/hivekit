@@ -2,7 +2,6 @@ package keytree
 
 import (
 	"testing"
-	"time"
 
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
@@ -29,10 +28,6 @@ func TestNewTreeState(t *testing.T) {
 
 	if ts.loaded == nil {
 		t.Error("loaded map should be initialized")
-	}
-
-	if ts.diffMap == nil {
-		t.Error("diffMap should be initialized")
 	}
 
 	if ts.bookmarks == nil {
@@ -320,66 +315,6 @@ func TestClearLoaded(t *testing.T) {
 
 	// Clearing non-existent path should not panic
 	ts.ClearLoaded("nonexistent\\path")
-}
-
-// TestGetDiffSetDiffMap tests diff map management
-func TestGetDiffSetDiffMap(t *testing.T) {
-	ts := NewTreeState()
-
-	// Initially should not have any diffs
-	_, ok := ts.GetDiff("SOFTWARE")
-	if ok {
-		t.Error("should not have diff data initially")
-	}
-
-	// Create test diff map
-	testTime := time.Now()
-	diffMap := map[string]hive.KeyDiff{
-		"SOFTWARE": {
-			Path:      "SOFTWARE",
-			Name:      "SOFTWARE",
-			Status:    hive.DiffModified,
-			SubkeyN:   10,
-			ValueN:    5,
-			LastWrite: testTime,
-		},
-		"SYSTEM": {
-			Path:      "SYSTEM",
-			Name:      "SYSTEM",
-			Status:    hive.DiffAdded,
-			SubkeyN:   20,
-			ValueN:    15,
-			LastWrite: testTime,
-		},
-	}
-
-	ts.SetDiffMap(diffMap)
-
-	// Verify we can retrieve diffs
-	softwareDiff, ok := ts.GetDiff("SOFTWARE")
-	if !ok {
-		t.Error("should have diff for SOFTWARE")
-	}
-	if softwareDiff.Status != hive.DiffModified {
-		t.Errorf("expected status DiffModified, got %v", softwareDiff.Status)
-	}
-	if softwareDiff.SubkeyN != 10 {
-		t.Errorf("expected SubkeyN 10, got %d", softwareDiff.SubkeyN)
-	}
-
-	systemDiff, ok := ts.GetDiff("SYSTEM")
-	if !ok {
-		t.Error("should have diff for SYSTEM")
-	}
-	if systemDiff.Status != hive.DiffAdded {
-		t.Errorf("expected status DiffAdded, got %v", systemDiff.Status)
-	}
-
-	// Non-existent path
-	_, ok = ts.GetDiff("NONEXISTENT")
-	if ok {
-		t.Error("should not have diff for nonexistent path")
-	}
 }
 
 // TestIsBookmarkedSetBookmarks tests bookmarks

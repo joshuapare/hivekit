@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/joshuapare/hivekit/internal/format"
 	"golang.org/x/text/encoding/charmap"
+
+	"github.com/joshuapare/hivekit/internal/format"
 )
 
 // DecodeKeyName converts the NK name encoding into UTF-8.

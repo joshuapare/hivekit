@@ -16,9 +16,9 @@ type FileWriter struct {
 func (w *FileWriter) WriteHive(buf []byte) error {
 	// Create temp file in same directory to ensure atomic rename
 	dir := filepath.Dir(w.Path)
-	tmpFile, err := os.CreateTemp(dir, ".gohivex-tmp-*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+	tmpFile, createErr := os.CreateTemp(dir, ".gohivex-tmp-*")
+	if createErr != nil {
+		return fmt.Errorf("create temp file: %w", createErr)
 	}
 	tmpPath := tmpFile.Name()
 
@@ -31,25 +31,25 @@ func (w *FileWriter) WriteHive(buf []byte) error {
 	}()
 
 	// Write data
-	if _, err := tmpFile.Write(buf); err != nil {
-		return fmt.Errorf("write temp file: %w", err)
+	if _, writeErr := tmpFile.Write(buf); writeErr != nil {
+		return fmt.Errorf("write temp file: %w", writeErr)
 	}
 
 	// Sync to disk
-	if err := tmpFile.Sync(); err != nil {
-		return fmt.Errorf("sync temp file: %w", err)
+	if syncErr := tmpFile.Sync(); syncErr != nil {
+		return fmt.Errorf("sync temp file: %w", syncErr)
 	}
 
 	// Close before rename
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp file: %w", err)
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		return fmt.Errorf("close temp file: %w", closeErr)
 	}
 	tmpFile = nil // Don't clean up in defer
 
 	// Atomic rename
-	if err := os.Rename(tmpPath, w.Path); err != nil {
+	if renameErr := os.Rename(tmpPath, w.Path); renameErr != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename temp file: %w", err)
+		return fmt.Errorf("rename temp file: %w", renameErr)
 	}
 
 	return nil

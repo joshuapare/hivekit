@@ -3,13 +3,14 @@ package hive_test
 import (
 	"testing"
 
-	"github.com/joshuapare/hivekit/internal/reader"
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/internal/reader"
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// TestDiagnostics_Disabled verifies zero overhead when diagnostics are disabled
+// TestDiagnostics_Disabled verifies zero overhead when diagnostics are disabled.
 func TestDiagnostics_Disabled(t *testing.T) {
 	// Open normally (diagnostics disabled by default)
 	r, err := reader.Open("../../testdata/minimal", hive.OpenOptions{})
@@ -21,7 +22,7 @@ func TestDiagnostics_Disabled(t *testing.T) {
 	assert.Nil(t, report, "GetDiagnostics should return nil when not enabled")
 }
 
-// TestDiagnostics_EnabledWithHealthyFile tests passive collection with healthy file
+// TestDiagnostics_EnabledWithHealthyFile tests passive collection with healthy file.
 func TestDiagnostics_EnabledWithHealthyFile(t *testing.T) {
 	// Open with diagnostics enabled
 	r, err := reader.Open("../../testdata/minimal", hive.OpenOptions{
@@ -47,7 +48,7 @@ func TestDiagnostics_EnabledWithHealthyFile(t *testing.T) {
 	assert.False(t, report.HasAnyIssues(), "Healthy file should have no issues")
 }
 
-// TestDiagnostics_CorruptedFile tests diagnostic collection with corrupted file
+// TestDiagnostics_CorruptedFile tests diagnostic collection with corrupted file.
 func TestDiagnostics_CorruptedFile_HBIN(t *testing.T) {
 	// Open corrupted file with diagnostics enabled
 	// This file has invalid HBIN signature, so Open() will fail
@@ -63,7 +64,7 @@ func TestDiagnostics_CorruptedFile_HBIN(t *testing.T) {
 	// but have issues during traversal
 }
 
-// TestDiagnostics_TolerantMode tests diagnostic collection in tolerant mode
+// TestDiagnostics_TolerantMode tests diagnostic collection in tolerant mode.
 func TestDiagnostics_TolerantMode(t *testing.T) {
 	// Open file with truncated value data in tolerant mode with diagnostics
 	r, err := reader.Open("../../testdata/corrupted/corrupt_value_data_truncated", hive.OpenOptions{
@@ -121,7 +122,7 @@ func TestDiagnostics_TolerantMode(t *testing.T) {
 	}
 }
 
-// TestDiagnostics_Diagnose tests explicit Diagnose() method
+// TestDiagnostics_Diagnose tests explicit Diagnose() method.
 func TestDiagnostics_Diagnose(t *testing.T) {
 	// Open healthy file
 	r, err := reader.Open("../../testdata/minimal", hive.OpenOptions{})
@@ -151,7 +152,7 @@ func TestDiagnostics_Diagnose(t *testing.T) {
 	assert.Equal(t, 0, report.Summary.Errors, "Should have no errors")
 }
 
-// TestDiagnosticReport_Grouping tests report grouping functionality
+// TestDiagnosticReport_Grouping tests report grouping functionality.
 func TestDiagnosticReport_Grouping(t *testing.T) {
 	report := hive.NewDiagnosticReport()
 

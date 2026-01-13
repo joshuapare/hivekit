@@ -3,14 +3,15 @@ package acceptance
 import (
 	"testing"
 
-	"github.com/joshuapare/hivekit/bindings"
-	"github.com/joshuapare/hivekit/pkg/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/joshuapare/hivekit/bindings"
+	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // TestNodeValues tests hivex_node_values
-// Enumerates all values for a node
+// Enumerates all values for a node.
 func TestNodeValues(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -64,7 +65,7 @@ func TestNodeValues(t *testing.T) {
 }
 
 // TestValueKey tests hivex_value_key
-// Gets the name of a value
+// Gets the name of a value.
 func TestValueKey(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -120,7 +121,7 @@ func TestValueKey(t *testing.T) {
 }
 
 // TestValueType tests hivex_value_type
-// Gets the type and size of a value
+// Gets the type and size of a value.
 func TestValueType(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -149,11 +150,11 @@ func TestValueType(t *testing.T) {
 
 	// Check type and size for each value
 	for i := range goValues {
-		goMeta, err := goHive.StatValue(goValues[i])
-		require.NoError(t, err)
+		goMeta, statErr := goHive.StatValue(goValues[i])
+		require.NoError(t, statErr)
 
-		hivexType, hivexSize, err := hivexHive.ValueType(hivexValues[i])
-		require.NoError(t, err)
+		hivexType, hivexSize, typeErr := hivexHive.ValueType(hivexValues[i])
+		require.NoError(t, typeErr)
 
 		// Types should match
 		assertRegTypeEqual(t, goMeta.Type, hivexType, "Value %d type", i)
@@ -164,7 +165,7 @@ func TestValueType(t *testing.T) {
 }
 
 // TestValueValue tests hivex_value_value
-// Gets raw value bytes (before type-specific decoding)
+// Gets raw value bytes (before type-specific decoding).
 func TestValueValue(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -193,25 +194,25 @@ func TestValueValue(t *testing.T) {
 
 	// Read raw bytes for each value
 	for i := range goValues {
-		goBytes, err := goHive.ValueBytes(goValues[i], hive.ReadOptions{})
-		require.NoError(t, err)
+		goBytes, bytesErr := goHive.ValueBytes(goValues[i], hive.ReadOptions{})
+		require.NoError(t, bytesErr)
 
-		hivexBytes, hivexType, err := hivexHive.ValueValue(hivexValues[i])
-		require.NoError(t, err)
+		hivexBytes, hivexType, valueErr := hivexHive.ValueValue(hivexValues[i])
+		require.NoError(t, valueErr)
 
 		// Bytes should be identical
 		assertBytesEqual(t, goBytes, hivexBytes, "Value %d raw bytes", i)
 
 		// Type should match metadata
-		goMeta, err := goHive.StatValue(goValues[i])
-		require.NoError(t, err)
+		goMeta, statErr := goHive.StatValue(goValues[i])
+		require.NoError(t, statErr)
 
 		assertRegTypeEqual(t, goMeta.Type, hivexType, "Value %d type from ValueValue", i)
 	}
 }
 
 // TestNodeGetValue tests hivex_node_get_value
-// Finds a value by name
+// Finds a value by name.
 func TestNodeGetValue(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -262,7 +263,7 @@ func TestNodeGetValue(t *testing.T) {
 	}
 }
 
-// TestNodeGetValueNotFound tests GetValue with non-existent name
+// TestNodeGetValueNotFound tests GetValue with non-existent name.
 func TestNodeGetValueNotFound(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.Special)
 	defer goHive.Close()
@@ -285,13 +286,13 @@ func TestNodeGetValueNotFound(t *testing.T) {
 	nonExistent := "this_value_does_not_exist_12345"
 
 	_, goErr := goHive.GetValue(goChild, nonExistent)
-	assert.Error(t, goErr, "gohivex should error for non-existent value")
+	require.Error(t, goErr, "gohivex should error for non-existent value")
 
 	hivexValue := hivexHive.NodeGetValue(hivexChild, nonExistent)
 	assert.Zero(t, hivexValue, "hivex should return 0 for non-existent value")
 }
 
-// TestValueMetadataConsistency verifies all value metadata is consistent
+// TestValueMetadataConsistency verifies all value metadata is consistent.
 func TestValueMetadataConsistency(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.RLenValue)
 	defer goHive.Close()
@@ -318,31 +319,31 @@ func TestValueMetadataConsistency(t *testing.T) {
 
 	// For each value, verify metadata consistency
 	for i := range goValues {
-		goMeta, err := goHive.StatValue(goValues[i])
-		require.NoError(t, err)
+		goMeta, statErr := goHive.StatValue(goValues[i])
+		require.NoError(t, statErr)
 
 		// Check individual operations match metadata
 		hivexName := hivexHive.ValueKey(hivexValues[i])
-		hivexType, hivexSize, err := hivexHive.ValueType(hivexValues[i])
-		require.NoError(t, err)
+		hivexType, hivexSize, typeErr := hivexHive.ValueType(hivexValues[i])
+		require.NoError(t, typeErr)
 
 		assertStringsEqual(t, goMeta.Name, hivexName, "Value %d name", i)
 		assertRegTypeEqual(t, goMeta.Type, hivexType, "Value %d type", i)
 		assertIntEqual(t, goMeta.Size, hivexSize, "Value %d size", i)
 
 		// Verify raw bytes match size
-		goBytes, err := goHive.ValueBytes(goValues[i], hive.ReadOptions{})
-		require.NoError(t, err)
+		goBytes, bytesErr := goHive.ValueBytes(goValues[i], hive.ReadOptions{})
+		require.NoError(t, bytesErr)
 
-		hivexBytes, _, err := hivexHive.ValueValue(hivexValues[i])
-		require.NoError(t, err)
+		hivexBytes, _, valueErr := hivexHive.ValueValue(hivexValues[i])
+		require.NoError(t, valueErr)
 
 		assert.Len(t, goBytes, goMeta.Size, "Bytes length should match size")
 		assert.Len(t, hivexBytes, hivexSize, "Bytes length should match size")
 	}
 }
 
-// TestValuesRecursive tests value enumeration across entire tree
+// TestValuesRecursive tests value enumeration across entire tree.
 func TestValuesRecursive(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -372,7 +373,7 @@ func TestValuesRecursive(t *testing.T) {
 	}
 }
 
-// compareValuesRecursive recursively compares values for all nodes
+// compareValuesRecursive recursively compares values for all nodes.
 func compareValuesRecursive(t *testing.T, goHive hive.Reader, hivexHive *bindings.Hive,
 	goNode hive.NodeID, hivexNode bindings.NodeHandle, depth int) {
 	t.Helper()
@@ -393,17 +394,17 @@ func compareValuesRecursive(t *testing.T, goHive hive.Reader, hivexHive *binding
 
 	// Compare each value's metadata and data
 	for i := range goValues {
-		goMeta, err := goHive.StatValue(goValues[i])
-		require.NoError(t, err)
+		goMeta, statErr := goHive.StatValue(goValues[i])
+		require.NoError(t, statErr)
 
 		hivexName := hivexHive.ValueKey(hivexValues[i])
 		assertStringsEqual(t, goMeta.Name, hivexName, "Value name at depth %d, index %d", depth, i)
 
-		goBytes, err := goHive.ValueBytes(goValues[i], hive.ReadOptions{})
-		require.NoError(t, err)
+		goBytes, bytesErr := goHive.ValueBytes(goValues[i], hive.ReadOptions{})
+		require.NoError(t, bytesErr)
 
-		hivexBytes, _, err := hivexHive.ValueValue(hivexValues[i])
-		require.NoError(t, err)
+		hivexBytes, _, valueErr := hivexHive.ValueValue(hivexValues[i])
+		require.NoError(t, valueErr)
 
 		assertBytesEqual(t, goBytes, hivexBytes, "Value bytes at depth %d, index %d", depth, i)
 	}
@@ -419,7 +420,7 @@ func compareValuesRecursive(t *testing.T, goHive hive.Reader, hivexHive *binding
 	}
 }
 
-// TestValueInlineFlag tests that inline values are correctly identified
+// TestValueInlineFlag tests that inline values are correctly identified.
 func TestValueInlineFlag(t *testing.T) {
 	goHive := openGoHivex(t, TestHives.RLenValue)
 	defer goHive.Close()
@@ -436,8 +437,8 @@ func TestValueInlineFlag(t *testing.T) {
 
 	// Check each value's inline flag
 	for i, val := range goValues {
-		goMeta, err := goHive.StatValue(val)
-		require.NoError(t, err)
+		goMeta, statErr := goHive.StatValue(val)
+		require.NoError(t, statErr)
 
 		// Inline flag should be set for small values (<=4 bytes)
 		if goMeta.Size <= 4 {
@@ -446,8 +447,8 @@ func TestValueInlineFlag(t *testing.T) {
 		}
 
 		// Verify we can still read bytes regardless of inline flag
-		bytes, err := goHive.ValueBytes(val, hive.ReadOptions{})
-		require.NoError(t, err)
+		bytes, readErr := goHive.ValueBytes(val, hive.ReadOptions{})
+		require.NoError(t, readErr)
 		assert.Len(t, bytes, goMeta.Size, "Bytes length should match size")
 	}
 }

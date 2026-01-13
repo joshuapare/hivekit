@@ -8,7 +8,7 @@ import (
 	"github.com/joshuapare/hivekit/internal/reader"
 )
 
-// KeyInfo contains information about a registry key
+// KeyInfo contains information about a registry key.
 type KeyInfo struct {
 	Name      string
 	SubkeyN   int
@@ -17,19 +17,19 @@ type KeyInfo struct {
 	LastWrite time.Time
 }
 
-// ValueInfo contains information about a registry value
+// ValueInfo contains information about a registry value.
 type ValueInfo struct {
-	Name      string
-	Type      string
-	Size      int
-	Data      []byte
-	StringVal string   // For REG_SZ/REG_EXPAND_SZ
+	Name       string
+	Type       string
+	Size       int
+	Data       []byte
+	StringVal  string   // For REG_SZ/REG_EXPAND_SZ
 	StringVals []string // For REG_MULTI_SZ
-	DWordVal  uint32   // For REG_DWORD
-	QWordVal  uint64   // For REG_QWORD
+	DWordVal   uint32   // For REG_DWORD
+	QWordVal   uint64   // For REG_QWORD
 }
 
-// GetHiveInfo returns metadata from the hive header
+// GetHiveInfo returns metadata from the hive header.
 func GetHiveInfo(hivePath string) (HiveInfo, error) {
 	// Open the hive
 	r, err := reader.Open(hivePath, OpenOptions{})
@@ -41,7 +41,7 @@ func GetHiveInfo(hivePath string) (HiveInfo, error) {
 	return r.Info(), nil
 }
 
-// GetKeyDetail returns detailed NK record information for a key path
+// GetKeyDetail returns detailed NK record information for a key path.
 func GetKeyDetail(hivePath, keyPath string) (KeyDetail, error) {
 	r, err := reader.Open(hivePath, OpenOptions{})
 	if err != nil {
@@ -53,7 +53,7 @@ func GetKeyDetail(hivePath, keyPath string) (KeyDetail, error) {
 }
 
 // GetKeyDetailWithReader returns detailed NK record information using an existing reader
-// This is more efficient when making multiple calls to the same hive
+// This is more efficient when making multiple calls to the same hive.
 func GetKeyDetailWithReader(r Reader, keyPath string) (KeyDetail, error) {
 	// Navigate to key
 	var node NodeID
@@ -70,7 +70,7 @@ func GetKeyDetailWithReader(r Reader, keyPath string) (KeyDetail, error) {
 	return r.DetailKey(node)
 }
 
-// ListKeys lists all keys at the specified path in the 
+// ListKeys lists all keys at the specified path in the
 // If path is empty, lists keys at the root.
 // If recursive is true, lists all subkeys recursively up to maxDepth.
 func ListKeys(hivePath string, keyPath string, recursive bool, maxDepth int) ([]KeyInfo, error) {
@@ -111,7 +111,14 @@ func ListKeys(hivePath string, keyPath string, recursive bool, maxDepth int) ([]
 	return keys, nil
 }
 
-func listKeysRecursive(r Reader, node NodeID, parentPath string, recursive bool, maxDepth int, currentDepth int) ([]KeyInfo, error) {
+func listKeysRecursive(
+	r Reader,
+	node NodeID,
+	parentPath string,
+	recursive bool,
+	maxDepth int,
+	currentDepth int,
+) ([]KeyInfo, error) {
 	// Get subkeys
 	children, err := r.Subkeys(node)
 	if err != nil {
@@ -122,8 +129,8 @@ func listKeysRecursive(r Reader, node NodeID, parentPath string, recursive bool,
 	keys := make([]KeyInfo, 0, len(children))
 
 	for _, child := range children {
-		meta, err := r.StatKey(child)
-		if err != nil {
+		meta, statErr := r.StatKey(child)
+		if statErr != nil {
 			continue
 		}
 
@@ -143,8 +150,8 @@ func listKeysRecursive(r Reader, node NodeID, parentPath string, recursive bool,
 
 		// Recurse if requested and within depth limit
 		if recursive && (maxDepth == 0 || currentDepth < maxDepth-1) {
-			childKeys, err := listKeysRecursive(r, child, childPath, true, maxDepth, currentDepth+1)
-			if err != nil {
+			childKeys, recurseErr := listKeysRecursive(r, child, childPath, true, maxDepth, currentDepth+1)
+			if recurseErr != nil {
 				continue
 			}
 			keys = append(keys, childKeys...)
@@ -154,7 +161,7 @@ func listKeysRecursive(r Reader, node NodeID, parentPath string, recursive bool,
 	return keys, nil
 }
 
-// ListValues lists all values at the specified key path in the 
+// ListValues lists all values at the specified key path in the.
 func ListValues(hivePath string, keyPath string) ([]ValueInfo, error) {
 	// Open the hive
 	r, err := reader.Open(hivePath, OpenOptions{})
@@ -167,7 +174,7 @@ func ListValues(hivePath string, keyPath string) ([]ValueInfo, error) {
 }
 
 // ListValuesWithReader lists all values for a specific key path using an existing reader
-// This is more efficient when making multiple calls to the same hive
+// This is more efficient when making multiple calls to the same hive.
 func ListValuesWithReader(r Reader, keyPath string) ([]ValueInfo, error) {
 	// Get root node
 	root, err := r.Root()
@@ -193,8 +200,8 @@ func ListValuesWithReader(r Reader, keyPath string) ([]ValueInfo, error) {
 	// Pre-allocate for the known number of values
 	values := make([]ValueInfo, 0, len(valueIDs))
 	for _, valueID := range valueIDs {
-		meta, err := r.StatValue(valueID)
-		if err != nil {
+		meta, statErr := r.StatValue(valueID)
+		if statErr != nil {
 			continue
 		}
 
@@ -205,29 +212,31 @@ func ListValuesWithReader(r Reader, keyPath string) ([]ValueInfo, error) {
 		}
 
 		// Get raw data
-		data, err := r.ValueBytes(valueID, ReadOptions{})
-		if err == nil {
+		data, readErr := r.ValueBytes(valueID, ReadOptions{})
+		if readErr == nil {
 			valueInfo.Data = data
 		}
 
 		// Decode based on type
 		switch meta.Type {
 		case REG_SZ, REG_EXPAND_SZ:
-			if val, err := r.ValueString(valueID, ReadOptions{}); err == nil {
+			if val, stringErr := r.ValueString(valueID, ReadOptions{}); stringErr == nil {
 				valueInfo.StringVal = val
 			}
 		case REG_DWORD, REG_DWORD_BE:
-			if val, err := r.ValueDWORD(valueID); err == nil {
+			if val, dwordErr := r.ValueDWORD(valueID); dwordErr == nil {
 				valueInfo.DWordVal = val
 			}
 		case REG_QWORD:
-			if val, err := r.ValueQWORD(valueID); err == nil {
+			if val, qwordErr := r.ValueQWORD(valueID); qwordErr == nil {
 				valueInfo.QWordVal = val
 			}
 		case REG_MULTI_SZ:
-			if val, err := r.ValueStrings(valueID, ReadOptions{}); err == nil {
+			if val, stringsErr := r.ValueStrings(valueID, ReadOptions{}); stringsErr == nil {
 				valueInfo.StringVals = val
 			}
+		case REG_NONE, REG_BINARY, REG_LINK:
+			// Binary data already populated in Data field above
 		}
 
 		values = append(values, valueInfo)
@@ -236,7 +245,7 @@ func ListValuesWithReader(r Reader, keyPath string) ([]ValueInfo, error) {
 	return values, nil
 }
 
-// GetValue retrieves a specific value from a key in the 
+// GetValue retrieves a specific value from a key in the.
 func GetValue(hivePath string, keyPath string, valueName string) (*ValueInfo, error) {
 	// Open the hive
 	r, err := reader.Open(hivePath, OpenOptions{})
@@ -279,29 +288,31 @@ func GetValue(hivePath string, keyPath string, valueName string) (*ValueInfo, er
 	}
 
 	// Get raw data
-	data, err := r.ValueBytes(valueID, ReadOptions{})
-	if err == nil {
+	data, readErr := r.ValueBytes(valueID, ReadOptions{})
+	if readErr == nil {
 		valueInfo.Data = data
 	}
 
 	// Decode based on type
 	switch meta.Type {
 	case REG_SZ, REG_EXPAND_SZ:
-		if val, err := r.ValueString(valueID, ReadOptions{}); err == nil {
+		if val, stringErr := r.ValueString(valueID, ReadOptions{}); stringErr == nil {
 			valueInfo.StringVal = val
 		}
 	case REG_DWORD, REG_DWORD_BE:
-		if val, err := r.ValueDWORD(valueID); err == nil {
+		if val, dwordErr := r.ValueDWORD(valueID); dwordErr == nil {
 			valueInfo.DWordVal = val
 		}
 	case REG_QWORD:
-		if val, err := r.ValueQWORD(valueID); err == nil {
+		if val, qwordErr := r.ValueQWORD(valueID); qwordErr == nil {
 			valueInfo.QWordVal = val
 		}
 	case REG_MULTI_SZ:
-		if val, err := r.ValueStrings(valueID, ReadOptions{}); err == nil {
+		if val, stringsErr := r.ValueStrings(valueID, ReadOptions{}); stringsErr == nil {
 			valueInfo.StringVals = val
 		}
+	case REG_NONE, REG_BINARY, REG_LINK:
+		// Binary data already populated in Data field above
 	}
 
 	return valueInfo, nil

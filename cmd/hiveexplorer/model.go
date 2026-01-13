@@ -37,7 +37,6 @@ const (
 	NormalMode InputMode = iota
 	SearchMode
 	GoToPathMode
-	DiffPathMode
 	GlobalValueSearchMode
 )
 
@@ -60,15 +59,15 @@ type Model struct {
 	inputBuffer string // Buffer for search/path input
 
 	// Search state
-	searchQuery     string
-	searchMatchIdx  int // Current match index
-	searchMatches   int // Total matches
+	searchQuery    string
+	searchMatchIdx int // Current match index
+	searchMatches  int // Total matches
 
 	// Global value search state
-	globalValueSearchActive   bool                       // Flag indicating we have search results (enables n/N navigation)
-	globalValueSearchInProgress bool                     // Flag indicating search is currently running
-	globalValueSearchResults  []GlobalValueSearchResult // Cached results from global value search
-	globalValueSearchDebounce *time.Timer               // Debounce timer for search input
+	globalValueSearchActive     bool                      // Flag indicating we have search results (enables n/N navigation)
+	globalValueSearchInProgress bool                      // Flag indicating search is currently running
+	globalValueSearchResults    []GlobalValueSearchResult // Cached results from global value search
+	globalValueSearchDebounce   *time.Timer               // Debounce timer for search input
 
 	// Bookmarks
 	bookmarks map[string]bool // Set of bookmarked key paths
@@ -78,25 +77,6 @@ type Model struct {
 
 	// Status message for temporary feedback
 	statusMessage string
-
-	// Diff mode
-	diffMode        bool
-	comparePath     string              // Path to comparison hive
-	hiveDiff        *hive.HiveDiff     // Diff results
-	showAdded       bool                // Toggle for showing added keys
-	showRemoved     bool                // Toggle for showing removed keys
-	showModified    bool                // Toggle for showing modified keys
-	showUnchanged   bool                // Toggle for showing unchanged keys
-	diffOnlyView    bool                // Show only diff items vs full tree
-	currentDiffStatus hive.DiffStatus  // Track current key's diff status for value loading
-
-	// State preservation for diff mode (restore tree state when exiting diff)
-	preDiffCursorPath string            // Cursor position before entering diff mode
-	preDiffExpandedKeys map[string]bool // Expanded keys before entering diff mode
-
-	// Reader caching for performance in diff mode
-	oldHiveReader hive.Reader // Reader for old hive (m.hivePath)
-	newHiveReader hive.Reader // Reader for new hive (m.comparePath)
 
 	// Navigation bus for coordinating component updates
 	navBus *keyselection.Bus
@@ -171,12 +151,6 @@ func NewModel(hivePath string) Model {
 		bookmarks:   make(map[string]bool),
 		navBus:      navBus,
 		mainReader:  mainReader,
-		// Diff defaults - show all types
-		showAdded:     true,
-		showRemoved:   true,
-		showModified:  true,
-		showUnchanged: true,
-		diffOnlyView:  false,
 	}
 
 	// Configure keytree with keys
@@ -245,21 +219,6 @@ func (m *Model) Close() error {
 		m.mainReader = nil
 	}
 
-	// Close diff mode readers
-	if m.oldHiveReader != nil {
-		if err := m.oldHiveReader.Close(); err != nil {
-			lastErr = err
-		}
-		m.oldHiveReader = nil
-	}
-
-	if m.newHiveReader != nil {
-		if err := m.newHiveReader.Close(); err != nil {
-			lastErr = err
-		}
-		m.newHiveReader = nil
-	}
-
 	// Close keytree reader
 	if err := m.keyTree.Close(); err != nil {
 		lastErr = err
@@ -276,8 +235,8 @@ func (e errMsg) Error() string { return e.err.Error() }
 
 // Type aliases to valuetable types
 type (
-	valuesLoadedMsg   = valuetable.ValuesLoadedMsg
-	ValueInfo         = valuetable.ValueInfo
+	valuesLoadedMsg = valuetable.ValuesLoadedMsg
+	ValueInfo       = valuetable.ValueInfo
 )
 
 // convertValueInfos is an alias to valuetable.ConvertValueInfos
@@ -285,21 +244,11 @@ var convertValueInfos = valuetable.ConvertValueInfos
 
 type clearStatusMsg struct{}
 
-type diffLoadedMsg struct {
-	diff *hive.HiveDiff
-	err  error
-}
-
-type restoreTreeStateMsg struct {
-	cursorPath   string
-	expandedKeys map[string]bool
-}
-
 // GlobalValueSearchResult represents a key that contains matching values
 type GlobalValueSearchResult struct {
-	KeyPath       string   // Path of the key containing matches
+	KeyPath        string       // Path of the key containing matches
 	MatchingValues []ValueMatch // List of values that matched
-	MatchCount    int      // Total number of matching values in this key
+	MatchCount     int          // Total number of matching values in this key
 }
 
 // ValueMatch represents a value that matched the search query

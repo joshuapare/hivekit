@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	
 )
 
 // TestScrollingAtBottomBug tests the bug where continuing to press down at the bottom
@@ -37,7 +36,7 @@ func TestScrollingAtBottomBug(t *testing.T) {
 	go func() {
 		// Send WindowSizeMsg to set small viewport
 		p.Send(tea.WindowSizeMsg{Width: 120, Height: viewportHeight + 10}) // +10 for headers/status
-		time.Sleep(300 * time.Millisecond) // Wait for tree to load
+		time.Sleep(300 * time.Millisecond)                                 // Wait for tree to load
 
 		// Expand multiple root items to get a longer tree
 		fmt.Fprintf(os.Stderr, "[E2E TEST] Expanding multiple root items to create long list...\n")

@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keytree"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
@@ -41,13 +41,7 @@ func (m *Model) performSearch() {
 		m.searchMatchIdx = 0
 
 		// Cursor is already at first item due to filtering, so no need to move
-		fmt.Fprintf(
-			os.Stderr,
-			"[SEARCH] Found %d key matches (showing %d items with parents) for: %s\n",
-			matches,
-			len(visibleItems),
-			m.searchQuery,
-		)
+		logger.Debug("Found key matches", "matches", matches, "visibleItems", len(visibleItems), "query", m.searchQuery)
 	} else {
 		// Value pane: use traditional search (no live filtering for values)
 		results := SearchValues(m.valueTable.GetItems(), m.searchQuery)
@@ -60,18 +54,17 @@ func (m *Model) performSearch() {
 			m.valueTable.EnsureCursorVisible()
 		}
 
-		fmt.Fprintf(os.Stderr, "[SEARCH] Found %d value matches for: %s\n", m.searchMatches, m.searchQuery)
+		logger.Debug("Found value matches", "count", m.searchMatches, "query", m.searchQuery)
 	}
 }
 
 // handleNextMatch jumps to the next search match
 func (m Model) handleNextMatch() (tea.Model, tea.Cmd) {
-	fmt.Fprintf(os.Stderr, "[NAV] handleNextMatch called - globalValueSearchActive=%v, results=%d, searchMatches=%d\n",
-		m.globalValueSearchActive, len(m.globalValueSearchResults), m.searchMatches)
+	logger.Debug("handleNextMatch called", "globalValueSearchActive", m.globalValueSearchActive, "results", len(m.globalValueSearchResults), "searchMatches", m.searchMatches)
 
 	// Handle global value search separately
 	if m.globalValueSearchActive && len(m.globalValueSearchResults) > 0 {
-		fmt.Fprintf(os.Stderr, "[NAV] Delegating to handleNextGlobalValueMatch\n")
+		logger.Debug("Delegating to handleNextGlobalValueMatch")
 		return m.handleNextGlobalValueMatch()
 	}
 
@@ -223,7 +216,7 @@ func (m *Model) performGlobalValueSearch(query string) tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		fmt.Fprintf(os.Stderr, "[GLOBAL_VALUE_SEARCH] Starting search for: %s\n", query)
+		logger.Debug("Starting global value search", "query", query)
 
 		var results []GlobalValueSearchResult
 		queryLower := strings.ToLower(query)
@@ -232,7 +225,7 @@ func (m *Model) performGlobalValueSearch(query string) tea.Cmd {
 		allItems := m.keyTree.AllItems()
 		totalKeys := len(allItems)
 
-		fmt.Fprintf(os.Stderr, "[GLOBAL_VALUE_SEARCH] Searching %d keys...\n", totalKeys)
+		logger.Debug("Searching keys", "total", totalKeys)
 
 		// Search each key for matching values
 		for _, item := range allItems {
@@ -290,11 +283,7 @@ func (m *Model) performGlobalValueSearch(query string) tea.Cmd {
 			}
 		}
 
-		fmt.Fprintf(
-			os.Stderr,
-			"[GLOBAL_VALUE_SEARCH] Found %d keys with matching values\n",
-			len(results),
-		)
+		logger.Debug("Found keys with matching values", "count", len(results))
 
 		return globalValueSearchCompleteMsg{
 			results: results,
@@ -409,10 +398,10 @@ func formatValueToString(regType hive.RegType, data []byte) string {
 
 // handleNextGlobalValueMatch navigates to the next key with matching values
 func (m Model) handleNextGlobalValueMatch() (tea.Model, tea.Cmd) {
-	fmt.Fprintf(os.Stderr, "[NAV] handleNextGlobalValueMatch called, %d results\n", len(m.globalValueSearchResults))
+	logger.Debug("handleNextGlobalValueMatch called", "results", len(m.globalValueSearchResults))
 
 	if len(m.globalValueSearchResults) == 0 {
-		fmt.Fprintf(os.Stderr, "[NAV] No results available\n")
+		logger.Debug("No results available")
 		return m, nil
 	}
 
@@ -421,25 +410,25 @@ func (m Model) handleNextGlobalValueMatch() (tea.Model, tea.Cmd) {
 	if item := m.keyTree.CurrentItem(); item != nil {
 		currentPath = item.Path
 	}
-	fmt.Fprintf(os.Stderr, "[NAV] Current path: %s\n", currentPath)
+	logger.Debug("Current path", "path", currentPath)
 
 	// Find next match after current path
 	foundCurrent := false
 	for i, result := range m.globalValueSearchResults {
 		if foundCurrent {
 			// Navigate to this key
-			fmt.Fprintf(os.Stderr, "[NAV] Navigating to result[%d]: %s\n", i, result.KeyPath)
+			logger.Debug("Navigating to result", "index", i, "path", result.KeyPath)
 			return m, m.keyTree.NavigateToPath(result.KeyPath)
 		}
 		if result.KeyPath == currentPath {
-			fmt.Fprintf(os.Stderr, "[NAV] Found current at index %d\n", i)
+			logger.Debug("Found current at index", "index", i)
 			foundCurrent = true
 		}
 	}
 
 	// Wrap around to first match if we're at the end
 	if len(m.globalValueSearchResults) > 0 {
-		fmt.Fprintf(os.Stderr, "[NAV] Wrapping to first result: %s\n", m.globalValueSearchResults[0].KeyPath)
+		logger.Debug("Wrapping to first result", "path", m.globalValueSearchResults[0].KeyPath)
 		return m, m.keyTree.NavigateToPath(m.globalValueSearchResults[0].KeyPath)
 	}
 

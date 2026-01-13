@@ -18,14 +18,14 @@ type HBINModule struct {
 func NewHBINModule() *HBINModule {
 	return &HBINModule{
 		RepairModuleBase: RepairModuleBase{
-			name: "HBIN",
+			name: hbinStructureName,
 		},
 	}
 }
 
 // CanRepair checks if this module can handle the given diagnostic.
 func (m *HBINModule) CanRepair(d Diagnostic) bool {
-	return d.Structure == "HBIN" && d.Repair != nil
+	return d.Structure == hbinStructureName && d.Repair != nil
 }
 
 // Validate checks if the repair is safe to apply.
@@ -60,6 +60,12 @@ func (m *HBINModule) Validate(data []byte, d Diagnostic) error {
 		return m.validateReplaceValue(d)
 	case RepairDefault:
 		return nil
+	case RepairTruncate, RepairRebuild, RepairRemove:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
+		}
 	default:
 		return &RepairError{
 			Module:  m.name,
@@ -76,6 +82,12 @@ func (m *HBINModule) Apply(data []byte, d Diagnostic) error {
 		return m.applyReplaceRepair(data, d)
 	case RepairDefault:
 		return m.applyDefaultRepair(data, d)
+	case RepairTruncate, RepairRebuild, RepairRemove:
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type: %s", d.Repair.Type),
+		}
 	default:
 		return &RepairError{
 			Module:  m.name,
@@ -116,6 +128,15 @@ func (m *HBINModule) Verify(data []byte, d Diagnostic) error {
 				Offset:  d.Offset,
 				Message: fmt.Sprintf("verification failed: expected 0x%X, got 0x%X", expectedValue, actualValue),
 			}
+		}
+	case RepairDefault:
+		// Default repair doesn't need value verification beyond basic checks
+	case RepairTruncate, RepairRebuild, RepairRemove:
+		// These repair types are not supported by HBIN module
+		return &RepairError{
+			Module:  m.name,
+			Offset:  d.Offset,
+			Message: fmt.Sprintf("unsupported repair type in verify: %s", d.Repair.Type),
 		}
 	}
 

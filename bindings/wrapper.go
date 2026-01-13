@@ -313,11 +313,11 @@ const (
 	REG_EXPAND_SZ                  ValueType = 2
 	REG_BINARY                     ValueType = 3
 	REG_DWORD                      ValueType = 4
-	REG_DWORD_BIG_ENDIAN          ValueType = 5
+	REG_DWORD_BIG_ENDIAN           ValueType = 5
 	REG_LINK                       ValueType = 6
 	REG_MULTI_SZ                   ValueType = 7
-	REG_RESOURCE_LIST             ValueType = 8
-	REG_FULL_RESOURCE_DESCRIPTOR  ValueType = 9
+	REG_RESOURCE_LIST              ValueType = 8
+	REG_FULL_RESOURCE_DESCRIPTOR   ValueType = 9
 	REG_RESOURCE_REQUIREMENTS_LIST ValueType = 10
 	REG_QWORD                      ValueType = 11
 )

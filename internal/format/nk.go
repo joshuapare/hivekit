@@ -56,38 +56,124 @@ func (nk NKRecord) NameIsCompressed() bool {
 	return nk.Flags&NKFlagCompressedName != 0
 }
 
-// DecodeNK decodes an NK record payload.
+// DecodeNK decodes an NK record payload with comprehensive bounds checking.
 func DecodeNK(b []byte) (NKRecord, error) {
 	if len(b) < NKMinSize {
-		return NKRecord{}, fmt.Errorf("nk: %w", ErrTruncated)
+		return NKRecord{}, fmt.Errorf("nk: %w (have %d, need %d)", ErrTruncated, len(b), NKMinSize)
 	}
 	if !bytes.Equal(b[:SignatureSize], NKSignature) {
 		return NKRecord{}, fmt.Errorf("nk: %w", ErrSignatureMismatch)
 	}
-	flags := buf.U16LE(b[NKFlagsOffset:])
-	lastWrite := buf.U64LE(b[NKLastWriteOffset:])
-	// NKAccessBitsOffset = access bits (Windows 8+), skip it
-	parent := buf.U32LE(b[NKParentOffset:])
-	subkeyCount := buf.U32LE(b[NKSubkeyCountOffset:])
-	// NKVolSubkeyCountOffset = volatile subkey count, skip it
-	subkeyListOff := buf.U32LE(b[NKSubkeyListOffset:])
-	// NKVolSubkeyListOffset = volatile subkey list offset, skip it
-	valueCount := buf.U32LE(b[NKValueCountOffset:])
-	valueListOff := buf.U32LE(b[NKValueListOffset:])
-	securityOff := buf.U32LE(b[NKSecurityOffset:])
-	classOff := buf.U32LE(b[NKClassNameOffset:])
-	maxNameLen := buf.U32LE(b[NKMaxNameLenOffset:])
-	maxClassLen := buf.U32LE(b[NKMaxClassLenOffset:])
-	maxValueNameLen := buf.U32LE(b[NKMaxValueNameOffset:])
-	maxValueDataLen := buf.U32LE(b[NKMaxValueDataOffset:])
-	// NKWorkVarOffset -> workvar (ignored)
-	nameLen := buf.U16LE(b[NKNameLenOffset:])
-	classLen := buf.U16LE(b[NKClassLenOffset:])
-	base := NKNameOffset
-	if len(b) < base+int(nameLen) {
-		return NKRecord{}, fmt.Errorf("nk name: %w", ErrTruncated)
+
+	// Read all fixed fields with checked reads
+	flags, err := CheckedReadU16(b, NKFlagsOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk flags: %w", err)
 	}
-	name := b[base : base+int(nameLen)]
+
+	lastWrite, err := CheckedReadU64(b, NKLastWriteOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk lastwrite: %w", err)
+	}
+
+	// NKAccessBitsOffset = access bits (Windows 8+), skip it
+	parent, err := CheckedReadU32(b, NKParentOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk parent: %w", err)
+	}
+
+	subkeyCount, err := CheckedReadU32(b, NKSubkeyCountOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk subkey count: %w", err)
+	}
+	// Sanity check: subkey count
+	if subkeyCount > MaxSubkeyCount {
+		return NKRecord{}, fmt.Errorf("nk subkey count %d exceeds limit %d: %w",
+			subkeyCount, MaxSubkeyCount, ErrSanityLimit)
+	}
+
+	// NKVolSubkeyCountOffset = volatile subkey count, skip it
+	subkeyListOff, err := CheckedReadU32(b, NKSubkeyListOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk subkey list: %w", err)
+	}
+
+	// NKVolSubkeyListOffset = volatile subkey list offset, skip it
+	valueCount, err := CheckedReadU32(b, NKValueCountOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk value count: %w", err)
+	}
+	// Sanity check: value count
+	if valueCount > MaxValueCount {
+		return NKRecord{}, fmt.Errorf("nk value count %d exceeds limit %d: %w",
+			valueCount, MaxValueCount, ErrSanityLimit)
+	}
+
+	valueListOff, err := CheckedReadU32(b, NKValueListOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk value list: %w", err)
+	}
+
+	securityOff, err := CheckedReadU32(b, NKSecurityOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk security: %w", err)
+	}
+
+	classOff, err := CheckedReadU32(b, NKClassNameOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk class name: %w", err)
+	}
+
+	maxNameLen, err := CheckedReadU32(b, NKMaxNameLenOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk max name len: %w", err)
+	}
+
+	maxClassLen, err := CheckedReadU32(b, NKMaxClassLenOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk max class len: %w", err)
+	}
+
+	maxValueNameLen, err := CheckedReadU32(b, NKMaxValueNameOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk max value name len: %w", err)
+	}
+
+	maxValueDataLen, err := CheckedReadU32(b, NKMaxValueDataOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk max value data len: %w", err)
+	}
+
+	// NKWorkVarOffset -> workvar (ignored)
+	nameLen, err := CheckedReadU16(b, NKNameLenOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk name len: %w", err)
+	}
+	// Sanity check: name length
+	if int(nameLen) > MaxNameLen {
+		return NKRecord{}, fmt.Errorf("nk name len %d exceeds limit %d: %w",
+			nameLen, MaxNameLen, ErrSanityLimit)
+	}
+
+	classLen, err := CheckedReadU16(b, NKClassLenOffset)
+	if err != nil {
+		return NKRecord{}, fmt.Errorf("nk class len: %w", err)
+	}
+	// Sanity check: class length
+	if int(classLen) > MaxClassLen {
+		return NKRecord{}, fmt.Errorf("nk class len %d exceeds limit %d: %w",
+			classLen, MaxClassLen, ErrSanityLimit)
+	}
+
+	// Bounds check: name slice
+	base := NKNameOffset
+	nameEnd, ok := buf.AddOverflowSafe(base, int(nameLen))
+	if !ok || nameEnd > len(b) {
+		return NKRecord{}, fmt.Errorf("nk name: %w (need %d bytes from %d, have %d)",
+			ErrTruncated, nameLen, base, len(b))
+	}
+	name := b[base:nameEnd]
+
 	return NKRecord{
 		Flags:              flags,
 		LastWriteRaw:       lastWrite,

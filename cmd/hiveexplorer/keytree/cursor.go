@@ -1,12 +1,9 @@
 package keytree
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/keyselection"
+	"github.com/joshuapare/hivekit/cmd/hiveexplorer/logger"
 	"github.com/joshuapare/hivekit/cmd/hiveexplorer/virtuallist"
-	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
 // CursorManager handles all cursor movements and navigation signal emissions.
@@ -17,11 +14,6 @@ type CursorManager struct {
 	state    *TreeState
 	navBus   *keyselection.Bus
 	hivePath string
-
-	// Diff mode context (set by model when entering/exiting diff mode)
-	diffMode  bool
-	oldReader hive.Reader // Reader for old hive (original)
-	newReader hive.Reader // Reader for new hive (comparison)
 }
 
 // newCursorManager creates a new cursor manager.
@@ -36,14 +28,6 @@ func newCursorManager(nav *Navigator, state *TreeState, hivePath string) *Cursor
 // setNavigationBus sets the navigation bus for signal emissions.
 func (cm *CursorManager) setNavigationBus(bus *keyselection.Bus) {
 	cm.navBus = bus
-}
-
-// SetDiffContext sets the diff mode context for navigation signals.
-// This should be called by the model when entering/exiting diff mode.
-func (cm *CursorManager) SetDiffContext(diffMode bool, oldReader, newReader hive.Reader) {
-	cm.diffMode = diffMode
-	cm.oldReader = oldReader
-	cm.newReader = newReader
 }
 
 // MoveTo moves the cursor to the specified position and emits a navigation signal.
@@ -69,10 +53,10 @@ func (cm *CursorManager) MoveTo(pos int, renderer *virtuallist.Renderer) bool {
 	// Update cursor in renderer (for visual display)
 	// Note: renderer.SetCursor() also handles scrolling the viewport
 	if renderer != nil {
-		fmt.Fprintf(os.Stderr, "[CURSOR] MoveTo(%d): renderer=%p, calling SetCursor(%d)\n", pos, renderer, pos)
+		logger.Debug("Cursor MoveTo", "pos", pos, "rendererExists", true)
 		renderer.SetCursor(pos)
 	} else {
-		fmt.Fprintf(os.Stderr, "[CURSOR] MoveTo(%d): renderer is NIL!\n", pos)
+		logger.Debug("Cursor MoveTo", "pos", pos, "rendererExists", false)
 	}
 
 	// Emit navigation signal
@@ -122,19 +106,7 @@ func (cm *CursorManager) EmitSignal() {
 
 	item := cm.state.GetItem(cm.nav.Cursor())
 	if item != nil {
-		// Pass diff context if in diff mode
-		// In diff mode, OldNodeID and NewNodeID are used by subscribers to load from correct hive
-		cm.navBus.Notify(
-			item.NodeID,
-			item.Path,
-			cm.hivePath,
-			cm.diffMode,
-			item.DiffStatus,
-			item.OldNodeID,
-			item.NewNodeID,
-			cm.oldReader,
-			cm.newReader,
-		)
+		cm.navBus.Notify(item.NodeID, item.Path, cm.hivePath)
 	}
 }
 

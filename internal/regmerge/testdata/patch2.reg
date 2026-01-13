@@ -1,0 +1,45 @@
+Windows Registry Editor Version 5.00
+
+; Patch 2 - Destructive changes with subtree replacement
+; Tests: Multi-level deduplication, delete shadowing, replace pattern
+
+; Update values from patch1.reg (tests multi-level deduplication)
+[HKEY_LOCAL_MACHINE\Software\TestApp]
+"Version"="1.2.0"
+"InstallDate"="2025-02-01"
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Monitoring]
+"Interval"=dword:00000078
+"Endpoint"="https://monitor-v2.example.com"
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Cache]
+"MaxSize"=dword:00800000
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Notifications]
+"Sound"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Backup]
+"Enabled"=dword:00000001
+"BackupPath"="D:\\Backups\\TestApp"
+
+; Delete entire Config subtree (tests delete shadowing)
+; Any operations on Config\Database from base/patch1 should be shadowed
+[-HKEY_LOCAL_MACHINE\Software\TestApp\Config]
+
+; Recreate Config with new structure (tests replace pattern)
+[HKEY_LOCAL_MACHINE\Software\TestApp\Config]
+"Version"=dword:00000002
+"Schema"="v2"
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\Config\Settings]
+"Timeout"=dword:00002710
+"MaxRetries"=dword:00000005
+"EnableLogging"=dword:00000001
+
+; Delete and recreate UI theme (another replace pattern)
+[-HKEY_LOCAL_MACHINE\Software\TestApp\UI]
+
+[HKEY_LOCAL_MACHINE\Software\TestApp\UI]
+"Theme"="System"
+"UseSystemTheme"=dword:00000001
+

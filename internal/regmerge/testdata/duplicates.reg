@@ -1,0 +1,136 @@
+Windows Registry Editor Version 5.00
+
+; Duplicates test - 100 operations that deduplicate to ~10 operations (90% reduction)
+; Sets the same 10 key/value pairs repeatedly with different values
+; Optimizer should keep only the LAST write for each (last-write-wins)
+
+; Round 1 - Initial values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="initial-v1"
+"Value2"=dword:00000001
+"Value3"="initial-v3"
+"Value4"=dword:00000064
+"Value5"="initial-v5"
+"Value6"=dword:000003e8
+"Value7"="initial-v7"
+"Value8"=dword:00002710
+"Value9"="initial-v9"
+"Value10"=dword:000186a0
+
+; Round 2 - Update values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="update2-v1"
+"Value2"=dword:00000002
+"Value3"="update2-v3"
+"Value4"=dword:000000c8
+"Value5"="update2-v5"
+"Value6"=dword:000007d0
+"Value7"="update2-v7"
+"Value8"=dword:00004e20
+"Value9"="update2-v9"
+"Value10"=dword:00030d40
+
+; Round 3 - Update values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="update3-v1"
+"Value2"=dword:00000003
+"Value3"="update3-v3"
+"Value4"=dword:0000012c
+"Value5"="update3-v5"
+"Value6"=dword:00000bb8
+"Value7"="update3-v7"
+"Value8"=dword:00007530
+"Value9"="update3-v9"
+"Value10"=dword:000493e0
+
+; Round 4 - Update values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="update4-v1"
+"Value2"=dword:00000004
+"Value3"="update4-v3"
+"Value4"=dword:00000190
+"Value5"="update4-v5"
+"Value6"=dword:00000fa0
+"Value7"="update4-v7"
+"Value8"=dword:00009c40
+"Value9"="update4-v9"
+"Value10"=dword:00061a80
+
+; Round 5 - Update values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="update5-v1"
+"Value2"=dword:00000005
+"Value3"="update5-v3"
+"Value4"=dword:000001f4
+"Value5"="update5-v5"
+"Value6"=dword:00001388
+"Value7"="update5-v7"
+"Value8"=dword:0000c350
+"Value9"="update5-v9"
+"Value10"=dword:0007a120
+
+; Round 6 - Update values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="update6-v1"
+"Value2"=dword:00000006
+"Value3"="update6-v3"
+"Value4"=dword:00000258
+"Value5"="update6-v5"
+"Value6"=dword:00001770
+"Value7"="update6-v7"
+"Value8"=dword:0000ea60
+"Value9"="update6-v9"
+"Value10"=dword:000927c0
+
+; Round 7 - Update values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="update7-v1"
+"Value2"=dword:00000007
+"Value3"="update7-v3"
+"Value4"=dword:000002bc
+"Value5"="update7-v5"
+"Value6"=dword:00001b58
+"Value7"="update7-v7"
+"Value8"=dword:00011170
+"Value9"="update7-v9"
+"Value10"=dword:000aae60
+
+; Round 8 - Update values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="update8-v1"
+"Value2"=dword:00000008
+"Value3"="update8-v3"
+"Value4"=dword:00000320
+"Value5"="update8-v5"
+"Value6"=dword:00001f40
+"Value7"="update8-v7"
+"Value8"=dword:00013880
+"Value9"="update8-v9"
+"Value10"=dword:00c35000
+
+; Round 9 - Update values (will all be overwritten)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="update9-v1"
+"Value2"=dword:00000009
+"Value3"="update9-v3"
+"Value4"=dword:00000384
+"Value5"="update9-v5"
+"Value6"=dword:00002328
+"Value7"="update9-v7"
+"Value8"=dword:00015f90
+"Value9"="update9-v9"
+"Value10"=dword:00dbb6a0
+
+; Round 10 - FINAL values (these should be kept by optimizer)
+[HKEY_LOCAL_MACHINE\Software\DedupTest]
+"Value1"="FINAL-v1"
+"Value2"=dword:0000000a
+"Value3"="FINAL-v3"
+"Value4"=dword:000003e8
+"Value5"="FINAL-v5"
+"Value6"=dword:00002710
+"Value7"="FINAL-v7"
+"Value8"=dword:000186a0
+"Value9"="FINAL-v9"
+"Value10"=dword:000f4240
+

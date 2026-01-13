@@ -10,13 +10,13 @@ import (
 	"github.com/joshuapare/hivekit/pkg/hive"
 )
 
-// GohivexKey represents a key from gohivex with its values
+// GohivexKey represents a key from gohivex with its values.
 type GohivexKey struct {
 	Path   string
 	Values []GohivexValue
 }
 
-// GohivexValue represents a value from gohivex
+// GohivexValue represents a value from gohivex.
 type GohivexValue struct {
 	Name string
 	Type uint32
@@ -26,7 +26,7 @@ type GohivexValue struct {
 // This goes beyond counts and validates:
 // - Every key path matches
 // - Every value name matches
-// - Value types match
+// - Value types match.
 func TestRegStructuralIntegrity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow integration test in short mode")
@@ -84,20 +84,20 @@ func TestRegStructuralIntegrity(t *testing.T) {
 				if len(errors) < maxErrors {
 					maxErrors = len(errors)
 				}
-				for i := 0; i < maxErrors; i++ {
+				for i := range maxErrors {
 					t.Errorf("Structure mismatch: %s", errors[i])
 				}
 				if len(errors) > maxErrors {
 					t.Errorf("... and %d more errors", len(errors)-maxErrors)
 				}
 			} else {
-				t.Logf("✅ Full structural integrity validated!")
+				t.Logf("Full structural integrity validated!")
 			}
 		})
 	}
 }
 
-// buildGohivexStructure walks the gohivex tree and builds a comparable structure
+// buildGohivexStructure walks the gohivex tree and builds a comparable structure.
 func buildGohivexStructure(t *testing.T, r hive.Reader, nodeID hive.NodeID, parentPath string) []*GohivexKey {
 	result := make([]*GohivexKey, 0)
 
@@ -110,13 +110,14 @@ func buildGohivexStructure(t *testing.T, r hive.Reader, nodeID hive.NodeID, pare
 
 	// Build path
 	var path string
-	if parentPath == "" {
+	switch parentPath {
+	case "":
 		// Root node
 		path = "\\"
-	} else if parentPath == "\\" {
+	case "\\":
 		// Direct child of root
 		path = "\\" + meta.Name
-	} else {
+	default:
 		// Deeper nesting
 		path = parentPath + "\\" + meta.Name
 	}
@@ -126,8 +127,8 @@ func buildGohivexStructure(t *testing.T, r hive.Reader, nodeID hive.NodeID, pare
 	values, err := r.Values(nodeID)
 	if err == nil {
 		for _, valueID := range values {
-			valueMeta, err := r.StatValue(valueID)
-			if err == nil {
+			valueMeta, valErr := r.StatValue(valueID)
+			if valErr == nil {
 				gohivexValues = append(gohivexValues, GohivexValue{
 					Name: valueMeta.Name,
 					Type: uint32(valueMeta.Type),
@@ -154,7 +155,7 @@ func buildGohivexStructure(t *testing.T, r hive.Reader, nodeID hive.NodeID, pare
 	return result
 }
 
-// compareStructures compares .reg structure with gohivex structure
+// compareStructures compares .reg structure with gohivex structure.
 func compareStructures(regStructure []*regtext.RegKey, gohivexStructure []*GohivexKey) []string {
 	errors := make([]string, 0)
 
@@ -192,7 +193,7 @@ func compareStructures(regStructure []*regtext.RegKey, gohivexStructure []*Gohiv
 	return errors
 }
 
-// compareKeyValues compares values at a single key
+// compareKeyValues compares values at a single key.
 func compareKeyValues(regKey *regtext.RegKey, gohivexKey *GohivexKey) []string {
 	errors := make([]string, 0)
 
@@ -230,8 +231,11 @@ func compareKeyValues(regKey *regtext.RegKey, gohivexKey *GohivexKey) []string {
 		// Compare value types
 		expectedType := regTypeToHiveType(regValue.Type)
 		if expectedType != 0 && gohivexValue.Type != expectedType {
-			errors = append(errors, fmt.Sprintf("Value type mismatch at %q, value %q: expected %s (type %d), got type %d",
-				regKey.Path, regValue.Name, regValue.Type, expectedType, gohivexValue.Type))
+			errors = append(
+				errors,
+				fmt.Sprintf("Value type mismatch at %q, value %q: expected %s (type %d), got type %d",
+					regKey.Path, regValue.Name, regValue.Type, expectedType, gohivexValue.Type),
+			)
 		}
 	}
 
@@ -246,7 +250,7 @@ func compareKeyValues(regKey *regtext.RegKey, gohivexKey *GohivexKey) []string {
 	return errors
 }
 
-// regTypeToHiveType converts .reg type string to Windows registry type constant
+// regTypeToHiveType converts .reg type string to Windows registry type constant.
 func regTypeToHiveType(regType string) uint32 {
 	switch regType {
 	case "string":
@@ -274,7 +278,7 @@ func regTypeToHiveType(regType string) uint32 {
 	}
 }
 
-// TestRegStructuralIntegritySummary provides a summary of structural validation
+// TestRegStructuralIntegritySummary provides a summary of structural validation.
 func TestRegStructuralIntegritySummary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow integration test in short mode")
@@ -329,13 +333,18 @@ func TestRegStructuralIntegritySummary(t *testing.T) {
 
 	t.Logf("")
 	t.Logf("=== .reg Structural Integrity Summary ===")
-	t.Logf("Perfect structural matches: %d/%d (%.1f%%)", perfectMatches, totalHives, float64(perfectMatches)/float64(totalHives)*100)
+	t.Logf(
+		"Perfect structural matches: %d/%d (%.1f%%)",
+		perfectMatches,
+		totalHives,
+		float64(perfectMatches)/float64(totalHives)*100,
+	)
 	if totalErrors > 0 {
 		t.Logf("Total structural errors found: %d", totalErrors)
 	}
 	t.Logf("")
 
 	if perfectMatches == totalHives {
-		t.Logf("✅ ALL hives have perfect structural integrity!")
+		t.Logf("ALL hives have perfect structural integrity!")
 	}
 }

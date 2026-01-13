@@ -8,6 +8,7 @@ require github.com/joshuapare/hivekit/bindings v0.0.0-00010101000000-00000000000
 
 require (
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sys v0.37.0
 	golang.org/x/text v0.30.0
 )
 

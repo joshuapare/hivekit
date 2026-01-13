@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	
 )
 
 // runModelWithActions runs the model with a set of actions and returns the final model

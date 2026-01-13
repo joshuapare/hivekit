@@ -1,11 +1,11 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
-	"strings"
+	"os"
 
-	"github.com/joshuapare/hivekit/pkg/hive"
+	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/printer"
 	"github.com/spf13/cobra"
 )
 
@@ -50,115 +50,46 @@ func runDump(args []string) error {
 
 	printVerbose("Opening hive: %s\n", hivePath)
 
-	// List keys recursively
-	keys, err := hive.ListKeys(hivePath, keyPath, true, dumpDepth)
+	// Open hive with new backend
+	h, err := hive.Open(hivePath)
 	if err != nil {
-		return fmt.Errorf("failed to list keys: %w", err)
+		return fmt.Errorf("failed to open hive: %w", err)
 	}
+	defer h.Close()
 
-	// Collect all key-value data
-	type KeyData struct {
-		Path   string
-		Values []hive.ValueInfo
-	}
+	// Configure printer options
+	opts := printer.DefaultOptions()
+	opts.ShowValues = true
+	opts.ShowValueTypes = true
+	opts.MaxDepth = dumpDepth
+	opts.PrintMetadata = true // Dump shows full metadata
 
-	var allData []KeyData
-
-	// Add root key if it exists
-	if keyPath != "" {
-		values, err := hive.ListValues(hivePath, keyPath)
-		if err == nil {
-			allData = append(allData, KeyData{
-				Path:   keyPath,
-				Values: values,
-			})
-		}
-	}
-
-	// Add all subkeys
-	for _, key := range keys {
-		values, err := hive.ListValues(hivePath, key.Path)
-		if err != nil {
-			printVerbose("Warning: failed to list values for %s: %v\n", key.Path, err)
-			continue
-		}
-
-		allData = append(allData, KeyData{
-			Path:   key.Path,
-			Values: values,
-		})
-	}
-
-	// Output as JSON if requested
+	// Handle JSON output
 	if jsonOut {
-		result := map[string]interface{}{
-			"hive": hivePath,
-			"path": keyPath,
-			"data": allData,
+		opts.Format = printer.FormatJSON
+		if err := h.PrintTree(os.Stdout, keyPath, opts); err != nil {
+			return fmt.Errorf("dump failed: %w", err)
 		}
-		return printJSON(result)
+		return nil
 	}
 
 	// Text output
-	if !dumpCompact {
-		printInfo("\nRegistry Hive Dump: %s\n", hivePath)
-		printInfo("%s\n\n", strings.Repeat("═", 40))
+	opts.Format = printer.FormatText
+
+	// Adjust indentation for compact mode
+	if dumpCompact {
+		opts.IndentSize = 0
 	}
 
-	for _, kd := range allData {
-		// Print key header
-		if !dumpValuesOnly {
-			printInfo("[%s]\n", kd.Path)
-		}
+	// Note: --values-only flag is not yet supported with new printer
+	// Would require printer enhancement
+	if dumpValuesOnly {
+		printVerbose("Warning: --values-only flag not yet supported with new backend\n")
+	}
 
-		// Print values
-		if len(kd.Values) == 0 {
-			if !dumpCompact {
-				printInfo("  (no values)\n")
-			}
-		} else {
-			for _, val := range kd.Values {
-				valueName := val.Name
-				if valueName == "" {
-					valueName = "(Default)"
-				}
-
-				// Format value based on type
-				var valueStr string
-				switch val.Type {
-				case "REG_SZ", "REG_EXPAND_SZ":
-					valueStr = fmt.Sprintf("REG_SZ \"%s\"", val.StringVal)
-				case "REG_MULTI_SZ":
-					valueStr = fmt.Sprintf("REG_MULTI_SZ [%s]", strings.Join(val.StringVals, ", "))
-				case "REG_DWORD", "REG_DWORD_BE":
-					valueStr = fmt.Sprintf("REG_DWORD 0x%08x", val.DWordVal)
-				case "REG_QWORD":
-					valueStr = fmt.Sprintf("REG_QWORD 0x%016x", val.QWordVal)
-				case "REG_BINARY":
-					if len(val.Data) > 32 {
-						valueStr = fmt.Sprintf("REG_BINARY %s... (%d bytes)", hex.EncodeToString(val.Data[:32]), len(val.Data))
-					} else {
-						valueStr = fmt.Sprintf("REG_BINARY %s", hex.EncodeToString(val.Data))
-					}
-				default:
-					if len(val.Data) > 32 {
-						valueStr = fmt.Sprintf("%s %s... (%d bytes)", val.Type, hex.EncodeToString(val.Data[:32]), len(val.Data))
-					} else {
-						valueStr = fmt.Sprintf("%s %s", val.Type, hex.EncodeToString(val.Data))
-					}
-				}
-
-				if dumpValuesOnly {
-					printInfo("%s\\%s = %s\n", kd.Path, valueName, valueStr)
-				} else {
-					printInfo("  %s = %s\n", valueName, valueStr)
-				}
-			}
-		}
-
-		if !dumpCompact && !dumpValuesOnly {
-			printInfo("\n")
-		}
+	// Dump using printer
+	if err := h.PrintTree(os.Stdout, keyPath, opts); err != nil {
+		return fmt.Errorf("dump failed: %w", err)
 	}
 
 	return nil

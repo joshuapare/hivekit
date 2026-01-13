@@ -1,3 +1,4 @@
+//go:build hivex
 // +build hivex
 
 package integration

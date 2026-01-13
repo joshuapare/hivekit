@@ -37,20 +37,12 @@ type KeyMap struct {
 	FirstMatch key.Binding
 	LastMatch  key.Binding
 
-	// Diff mode
-	DiffMode        key.Binding
-	ToggleAdded     key.Binding
-	ToggleRemoved   key.Binding
-	ToggleModified  key.Binding
-	ToggleUnchanged key.Binding
-	ToggleDiffView  key.Binding
-
 	// Tree navigation helpers
-	GoToParent       key.Binding
-	ExpandAll        key.Binding
-	CollapseAll      key.Binding
-	ExpandLevel      key.Binding
-	CollapseToLevel  key.Binding
+	GoToParent      key.Binding
+	ExpandAll       key.Binding
+	CollapseAll     key.Binding
+	ExpandLevel     key.Binding
+	CollapseToLevel key.Binding
 
 	// Bookmarks
 	ToggleBookmark key.Binding
@@ -166,32 +158,6 @@ func DefaultKeyMap() KeyMap {
 		LastMatch: key.NewBinding(
 			key.WithKeys("ctrl+end"),
 			key.WithHelp("ctrl+end", "last match"),
-		),
-
-		// Diff mode
-		DiffMode: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d", "diff mode"),
-		),
-		ToggleAdded: key.NewBinding(
-			key.WithKeys("a"),
-			key.WithHelp("a", "toggle added"),
-		),
-		ToggleRemoved: key.NewBinding(
-			key.WithKeys("r"),
-			key.WithHelp("r", "toggle removed"),
-		),
-		ToggleModified: key.NewBinding(
-			key.WithKeys("m"),
-			key.WithHelp("m", "toggle modified"),
-		),
-		ToggleUnchanged: key.NewBinding(
-			key.WithKeys("u"),
-			key.WithHelp("u", "toggle unchanged"),
-		),
-		ToggleDiffView: key.NewBinding(
-			key.WithKeys("v"),
-			key.WithHelp("v", "toggle diff-only view"),
 		),
 
 		// Tree navigation helpers

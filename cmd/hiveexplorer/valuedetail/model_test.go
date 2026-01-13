@@ -317,8 +317,8 @@ func TestModalSizing(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
 
 	// Modal should be 80% of screen minus border/padding (6 horizontal, 4 vertical)
-	expectedWidth := int(float64(100)*0.8) - 6  // 74
-	expectedHeight := int(float64(50)*0.8) - 4  // 36
+	expectedWidth := int(float64(100)*0.8) - 6 // 74
+	expectedHeight := int(float64(50)*0.8) - 4 // 36
 
 	if m.viewport.Width != expectedWidth {
 		t.Errorf("modal viewport width = %d, want %d", m.viewport.Width, expectedWidth)
@@ -335,8 +335,8 @@ func TestPaneSizing(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 60})
 
 	// Pane should be full width minus padding (4), 1/3 height minus padding (4)
-	expectedWidth := 120 - 4    // 116
-	expectedHeight := 60/3 - 4  // 16
+	expectedWidth := 120 - 4   // 116
+	expectedHeight := 60/3 - 4 // 16
 
 	if m.viewport.Width != expectedWidth {
 		t.Errorf("pane viewport width = %d, want %d", m.viewport.Width, expectedWidth)

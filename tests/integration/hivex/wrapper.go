@@ -1,3 +1,4 @@
+//go:build hivex
 // +build hivex
 
 package integration
@@ -125,18 +126,18 @@ func (h *HivexHandle) ValueQword(value int64) (int64, error) {
 
 // HivexValueType constants matching Windows Registry types
 const (
-	HivexTypeNone                      = 0
-	HivexTypeSZ                        = 1
-	HivexTypeExpandSZ                  = 2
-	HivexTypeBinary                    = 3
-	HivexTypeDword                     = 4
+	HivexTypeNone                     = 0
+	HivexTypeSZ                       = 1
+	HivexTypeExpandSZ                 = 2
+	HivexTypeBinary                   = 3
+	HivexTypeDword                    = 4
 	HivexTypeDwordBigEndian           = 5
-	HivexTypeLink                      = 6
-	HivexTypeMultiSZ                   = 7
+	HivexTypeLink                     = 6
+	HivexTypeMultiSZ                  = 7
 	HivexTypeResourceList             = 8
 	HivexTypeFullResourceDescriptor   = 9
 	HivexTypeResourceRequirementsList = 10
-	HivexTypeQword                     = 11
+	HivexTypeQword                    = 11
 )
 
 // HivexValueTypeName returns a human-readable name for a hivex value type

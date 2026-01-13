@@ -1,55 +1,38 @@
 package hive
 
 import (
-	"github.com/joshuapare/hivekit/pkg/ast"
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
 // MergeOptions controls merge behavior.
 type MergeOptions struct {
-	// Limits defines registry constraints to enforce during merge.
-	// If nil, DefaultLimits() is used automatically.
+	// Limits defines registry constraints for validation.
+	// Used by ValidateHive() to check registry constraints.
+	// Note: Not yet enforced during merge operations (future enhancement).
+	// If nil, DefaultLimits() is used by validation functions.
 	Limits *Limits
-
-	// OnProgress is called after each operation is applied.
-	// Parameters are (current, total) operation counts.
-	// If nil, no progress reporting occurs.
-	OnProgress func(current, total int)
-
-	// OnError is called when an operation fails.
-	// Return true to continue processing remaining operations.
-	// Return false to abort immediately.
-	// If nil, the first error aborts the entire merge.
-	OnError func(op EditOp, err error) bool
 
 	// Defragment compacts the hive after merge, improving locality
 	// and reducing file size. Adds ~10-20% overhead but recommended
 	// for hives that undergo many modifications.
 	Defragment bool
 
-	// DryRun validates all operations without applying them.
-	// Useful for testing .reg files before committing changes.
-	// No modifications are made to the hive when true.
-	DryRun bool
-
-	// CreateBackup creates a .bak file before modifying the 
+	// CreateBackup creates a .bak file before modifying the hive.
 	// The backup is created at <hivePath>.bak.
 	CreateBackup bool
 }
 
 // OperationOptions controls individual high-level operation behavior.
 type OperationOptions struct {
-	// Limits defines registry constraints to enforce.
-	// If nil, DefaultLimits() is used automatically.
+	// Limits defines registry constraints for validation.
+	// Used by ValidateHive() to check registry constraints.
+	// Note: Not yet enforced during write operations (future enhancement).
+	// If nil, DefaultLimits() is used by validation functions.
 	Limits *Limits
 
 	// Defragment compacts the hive after the operation.
 	// Adds overhead but reduces file size.
 	Defragment bool
-
-	// DryRun validates the operation without applying it.
-	// No modifications are made to the hive when true.
-	DryRun bool
 
 	// CreateBackup creates a .bak file before modifying the hive.
 	// The backup is created at <hivePath>.bak.
@@ -63,7 +46,7 @@ type OperationOptions struct {
 // ExportOptions controls .reg export behavior.
 type ExportOptions struct {
 	// SubtreePath exports only this subtree (e.g., "Software\\MyApp").
-	// If empty, exports the entire 
+	// If empty, exports the entire
 	SubtreePath string
 
 	// Encoding specifies output encoding.
@@ -82,7 +65,7 @@ type OpenOptions = types.OpenOptions
 
 // Limits defines registry constraints to prevent corruption.
 // These match Windows registry specifications.
-type Limits = ast.Limits
+type Limits = types.Limits
 
 // EditOp represents a registry edit operation (re-exported for convenience).
 type EditOp = types.EditOp
@@ -107,7 +90,7 @@ type (
 //   - MaxTreeDepth: 512 levels
 //   - MaxTotalSize: 2 GB
 func DefaultLimits() Limits {
-	return ast.DefaultLimits()
+	return types.DefaultLimits()
 }
 
 // RelaxedLimits returns more permissive limits for system keys.
@@ -120,7 +103,7 @@ func DefaultLimits() Limits {
 //   - MaxTreeDepth: 1,024 levels
 //   - MaxTotalSize: 4 GB
 func RelaxedLimits() Limits {
-	return ast.RelaxedLimits()
+	return types.RelaxedLimits()
 }
 
 // StrictLimits returns conservative limits for safety-critical applications.
@@ -133,5 +116,5 @@ func RelaxedLimits() Limits {
 //   - MaxTreeDepth: 128 levels
 //   - MaxTotalSize: 100 MB
 func StrictLimits() Limits {
-	return ast.StrictLimits()
+	return types.StrictLimits()
 }

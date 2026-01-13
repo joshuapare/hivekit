@@ -13,34 +13,38 @@ import (
 	"time"
 )
 
-// BenchmarkResult represents a parsed benchmark result
+// BenchmarkResult represents a parsed benchmark result.
 type BenchmarkResult struct {
-	Name       string
-	Operation  string
-	HiveSize   string
-	Impl       string // "gohivex" or "hivex"
-	Iterations int
-	NsPerOp    float64
-	BytesPerOp int64
+	Name        string
+	Operation   string
+	HiveSize    string
+	Impl        string // "gohivex" or "hivex"
+	Iterations  int
+	NsPerOp     float64
+	BytesPerOp  int64
 	AllocsPerOp int64
 }
 
-// ComparisonResult represents a comparison between gohivex and hivex
+// ComparisonResult represents a comparison between gohivex and hivex.
 type ComparisonResult struct {
-	Operation   string
-	HiveSize    string
-	GohivexNs   float64
-	HivexNs     float64
-	Speedup     float64
-	GohivexMem  int64
-	HivexMem    int64
+	Operation     string
+	HiveSize      string
+	GohivexNs     float64
+	HivexNs       float64
+	Speedup       float64
+	GohivexMem    int64
+	HivexMem      int64
 	GohivexAllocs int64
 	HivexAllocs   int64
-	GohivexOnly bool
+	GohivexOnly   bool
 }
 
 var (
-	inputFile  = flag.String("input", "", "Input file with benchmark output (stdin if not specified)")
+	inputFile = flag.String(
+		"input",
+		"",
+		"Input file with benchmark output (stdin if not specified)",
+	)
 	outputFile = flag.String("output", "", "Output markdown file (stdout if not specified)")
 	quiet      = flag.Bool("quiet", false, "Suppress progress output")
 )
@@ -50,13 +54,14 @@ func main() {
 
 	// Read benchmark output
 	var scanner *bufio.Scanner
+	var inputF *os.File
 	if *inputFile != "" {
 		f, err := os.Open(*inputFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error opening input file: %v\n", err)
 			os.Exit(1)
 		}
-		defer f.Close()
+		inputF = f
 		scanner = bufio.NewScanner(f)
 	} else {
 		scanner = bufio.NewScanner(os.Stdin)
@@ -84,13 +89,21 @@ func main() {
 		err := os.WriteFile(*outputFile, []byte(report), 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing output file: %v\n", err)
+			if inputF != nil {
+				inputF.Close()
+			}
 			os.Exit(1)
 		}
 		if !*quiet {
 			fmt.Fprintf(os.Stderr, "Report written to %s\n", *outputFile)
 		}
 	} else {
-		fmt.Print(report)
+		fmt.Fprint(os.Stdout, report)
+	}
+
+	// Close input file if opened
+	if inputF != nil {
+		inputF.Close()
 	}
 }
 
@@ -99,13 +112,15 @@ func parseBenchmarks(scanner *bufio.Scanner) []BenchmarkResult {
 
 	// Regex to parse benchmark output lines
 	// BenchmarkOpen/gohivex/small-8    10000    12450 ns/op    4096 B/op    8 allocs/op
-	benchmarkRegex := regexp.MustCompile(`^(Benchmark\S+)\s+(\d+)\s+([\d.]+)\s+ns/op(?:\s+([\d.]+)\s+(?:B|MB)/op)?(?:\s+([\d.]+)\s+allocs/op)?`)
+	benchmarkRegex := regexp.MustCompile(
+		`^(Benchmark\S+)\s+(\d+)\s+([\d.]+)\s+ns/op(?:\s+([\d.]+)\s+(?:B|MB)/op)?(?:\s+([\d.]+)\s+allocs/op)?`,
+	)
 
 	for scanner.Scan() {
 		line := scanner.Text()
 
 		// Try to parse as JSON (from -json flag)
-		var testEvent map[string]interface{}
+		var testEvent map[string]any
 		if err := json.Unmarshal([]byte(line), &testEvent); err == nil {
 			if output, ok := testEvent["Output"].(string); ok {
 				line = output
@@ -188,7 +203,7 @@ func parseBenchmarks(scanner *bufio.Scanner) []BenchmarkResult {
 	return results
 }
 
-func parseGohivexOnlyBenchmark(name string) (operation, hiveSize string) {
+func parseGohivexOnlyBenchmark(name string) (string, string) {
 	// Handle benchmarks like: BenchmarkOpenBytes_Gohivex/small-8
 	// Or: BenchmarkOpenBytes_ZeroCopy/zerocopy/small-8
 
@@ -196,6 +211,8 @@ func parseGohivexOnlyBenchmark(name string) (operation, hiveSize string) {
 	if len(parts) == 0 {
 		return "", ""
 	}
+
+	var operation, hiveSize string
 
 	// Extract operation from first part
 	firstPart := strings.TrimPrefix(parts[0], "Benchmark")
@@ -284,7 +301,7 @@ func generateComparisons(results []BenchmarkResult) []ComparisonResult {
 	return comparisons
 }
 
-func generateMarkdownReport(comparisons []ComparisonResult, allResults []BenchmarkResult) string {
+func generateMarkdownReport(comparisons []ComparisonResult, _ []BenchmarkResult) string {
 	var sb strings.Builder
 
 	// Header
@@ -319,16 +336,32 @@ func generateMarkdownReport(comparisons []ComparisonResult, allResults []Benchma
 	sb.WriteString("## Summary\n\n")
 	sb.WriteString(fmt.Sprintf("- **Total benchmarks**: %d\n", len(comparisons)))
 	sb.WriteString(fmt.Sprintf("- **Comparable** (both implementations): %d\n", comparableCount))
-	sb.WriteString(fmt.Sprintf("  - gohivex faster: %d (%.1f%%)\n", gohivexFaster, float64(gohivexFaster)/float64(comparableCount)*100))
-	sb.WriteString(fmt.Sprintf("  - hivex faster: %d (%.1f%%)\n", hivexFaster, float64(hivexFaster)/float64(comparableCount)*100))
+	sb.WriteString(
+		fmt.Sprintf(
+			"  - gohivex faster: %d (%.1f%%)\n",
+			gohivexFaster,
+			float64(gohivexFaster)/float64(comparableCount)*100,
+		),
+	)
+	sb.WriteString(
+		fmt.Sprintf(
+			"  - hivex faster: %d (%.1f%%)\n",
+			hivexFaster,
+			float64(hivexFaster)/float64(comparableCount)*100,
+		),
+	)
 	sb.WriteString(fmt.Sprintf("  - Average speedup: **%.2fx**\n", avgSpeedup))
 	sb.WriteString(fmt.Sprintf("- **gohivex-only features**: %d\n", gohivexOnly))
 	sb.WriteString("\n")
 
 	// Detailed results table
 	sb.WriteString("## Detailed Results\n\n")
-	sb.WriteString("| Operation | Hive | gohivex (ns/op) | hivex (ns/op) | Speedup | Memory (B/op) | Allocs |\n")
-	sb.WriteString("|-----------|------|-----------------|---------------|---------|---------------|--------|\n")
+	sb.WriteString(
+		"| Operation | Hive | gohivex (ns/op) | hivex (ns/op) | Speedup | Memory (B/op) | Allocs |\n",
+	)
+	sb.WriteString(
+		"|-----------|------|-----------------|---------------|---------|---------------|--------|\n",
+	)
 
 	for _, comp := range comparisons {
 		if comp.GohivexOnly {
@@ -442,23 +475,24 @@ func categorizeOperations(comparisons []ComparisonResult) map[string][]Compariso
 	for _, comp := range comparisons {
 		op := strings.ToLower(comp.Operation)
 
-		if comp.GohivexOnly {
+		switch {
+		case comp.GohivexOnly:
 			categories["gohivex Features"] = append(categories["gohivex Features"], comp)
-		} else if strings.Contains(op, "open") || strings.Contains(op, "close") {
+		case strings.Contains(op, "open") || strings.Contains(op, "close"):
 			categories["Open/Close"] = append(categories["Open/Close"], comp)
-		} else if strings.Contains(op, "root") || strings.Contains(op, "children") ||
-				  strings.Contains(op, "getchild") || strings.Contains(op, "walk") {
+		case strings.Contains(op, "root") || strings.Contains(op, "children") ||
+			strings.Contains(op, "getchild") || strings.Contains(op, "walk"):
 			categories["Navigation"] = append(categories["Navigation"], comp)
-		} else if strings.Contains(op, "timestamp") || strings.Contains(op, "nrchildren") ||
-				  strings.Contains(op, "nrvalues") || strings.Contains(op, "stat") ||
-				  strings.Contains(op, "nodename") || strings.Contains(op, "detail") {
+		case strings.Contains(op, "timestamp") || strings.Contains(op, "nrchildren") ||
+			strings.Contains(op, "nrvalues") || strings.Contains(op, "stat") ||
+			strings.Contains(op, "nodename") || strings.Contains(op, "detail"):
 			categories["Metadata"] = append(categories["Metadata"], comp)
-		} else if strings.Contains(op, "string") || strings.Contains(op, "dword") ||
-				  strings.Contains(op, "qword") {
+		case strings.Contains(op, "string") || strings.Contains(op, "dword") ||
+			strings.Contains(op, "qword"):
 			categories["Typed Values"] = append(categories["Typed Values"], comp)
-		} else if strings.Contains(op, "value") {
+		case strings.Contains(op, "value"):
 			categories["Values"] = append(categories["Values"], comp)
-		} else {
+		default:
 			categories["Introspection"] = append(categories["Introspection"], comp)
 		}
 	}

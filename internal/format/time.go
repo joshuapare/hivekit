@@ -19,3 +19,12 @@ func FiletimeToTime(v uint64) time.Time {
 	nsec := ns % int64(time.Second)
 	return time.Unix(sec, nsec).UTC()
 }
+
+// TimeToFiletime converts a time.Time to a Windows FILETIME value (little-endian uint64).
+func TimeToFiletime(t time.Time) uint64 {
+	ns := t.UnixNano()
+	if ns < 0 {
+		ns = 0
+	}
+	return uint64(ns)/filetimeUnit + filetimeOffset
+}

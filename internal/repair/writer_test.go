@@ -113,9 +113,9 @@ func TestWriter_CreateBackup(t *testing.T) {
 	}
 
 	// Create backup
-	backupPath, err := writer.CreateBackup(sourcePath, "bak")
-	if err != nil {
-		t.Fatalf("CreateBackup failed: %v", err)
+	backupPath, backupErr := writer.CreateBackup(sourcePath, "bak")
+	if backupErr != nil {
+		t.Fatalf("CreateBackup failed: %v", backupErr)
 	}
 
 	// Verify backup path format
@@ -350,8 +350,8 @@ func TestWriter_NoTempFileLeftBehind(t *testing.T) {
 
 	// Write atomically
 	testData := []byte("test data")
-	if err := writer.WriteAtomic(targetPath, testData); err != nil {
-		t.Fatalf("WriteAtomic failed: %v", err)
+	if writeErr := writer.WriteAtomic(targetPath, testData); writeErr != nil {
+		t.Fatalf("WriteAtomic failed: %v", writeErr)
 	}
 
 	// Count files after write

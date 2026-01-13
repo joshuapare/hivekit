@@ -18,7 +18,7 @@ func NewCodec() *Codec {
 }
 
 // ParseReg converts .reg text into edit operations.
-func (c *Codec) ParseReg(regText []byte, opts types.RegParseOptions) ([]types.EditOp, error) {
+func (c *Codec) ParseReg(regText []byte, _ types.RegParseOptions) ([]types.EditOp, error) {
 	// Parse the .reg file to get structure
 	stats, err := ParseRegFile(bytes.NewReader(regText))
 	if err != nil {
@@ -45,8 +45,8 @@ func (c *Codec) ParseReg(regText []byte, opts types.RegParseOptions) ([]types.Ed
 		// Create set value operations for each value
 		for _, value := range key.Values {
 			// Convert reg value to hive value
-			regType, data, err := convertRegValue(value)
-			if err != nil {
+			regType, data, convertErr := convertRegValue(value)
+			if convertErr != nil {
 				// Skip invalid values but continue processing
 				continue
 			}
@@ -145,6 +145,7 @@ func convertRegValue(value *RegValue) (types.RegType, []byte, error) {
 		if err != nil {
 			// Not valid hex - treat as string fallback
 			// This is intentional: if hex parsing fails, assume it's plain text
+			//nolint:nilerr // Intentionally fallback to string when hex parsing fails
 			return types.REG_SZ, encodeUTF16LEZeroTerminated(value.Data), nil
 		}
 		return types.REG_BINARY, data, nil

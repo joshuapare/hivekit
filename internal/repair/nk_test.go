@@ -8,8 +8,8 @@ import (
 	"github.com/joshuapare/hivekit/internal/format"
 )
 
-// Helper function to create a minimal NK record for testing
-func createTestNKRecord(offset uint64) []byte {
+// Helper function to create a minimal NK record for testing.
+func createTestNKRecord(_ uint64) []byte {
 	// Create a buffer with REGF header + HBIN header + NK record
 	// This ensures offsets are realistic
 	data := make([]byte, format.HeaderSize+format.HBINHeaderSize+format.NKMinSize+100)

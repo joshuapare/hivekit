@@ -28,18 +28,18 @@ func TestVKOnlyDoesNotReadData(t *testing.T) {
 	t.Skip("Integration tests provide full coverage for vkOnly functionality")
 }
 
-// TestVKRecordParsing tests basic VK record parsing
+// TestVKRecordParsing tests basic VK record parsing.
 func TestVKRecordParsing(t *testing.T) {
 	// Minimal VK record: signature "vk" + basic fields (0x14 = 20 bytes minimum)
 	// This tests that vkOnly can parse a VK record structure
 	vkData := []byte{
-		'v', 'k',              // +0x00: Signature (2 bytes)
-		0x00, 0x00,            // +0x02: NameLength (0 bytes - unnamed/default value)
+		'v', 'k', // +0x00: Signature (2 bytes)
+		0x00, 0x00, // +0x02: NameLength (0 bytes - unnamed/default value)
 		0x20, 0x00, 0x00, 0x00, // +0x04: DataLength (32 bytes)
 		0x00, 0x00, 0x00, 0x00, // +0x08: DataOffset
 		0x01, 0x00, 0x00, 0x00, // +0x0C: Type (REG_SZ = 1)
-		0x00, 0x00,            // +0x10: Flags
-		0x00, 0x00,            // +0x12: Unused/padding
+		0x00, 0x00, // +0x10: Flags
+		0x00, 0x00, // +0x12: Unused/padding
 	}
 
 	vk, err := format.DecodeVK(vkData)

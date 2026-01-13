@@ -36,12 +36,12 @@ func Map(path string) ([]byte, func() error, error) {
 		if data == nil {
 			return nil
 		}
-		err := syscall.Munmap(data)
-		if errors.Is(err, syscall.EINVAL) {
+		unmapErr := syscall.Munmap(data)
+		if errors.Is(unmapErr, syscall.EINVAL) {
 			// Treat double-unmap as no-op for callers.
 			return nil
 		}
-		return err
+		return unmapErr
 	}
 	return data, cleanup, nil
 }

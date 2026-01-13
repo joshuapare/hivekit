@@ -80,12 +80,12 @@ func (it *sliceValueIter) Value() types.ValueID { return it.data[it.idx-1] }
 
 type emptyNodeIter struct{}
 
-func (emptyNodeIter) Next() bool        { return false }
-func (emptyNodeIter) Err() error        { return nil }
+func (emptyNodeIter) Next() bool         { return false }
+func (emptyNodeIter) Err() error         { return nil }
 func (emptyNodeIter) Node() types.NodeID { return 0 }
 
 type emptyValueIter struct{}
 
-func (emptyValueIter) Next() bool          { return false }
-func (emptyValueIter) Err() error          { return nil }
+func (emptyValueIter) Next() bool           { return false }
+func (emptyValueIter) Err() error           { return nil }
 func (emptyValueIter) Value() types.ValueID { return 0 }

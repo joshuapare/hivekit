@@ -196,14 +196,14 @@ func TestPendingNavigationTarget(t *testing.T) {
 // TestEnsureCursorVisible tests viewport scrolling logic
 func TestEnsureCursorVisible(t *testing.T) {
 	tests := []struct {
-		name              string
-		vpWidth           int
-		vpHeight          int
-		vpYOffset         int
-		headerHeight      int
-		cursor            int
-		expectedYOffset   int
-		expectedScrolled  bool
+		name             string
+		vpWidth          int
+		vpHeight         int
+		vpYOffset        int
+		headerHeight     int
+		cursor           int
+		expectedYOffset  int
+		expectedScrolled bool
 	}{
 		{
 			name:             "cursor visible in middle, no scroll needed",
