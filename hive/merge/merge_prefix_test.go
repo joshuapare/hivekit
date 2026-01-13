@@ -379,3 +379,144 @@ func TestMergeRegTextWithPrefix_InvalidHivePath(t *testing.T) {
 	_, err := merge.MergeRegTextWithPrefix(context.Background(), "/nonexistent/hive", regText, "SOFTWARE", nil)
 	require.Error(t, err, "should error on invalid hive path")
 }
+
+// =============================================================================
+// PlanFromRegTextWithPrefix Tests
+// =============================================================================
+
+func TestPlanFromRegTextWithPrefix_Basic(t *testing.T) {
+	regText := `Windows Registry Editor Version 5.00
+
+[Microsoft\Windows]
+"Version"="10.0"
+`
+
+	plan, err := merge.PlanFromRegTextWithPrefix(regText, "SOFTWARE")
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// Should have ops for creating key path and setting value
+	require.Greater(t, len(plan.Ops), 0)
+
+	// Verify the key path is transformed
+	// The ops should reference SOFTWARE\Microsoft\Windows
+	found := false
+	for _, op := range plan.Ops {
+		if op.Type == merge.OpSetValue {
+			// KeyPath should be ["SOFTWARE", "Microsoft", "Windows"]
+			require.Equal(t, []string{"SOFTWARE", "Microsoft", "Windows"}, op.KeyPath)
+			require.Equal(t, "Version", op.ValueName)
+			found = true
+		}
+	}
+	require.True(t, found, "expected to find OpSetValue with transformed path")
+}
+
+func TestPlanFromRegTextWithPrefix_EmptyPrefix(t *testing.T) {
+	regText := `Windows Registry Editor Version 5.00
+
+[TestKey]
+"Value"="Data"
+`
+
+	// Empty prefix should work like PlanFromRegText
+	plan, err := merge.PlanFromRegTextWithPrefix(regText, "")
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// Verify path is not prefixed
+	for _, op := range plan.Ops {
+		if op.Type == merge.OpSetValue {
+			require.Equal(t, []string{"TestKey"}, op.KeyPath)
+		}
+	}
+}
+
+func TestPlanFromRegTextWithPrefix_HiveRootStripping(t *testing.T) {
+	regText := `Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\Test]
+"Value"="Data"
+`
+
+	// Prefix includes HKEY_LOCAL_MACHINE which should be stripped
+	plan, err := merge.PlanFromRegTextWithPrefix(regText, "HKLM\\SOFTWARE")
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// Both prefix HKLM and path HKEY_LOCAL_MACHINE should be stripped
+	for _, op := range plan.Ops {
+		if op.Type == merge.OpSetValue {
+			// Should be SOFTWARE\Test (prefix stripped of HKLM, path stripped of HKEY_LOCAL_MACHINE)
+			require.Equal(t, []string{"SOFTWARE", "Test"}, op.KeyPath)
+		}
+	}
+}
+
+func TestPlanFromRegTextWithPrefix_MultipleOperations(t *testing.T) {
+	regText := `Windows Registry Editor Version 5.00
+
+[Key1]
+"Val1"="Data1"
+
+[Key2]
+"Val2"=dword:00000001
+
+[-Key3]
+`
+
+	plan, err := merge.PlanFromRegTextWithPrefix(regText, "Root")
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// Count operation types
+	var ensureKeys, setValues, deleteKeys int
+	for _, op := range plan.Ops {
+		switch op.Type {
+		case merge.OpEnsureKey:
+			ensureKeys++
+		case merge.OpSetValue:
+			setValues++
+			// All set values should have Root prefix
+			require.Equal(t, "Root", op.KeyPath[0])
+		case merge.OpDeleteKey:
+			deleteKeys++
+			require.Equal(t, []string{"Root", "Key3"}, op.KeyPath)
+		}
+	}
+
+	require.Equal(t, 2, setValues, "expected 2 SetValue ops")
+	require.Equal(t, 1, deleteKeys, "expected 1 DeleteKey op")
+}
+
+func TestPlanFromRegTextWithPrefix_InvalidRegText(t *testing.T) {
+	// No header - should fail
+	regText := `[Test]
+"Value"="Data"
+`
+
+	_, err := merge.PlanFromRegTextWithPrefix(regText, "SOFTWARE")
+	require.Error(t, err, "should error on invalid regtext")
+}
+
+func TestPlanFromRegTextWithPrefix_DeleteValue(t *testing.T) {
+	regText := `Windows Registry Editor Version 5.00
+
+[TestKey]
+"ToDelete"=-
+`
+
+	plan, err := merge.PlanFromRegTextWithPrefix(regText, "SOFTWARE")
+	require.NoError(t, err)
+
+	// Should have a delete value operation
+	found := false
+	for _, op := range plan.Ops {
+		if op.Type == merge.OpDeleteValue {
+			require.Equal(t, []string{"SOFTWARE", "TestKey"}, op.KeyPath)
+			require.Equal(t, "ToDelete", op.ValueName)
+			found = true
+		}
+	}
+	require.True(t, found, "expected to find OpDeleteValue")
+}

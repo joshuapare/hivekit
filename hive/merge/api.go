@@ -78,6 +78,59 @@ func PlanFromRegText(regText string) (*Plan, error) {
 	return plan, nil
 }
 
+// PlanFromRegTextWithPrefix parses regtext and transforms paths with the given prefix.
+//
+// This is useful when you want to inspect or modify the plan before applying,
+// or when combining multiple regtext sources scoped to different subtrees.
+//
+// The prefix is prepended to all key paths. Hive root prefixes (HKEY_LOCAL_MACHINE\,
+// HKLM\, etc.) are automatically stripped from both the prefix and regtext paths.
+//
+// Example:
+//
+//	regText := `Windows Registry Editor Version 5.00
+//
+//	[Microsoft\Windows]
+//	"Version"="10.0"
+//	`
+//
+//	plan, err := merge.PlanFromRegTextWithPrefix(regText, "SOFTWARE")
+//	if err != nil {
+//	    return err
+//	}
+//	// plan now contains: EnsureKey(["SOFTWARE", "Microsoft", "Windows"]) + SetValue(...)
+//
+// For applying directly to a session, use Session.ApplyRegTextWithPrefix() instead.
+func PlanFromRegTextWithPrefix(regText string, prefix string) (*Plan, error) {
+	// Strip hive root from prefix
+	prefix = stripHiveRootPrefix(prefix)
+	prefixParts := splitPath(prefix)
+
+	// Parse regtext
+	ops, err := regtext.ParseReg([]byte(regText), types.RegParseOptions{
+		InputEncoding: "UTF-8",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("parse regtext: %w", err)
+	}
+
+	// Transform and convert operations
+	plan := NewPlan()
+	for _, editOp := range ops {
+		transformedOp, err := transformOp(editOp, prefixParts)
+		if err != nil {
+			return nil, fmt.Errorf("transform operation: %w", err)
+		}
+		mergeOp, err := convertEditOpToMergeOp(transformedOp)
+		if err != nil {
+			return nil, fmt.Errorf("convert operation: %w", err)
+		}
+		plan.Ops = append(plan.Ops, *mergeOp)
+	}
+
+	return plan, nil
+}
+
 // PlanFromRegTexts parses and optimizes multiple .reg file texts into a single plan.
 //
 // This function provides the query optimizer benefits for multi-file merges:

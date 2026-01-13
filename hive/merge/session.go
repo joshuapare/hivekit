@@ -260,6 +260,44 @@ func (s *Session) ApplyWithTx(ctx context.Context, plan *Plan) (Applied, error) 
 	return result, nil
 }
 
+// ApplyRegTextWithPrefix parses regtext, transforms paths with prefix, and applies.
+//
+// This is the session-based equivalent of MergeRegTextWithPrefix. Use it when you
+// need control over the session lifecycle (e.g., to check storage stats after apply).
+//
+// The prefix is prepended to all key paths in the regtext. Hive root prefixes
+// (HKEY_LOCAL_MACHINE\, HKLM\, etc.) are automatically stripped.
+//
+// Example:
+//
+//	h, _ := hive.Open(path)
+//	defer h.Close()
+//	sess, _ := merge.NewSession(ctx, h, opts)
+//	defer sess.Close(ctx)
+//
+//	applied, _ := sess.ApplyRegTextWithPrefix(ctx, regText, "SOFTWARE")
+//	stats := sess.GetStorageStats()  // check bloat
+//	result, _ := sess.HasKeys(ctx, "SOFTWARE\\Microsoft")  // validation
+func (s *Session) ApplyRegTextWithPrefix(ctx context.Context, regText string, prefix string) (Applied, error) {
+	plan, err := PlanFromRegTextWithPrefix(regText, prefix)
+	if err != nil {
+		return Applied{}, err
+	}
+	return s.ApplyWithTx(ctx, plan)
+}
+
+// ApplyRegText parses regtext and applies in one transaction (no prefix transformation).
+//
+// Equivalent to ApplyRegTextWithPrefix(ctx, regText, "").
+// Use when the regtext paths are already correct relative to the hive root.
+func (s *Session) ApplyRegText(ctx context.Context, regText string) (Applied, error) {
+	plan, err := PlanFromRegText(regText)
+	if err != nil {
+		return Applied{}, err
+	}
+	return s.ApplyWithTx(ctx, plan)
+}
+
 // Index returns the current index for inspection.
 //
 // You can use this to query keys/values that exist in the hive.

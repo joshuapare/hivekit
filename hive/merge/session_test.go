@@ -1403,3 +1403,195 @@ func Test_Session_GetStorageStats_NonZeroValues(t *testing.T) {
 			stats.UsedBytes, stats.FreeBytes, stats.FileSize)
 	}
 }
+
+// =============================================================================
+// ApplyRegText / ApplyRegTextWithPrefix Tests
+// =============================================================================
+
+// Test 35: ApplyRegTextWithPrefix basic functionality.
+func Test_Session_ApplyRegTextWithPrefix(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	regText := `Windows Registry Editor Version 5.00
+
+[TestApp\Settings]
+"Version"="1.0.0"
+"Enabled"=dword:00000001
+`
+
+	// Apply with prefix
+	applied, err := session.ApplyRegTextWithPrefix(context.Background(), regText, "_RegTextTest")
+	if err != nil {
+		t.Fatalf("ApplyRegTextWithPrefix failed: %v", err)
+	}
+
+	// Should have created keys and set values
+	if applied.KeysCreated == 0 {
+		t.Error("Expected keys to be created")
+	}
+	if applied.ValuesSet == 0 {
+		t.Error("Expected values to be set")
+	}
+
+	// Verify key exists
+	if !session.HasKey("_RegTextTest\\TestApp\\Settings") {
+		t.Error("Key _RegTextTest\\TestApp\\Settings should exist")
+	}
+
+	t.Logf("ApplyRegTextWithPrefix: KeysCreated=%d, ValuesSet=%d",
+		applied.KeysCreated, applied.ValuesSet)
+}
+
+// Test 36: ApplyRegTextWithPrefix then check stats (key use case).
+func Test_Session_ApplyRegTextWithPrefix_ThenStats(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Get initial stats
+	initialStats := session.GetStorageStats()
+
+	regText := `Windows Registry Editor Version 5.00
+
+[LargeKey\Sub1]
+"Value1"="data1"
+
+[LargeKey\Sub2]
+"Value2"="data2"
+
+[LargeKey\Sub3]
+"Value3"="data3"
+`
+
+	// Apply regtext
+	applied, err := session.ApplyRegTextWithPrefix(context.Background(), regText, "_StatsTest")
+	if err != nil {
+		t.Fatalf("ApplyRegTextWithPrefix failed: %v", err)
+	}
+
+	// Get stats after apply
+	afterStats := session.GetStorageStats()
+
+	// Stats should reflect changes
+	if afterStats.UsedBytes <= initialStats.UsedBytes {
+		t.Errorf("UsedBytes should increase after apply: before=%d, after=%d",
+			initialStats.UsedBytes, afterStats.UsedBytes)
+	}
+
+	t.Logf("Stats: before UsedBytes=%d, after UsedBytes=%d, applied KeysCreated=%d",
+		initialStats.UsedBytes, afterStats.UsedBytes, applied.KeysCreated)
+}
+
+// Test 37: ApplyRegTextWithPrefix then check keys (key use case).
+func Test_Session_ApplyRegTextWithPrefix_ThenHasKeys(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	regText := `Windows Registry Editor Version 5.00
+
+[Microsoft\App1]
+"Name"="App1"
+
+[Microsoft\App2]
+"Name"="App2"
+`
+
+	// Apply regtext
+	_, err := session.ApplyRegTextWithPrefix(context.Background(), regText, "_HasKeysCheck")
+	if err != nil {
+		t.Fatalf("ApplyRegTextWithPrefix failed: %v", err)
+	}
+
+	// Check keys using HasKeys
+	result, err := session.HasKeys(context.Background(),
+		"_HasKeysCheck\\Microsoft\\App1",
+		"_HasKeysCheck\\Microsoft\\App2",
+		"_HasKeysCheck\\Microsoft\\NonExistent",
+	)
+	if err != nil {
+		t.Fatalf("HasKeys failed: %v", err)
+	}
+
+	// Should have 2 present, 1 missing
+	if len(result.Present) != 2 {
+		t.Errorf("Expected 2 present keys, got %d: %v", len(result.Present), result.Present)
+	}
+	if len(result.Missing) != 1 {
+		t.Errorf("Expected 1 missing key, got %d: %v", len(result.Missing), result.Missing)
+	}
+	if result.AllPresent {
+		t.Error("AllPresent should be false")
+	}
+
+	t.Logf("HasKeys result: Present=%v, Missing=%v", result.Present, result.Missing)
+}
+
+// Test 38: ApplyRegText (without prefix).
+func Test_Session_ApplyRegText(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	regText := `Windows Registry Editor Version 5.00
+
+[_NoPrefix\SubKey]
+"TestValue"="test"
+`
+
+	// Apply without prefix
+	applied, err := session.ApplyRegText(context.Background(), regText)
+	if err != nil {
+		t.Fatalf("ApplyRegText failed: %v", err)
+	}
+
+	if applied.KeysCreated == 0 {
+		t.Error("Expected keys to be created")
+	}
+
+	// Verify key exists at root level (no prefix)
+	if !session.HasKey("_NoPrefix\\SubKey") {
+		t.Error("Key _NoPrefix\\SubKey should exist")
+	}
+}
+
+// Test 39: ApplyRegTextWithPrefix with invalid regtext.
+func Test_Session_ApplyRegTextWithPrefix_InvalidRegtext(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	// Invalid regtext (missing header)
+	regText := `[InvalidKey]
+"Value"="test"
+`
+
+	_, err := session.ApplyRegTextWithPrefix(context.Background(), regText, "PREFIX")
+	if err == nil {
+		t.Error("Expected error for invalid regtext")
+	}
+}
+
+// Test 40: ApplyRegTextWithPrefix with HKEY prefix stripping.
+func Test_Session_ApplyRegTextWithPrefix_HKEYStripping(t *testing.T) {
+	session, cleanup := setupTestSession(t)
+	defer cleanup()
+
+	regText := `Windows Registry Editor Version 5.00
+
+[TestKey]
+"Value"="data"
+`
+
+	// Prefix includes HKLM\ which should be stripped
+	applied, err := session.ApplyRegTextWithPrefix(context.Background(), regText, "HKLM\\_HKEYTest")
+	if err != nil {
+		t.Fatalf("ApplyRegTextWithPrefix failed: %v", err)
+	}
+
+	if applied.KeysCreated == 0 {
+		t.Error("Expected keys to be created")
+	}
+
+	// Key should be at _HKEYTest\TestKey (HKLM\ stripped)
+	if !session.HasKey("_HKEYTest\\TestKey") {
+		t.Error("Key _HKEYTest\\TestKey should exist (HKLM\\ should be stripped)")
+	}
+}

@@ -7,7 +7,6 @@ import (
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/internal/format"
-	"github.com/joshuapare/hivekit/internal/regtext"
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
@@ -57,35 +56,16 @@ import (
 //   - Applied: Statistics about operations applied
 //   - error: If parsing fails, hive cannot be opened, or operations fail
 func MergeRegTextWithPrefix(ctx context.Context, hivePath string, regText string, prefix string, opts *Options) (Applied, error) {
-	var result Applied
-
-	// Parse prefix into path components
-	// Strip any hive root prefixes from the prefix itself
-	prefix = stripHiveRootPrefix(prefix)
-	prefixParts := splitPath(prefix)
-
-	// Parse regtext into operations
-	ops, err := regtext.ParseReg([]byte(regText), types.RegParseOptions{
-		InputEncoding: "UTF-8",
-	})
+	// Parse regtext with prefix transformation (validates input before opening hive)
+	plan, err := PlanFromRegTextWithPrefix(regText, prefix)
 	if err != nil {
-		return result, fmt.Errorf("parse regtext: %w", err)
-	}
-
-	// Transform operations by prepending prefix
-	transformedOps := make([]types.EditOp, 0, len(ops))
-	for _, op := range ops {
-		transformedOp, err := transformOp(op, prefixParts)
-		if err != nil {
-			return result, fmt.Errorf("transform operation: %w", err)
-		}
-		transformedOps = append(transformedOps, transformedOp)
+		return Applied{}, err
 	}
 
 	// Open hive
 	h, err := hive.Open(hivePath)
 	if err != nil {
-		return result, fmt.Errorf("open hive: %w", err)
+		return Applied{}, fmt.Errorf("open hive: %w", err)
 	}
 	defer h.Close()
 
@@ -95,22 +75,12 @@ func MergeRegTextWithPrefix(ctx context.Context, hivePath string, regText string
 	}
 	sess, err := NewSession(ctx, h, *opts)
 	if err != nil {
-		return result, fmt.Errorf("create session: %w", err)
+		return Applied{}, fmt.Errorf("create session: %w", err)
 	}
 	defer sess.Close(ctx)
 
-	// Convert EditOps to merge.Ops and apply
-	plan := NewPlan()
-	for _, editOp := range transformedOps {
-		mergeOp, err := convertEditOpToMergeOp(editOp)
-		if err != nil {
-			return result, fmt.Errorf("convert operation: %w", err)
-		}
-		plan.Ops = append(plan.Ops, *mergeOp)
-	}
-
-	// Apply with transaction
-	result, err = sess.ApplyWithTx(ctx, plan)
+	// Apply plan
+	result, err := sess.ApplyWithTx(ctx, plan)
 	if err != nil {
 		return result, fmt.Errorf("apply operations: %w", err)
 	}
