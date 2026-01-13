@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,7 +104,7 @@ func benchmarkE2ESingleFile(b *testing.B, regData string, optimize bool) {
 		}
 
 		// Execute merge (same backend for both)
-		_, err = MergePlan(tempHive, plan, nil)
+		_, err = MergePlan(context.Background(), tempHive, plan, nil)
 		if err != nil {
 			b.Fatalf("MergePlan failed: %v", err)
 		}
@@ -155,7 +156,7 @@ func benchmarkE2EMultiFile(b *testing.B, regTexts []string, optimize bool) {
 		}
 
 		// Execute merge (same backend for both)
-		_, err = MergePlan(tempHive, plan, nil)
+		_, err = MergePlan(context.Background(), tempHive, plan, nil)
 		if err != nil {
 			b.Fatalf("MergePlan failed: %v", err)
 		}

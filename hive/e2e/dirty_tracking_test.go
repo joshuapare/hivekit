@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -117,7 +118,7 @@ func Test_DirtyTracking_SimpleFlush(t *testing.T) {
 	}
 
 	t.Log("=== STEP 4: Attempt to flush ===")
-	err = dt.FlushDataOnly()
+	err = dt.FlushDataOnly(context.Background())
 	if err != nil {
 		t.Errorf("FlushDataOnly failed: %v", err)
 
@@ -226,7 +227,7 @@ func Test_DirtyTracking_ManualRange(t *testing.T) {
 	t.Logf("Data slice address: %p, length: %d (0x%X)", &data2[0], len(data2), len(data2))
 
 	t.Log("=== STEP 4: Attempt flush ===")
-	err = dt.FlushDataOnly()
+	err = dt.FlushDataOnly(context.Background())
 	if err != nil {
 		t.Errorf("FlushDataOnly failed: %v", err)
 
@@ -312,7 +313,7 @@ func Test_DirtyTracking_EmptyFlush(t *testing.T) {
 	ranges := dt.DebugRanges()
 	t.Logf("Dirty ranges: %d", len(ranges))
 
-	err = dt.FlushDataOnly()
+	err = dt.FlushDataOnly(context.Background())
 	if err != nil {
 		t.Errorf("Empty FlushDataOnly failed: %v", err)
 		return

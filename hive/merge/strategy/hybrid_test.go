@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -53,7 +54,7 @@ func setupHybridStrategy(t *testing.T, slackPct int) (*Hybrid, *hive.Hive, func(
 
 	// Build index
 	builder := walker.NewIndexBuilder(h, 10000, 10000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to build index: %v", err)
@@ -78,7 +79,7 @@ func Test_Hybrid_EnsureKey(t *testing.T) {
 	path := []string{"_StrategyTest_Hybrid", "TestKey"}
 
 	// Ensure key
-	nkRef, keysCreated, err := strategy.EnsureKey(path)
+	nkRef, keysCreated, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
@@ -102,7 +103,7 @@ func Test_Hybrid_SmallValue_UsesInPlace(t *testing.T) {
 
 	// Create parent key
 	path := []string{"_StrategyTest_Hybrid", "SmallValue"}
-	_, _, err := strategy.EnsureKey(path)
+	_, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
@@ -112,7 +113,7 @@ func Test_Hybrid_SmallValue_UsesInPlace(t *testing.T) {
 
 	// Set small value (<1KB, should use InPlace)
 	data := bytes.Repeat([]byte("X"), 512)
-	err = strategy.SetValue(path, "SmallData", format.REGBinary, data)
+	err = strategy.SetValue(context.Background(), path, "SmallData", format.REGBinary, data)
 	if err != nil {
 		t.Fatalf("SetValue (small) failed: %v", err)
 	}
@@ -132,7 +133,7 @@ func Test_Hybrid_LargeValue_UsesAppend(t *testing.T) {
 
 	// Create parent key
 	path := []string{"_StrategyTest_Hybrid", "LargeValue"}
-	_, _, err := strategy.EnsureKey(path)
+	_, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
@@ -142,7 +143,7 @@ func Test_Hybrid_LargeValue_UsesAppend(t *testing.T) {
 
 	// Set large value (≥1KB, should use Append)
 	data := bytes.Repeat([]byte("Y"), 50*1024)
-	err = strategy.SetValue(path, "LargeData", format.REGBinary, data)
+	err = strategy.SetValue(context.Background(), path, "LargeData", format.REGBinary, data)
 	if err != nil {
 		t.Fatalf("SetValue (large) failed: %v", err)
 	}
@@ -165,19 +166,19 @@ func Test_Hybrid_DeleteValue(t *testing.T) {
 
 	// Create key and value
 	path := []string{"_StrategyTest_Hybrid", "DeleteTest"}
-	_, _, err := strategy.EnsureKey(path)
+	_, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
 
 	data := []byte("ToBeDeleted")
-	err = strategy.SetValue(path, "TempValue", format.REGSZ, data)
+	err = strategy.SetValue(context.Background(), path, "TempValue", format.REGSZ, data)
 	if err != nil {
 		t.Fatalf("SetValue failed: %v", err)
 	}
 
 	// Delete value (should use InPlace, which frees cells)
-	err = strategy.DeleteValue(path, "TempValue")
+	err = strategy.DeleteValue(context.Background(), path, "TempValue")
 	if err != nil {
 		t.Fatalf("DeleteValue failed: %v", err)
 	}
@@ -192,13 +193,13 @@ func Test_Hybrid_DeleteKey(t *testing.T) {
 
 	// Create key
 	path := []string{"_StrategyTest_Hybrid", "KeyToDelete"}
-	_, _, err := strategy.EnsureKey(path)
+	_, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
 
 	// Delete key (should use InPlace)
-	err = strategy.DeleteKey(path, false)
+	err = strategy.DeleteKey(context.Background(), path, false)
 	if err != nil {
 		t.Fatalf("DeleteKey failed: %v", err)
 	}
@@ -220,14 +221,15 @@ func Test_Hybrid_MixedOperations(t *testing.T) {
 		fn   func() error
 	}{
 		{"Create Key", func() error {
-			_, _, err := strategy.EnsureKey([]string{"HybridTest", "Key1"})
+			_, _, err := strategy.EnsureKey(context.Background(), []string{"HybridTest", "Key1"})
 			return err
 		}},
 		{"Set Small Value", func() error {
-			return strategy.SetValue([]string{"HybridTest", "Key1"}, "Small", format.REGSZ, []byte("small data"))
+			return strategy.SetValue(context.Background(), []string{"HybridTest", "Key1"}, "Small", format.REGSZ, []byte("small data"))
 		}},
 		{"Set Large Value", func() error {
 			return strategy.SetValue(
+				context.Background(),
 				[]string{"HybridTest", "Key1"},
 				"Large",
 				format.REGBinary,
@@ -236,6 +238,7 @@ func Test_Hybrid_MixedOperations(t *testing.T) {
 		}},
 		{"Update Small Value", func() error {
 			return strategy.SetValue(
+				context.Background(),
 				[]string{"HybridTest", "Key1"},
 				"Small",
 				format.REGSZ,
@@ -243,14 +246,14 @@ func Test_Hybrid_MixedOperations(t *testing.T) {
 			)
 		}},
 		{"Delete Value", func() error {
-			return strategy.DeleteValue([]string{"HybridTest", "Key1"}, "Small")
+			return strategy.DeleteValue(context.Background(), []string{"HybridTest", "Key1"}, "Small")
 		}},
 		{"Create Another Key", func() error {
-			_, _, err := strategy.EnsureKey([]string{"HybridTest", "Key2"})
+			_, _, err := strategy.EnsureKey(context.Background(), []string{"HybridTest", "Key2"})
 			return err
 		}},
 		{"Delete Key", func() error {
-			return strategy.DeleteKey([]string{"HybridTest", "Key2"}, false)
+			return strategy.DeleteKey(context.Background(), []string{"HybridTest", "Key2"}, false)
 		}},
 	}
 

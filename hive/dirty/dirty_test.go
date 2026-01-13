@@ -1,6 +1,7 @@
 package dirty
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -165,7 +166,7 @@ func Test_DirtyTracker_FlushDataOnly_ExcludesHeader(t *testing.T) {
 	tracker.Add(4096, 100) // Data
 
 	// FlushDataOnly should skip header
-	err := tracker.FlushDataOnly()
+	err := tracker.FlushDataOnly(context.Background())
 	if err != nil {
 		t.Fatalf("FlushDataOnly() failed: %v", err)
 	}
@@ -184,7 +185,7 @@ func Test_DirtyTracker_FlushHeader(t *testing.T) {
 	tracker := NewTracker(h)
 
 	// FlushHeaderAndMeta should not error
-	err := tracker.FlushHeaderAndMeta(FlushAuto)
+	err := tracker.FlushHeaderAndMeta(context.Background(), FlushAuto)
 	if err != nil {
 		t.Fatalf("FlushHeaderAndMeta() failed: %v", err)
 	}
@@ -223,7 +224,7 @@ func Test_DirtyTracker_FlushDataOnly_Empty(t *testing.T) {
 	tracker := NewTracker(h)
 
 	// Flush with no ranges added
-	err := tracker.FlushDataOnly()
+	err := tracker.FlushDataOnly(context.Background())
 	if err != nil {
 		t.Fatalf("FlushDataOnly() on empty tracker failed: %v", err)
 	}
@@ -284,7 +285,7 @@ func Test_DirtyTracker_FlushModes(t *testing.T) {
 			tracker := NewTracker(h)
 
 			// Should not error
-			err := tracker.FlushHeaderAndMeta(tt.mode)
+			err := tracker.FlushHeaderAndMeta(context.Background(), tt.mode)
 			if err != nil {
 				t.Errorf("FlushHeaderAndMeta(%v) failed: %v", tt.mode, err)
 			}

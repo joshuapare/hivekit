@@ -7,6 +7,7 @@
 package dirty
 
 import (
+	"context"
 	"sort"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -94,10 +95,18 @@ func (t *Tracker) Add(off, length int) {
 //
 // The header page (offset 0, length 4096) is NOT flushed.
 //
+// The context can be used to cancel the flush operation. If cancelled during
+// flushing, some ranges may have been flushed while others have not.
+//
 // Performance: Depends on number of ranges and OS page cache, typically < 5 ms for 10 ranges.
-func (t *Tracker) FlushDataOnly() error {
+func (t *Tracker) FlushDataOnly(ctx context.Context) error {
 	if len(t.ranges) == 0 {
 		return nil
+	}
+
+	// Check for cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Flush dirty ranges
@@ -107,7 +116,7 @@ func (t *Tracker) FlushDataOnly() error {
 	}
 
 	// Platform-specific flushing
-	if err := t.flushRanges(data); err != nil {
+	if err := t.flushRanges(ctx, data); err != nil {
 		return err
 	}
 
@@ -125,8 +134,17 @@ func (t *Tracker) FlushDataOnly() error {
 //     - FlushDataOnly: no fdatasync()
 //     - FlushFull: fdatasync() + F_FULLFSYNC on macOS
 //
+// The context can be used to cancel the operation. Note that if cancelled after
+// the header is flushed but before fdatasync completes, the header may be
+// inconsistent with the data pages on disk.
+//
 // Performance: Typically < 5 ms (OS dependent).
-func (t *Tracker) FlushHeaderAndMeta(mode FlushMode) error {
+func (t *Tracker) FlushHeaderAndMeta(ctx context.Context, mode FlushMode) error {
+	// Check for cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Flush header page
 	data := t.h.Bytes()
 	if len(data) == 0 {
@@ -139,6 +157,11 @@ func (t *Tracker) FlushHeaderAndMeta(mode FlushMode) error {
 		headerLen = len(data)
 	}
 	if err := msync(data[:headerLen]); err != nil {
+		return err
+	}
+
+	// Check for cancellation before fdatasync
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 

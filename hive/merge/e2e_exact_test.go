@@ -2,6 +2,7 @@ package merge
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -64,12 +65,12 @@ func Test_E2E_Exact_KnownOperations(t *testing.T) {
 		t.Fatalf("Failed to reopen hive: %v", err)
 	}
 
-	session, err := NewSession(h, DefaultOptions())
+	session, err := NewSession(context.Background(), h, DefaultOptions())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	plan := NewPlan()
 
@@ -109,7 +110,7 @@ func Test_E2E_Exact_KnownOperations(t *testing.T) {
 	plan.AddDeleteValue(subkey2, "Value2")
 
 	// Apply plan
-	applied, err := session.ApplyWithTx(plan)
+	applied, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("ApplyWithTx failed: %v", err)
 	}
@@ -176,7 +177,7 @@ func Test_E2E_Exact_KnownOperations(t *testing.T) {
 
 	// Phase 5: Verify EXACT key existence and value content
 	builder := walker.NewIndexBuilder(h, 10000, 10000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to build index: %v", err)
 	}

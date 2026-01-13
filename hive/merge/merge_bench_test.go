@@ -2,6 +2,7 @@ package merge
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 
@@ -103,7 +104,7 @@ func Benchmark_Executor_SmallPlan(b *testing.B) {
 		plan.Ops[2].KeyPath = plan.Ops[0].KeyPath
 		b.StartTimer()
 
-		_, err := session.ApplyWithTx(plan)
+		_, err := session.ApplyWithTx(context.Background(), plan)
 		if err != nil {
 			b.Fatalf("Apply failed: %v", err)
 		}
@@ -135,7 +136,7 @@ func Benchmark_Executor_MediumPlan(b *testing.B) {
 		}
 		b.StartTimer()
 
-		_, err := session.ApplyWithTx(plan)
+		_, err := session.ApplyWithTx(context.Background(), plan)
 		if err != nil {
 			b.Fatalf("Apply failed: %v", err)
 		}
@@ -175,7 +176,7 @@ func Benchmark_Executor_LargeValues(b *testing.B) {
 				plan.AddSetValue(keyPath, "LargeValue", format.REGBinary, data)
 				b.StartTimer()
 
-				_, err := session.ApplyWithTx(plan)
+				_, err := session.ApplyWithTx(context.Background(), plan)
 				if err != nil {
 					b.Fatalf("Apply failed: %v", err)
 				}
@@ -194,7 +195,7 @@ func Benchmark_Executor_IdempotentReplay(b *testing.B) {
 	plan.AddSetValue([]string{"_BenchIdempotent"}, "Value1", 4, []byte{0x01, 0x00, 0x00, 0x00})
 
 	// Execute once to create the key/value
-	_, err := session.ApplyWithTx(plan)
+	_, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		b.Fatalf("Initial apply failed: %v", err)
 	}
@@ -204,7 +205,7 @@ func Benchmark_Executor_IdempotentReplay(b *testing.B) {
 
 	// Now benchmark replaying the same plan (should be mostly no-ops)
 	for range b.N {
-		_, applyErr := session.ApplyWithTx(plan)
+		_, applyErr := session.ApplyWithTx(context.Background(), plan)
 		if applyErr != nil {
 			b.Fatalf("Apply failed: %v", applyErr)
 		}
@@ -234,7 +235,7 @@ func Benchmark_Executor_DeepHierarchy(b *testing.B) {
 		plan.AddSetValue(keyPath, "DeepValue", 1, []byte("data\x00"))
 		b.StartTimer()
 
-		_, err := session.ApplyWithTx(plan)
+		_, err := session.ApplyWithTx(context.Background(), plan)
 		if err != nil {
 			b.Fatalf("Apply failed: %v", err)
 		}
@@ -268,7 +269,7 @@ func Benchmark_Executor_MixedOperations(b *testing.B) {
 
 		b.StartTimer()
 
-		_, err := session.ApplyWithTx(plan)
+		_, err := session.ApplyWithTx(context.Background(), plan)
 		if err != nil {
 			b.Fatalf("Apply failed: %v", err)
 		}

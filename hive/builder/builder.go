@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -92,7 +93,7 @@ func New(path string, opts *Options) (*Builder, error) {
 	}
 
 	// Create session
-	session, err := merge.NewSession(h, mergeOpts)
+	session, err := merge.NewSession(context.Background(), h, mergeOpts)
 	if err != nil {
 		h.Close()
 		return nil, fmt.Errorf("create session: %w", err)
@@ -363,7 +364,7 @@ func (b *Builder) Commit() error {
 	}
 
 	// Close session (includes final commit)
-	if err := b.session.Close(); err != nil {
+	if err := b.session.Close(context.Background()); err != nil {
 		return fmt.Errorf("close session: %w", err)
 	}
 
@@ -387,7 +388,7 @@ func (b *Builder) Rollback() error {
 
 	// Close session without commit
 	// Note: Progressive flushes may have already written some data
-	if err := b.session.Close(); err != nil {
+	if err := b.session.Close(context.Background()); err != nil {
 		return fmt.Errorf("close session: %w", err)
 	}
 
@@ -449,7 +450,7 @@ func (b *Builder) flush() error {
 	}
 
 	// Apply plan with transaction
-	_, err := b.session.ApplyWithTx(b.plan)
+	_, err := b.session.ApplyWithTx(context.Background(), b.plan)
 	if err != nil {
 		return fmt.Errorf("apply plan: %w", err)
 	}

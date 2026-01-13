@@ -1,6 +1,7 @@
 package walker
 
 import (
+	"context"
 	"testing"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -97,7 +98,7 @@ func Test_IndexBuilder(t *testing.T) {
 
 	builder := NewIndexBuilder(h, 10000, 10000)
 
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}

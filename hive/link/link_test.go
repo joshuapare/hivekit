@@ -1,6 +1,7 @@
 package link_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -39,7 +40,7 @@ func TestLinkSubtree_BasicLinking(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link child under SOFTWARE\Apps
-	stats, err := link.LinkSubtree(parentPath, childPath, link.LinkOptions{
+	stats, err := link.LinkSubtree(context.Background(), parentPath, childPath, link.LinkOptions{
 		MountPath:                    "SOFTWARE\\Apps",
 		ImportRootValues:             false,
 		FlattenDuplicateFirstSegment: false,
@@ -92,7 +93,7 @@ func TestLinkSubtree_WithFlatten(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link with flatten - mounting under SYSTEM with flatten=true
-	stats, err := link.LinkSubtree(parentPath, childPath, link.LinkOptions{
+	stats, err := link.LinkSubtree(context.Background(), parentPath, childPath, link.LinkOptions{
 		MountPath:                    "SYSTEM",
 		ImportRootValues:             false,
 		FlattenDuplicateFirstSegment: true,
@@ -146,7 +147,7 @@ func TestLinkSubtree_ImportRootValues(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link with ImportRootValues=true
-	stats, err := link.LinkSubtree(parentPath, childPath, link.LinkOptions{
+	stats, err := link.LinkSubtree(context.Background(), parentPath, childPath, link.LinkOptions{
 		MountPath:                    "SOFTWARE\\Component",
 		ImportRootValues:             true,
 		FlattenDuplicateFirstSegment: false,
@@ -200,7 +201,7 @@ func TestLinkSubtree_ConflictOverwrite(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link with ConflictOverwrite
-	_, err = link.LinkSubtree(parentPath, childPath, link.LinkOptions{
+	_, err = link.LinkSubtree(context.Background(), parentPath, childPath, link.LinkOptions{
 		MountPath:                    "SOFTWARE",
 		ImportRootValues:             false,
 		FlattenDuplicateFirstSegment: false,
@@ -244,7 +245,7 @@ func TestLinkSubtree_ConflictSkip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link with ConflictSkip
-	stats, err := link.LinkSubtree(parentPath, childPath, link.LinkOptions{
+	stats, err := link.LinkSubtree(context.Background(), parentPath, childPath, link.LinkOptions{
 		MountPath:                    "SOFTWARE",
 		ImportRootValues:             false,
 		FlattenDuplicateFirstSegment: false,
@@ -289,7 +290,7 @@ func TestLinkSubtree_ConflictError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link with ConflictError - should fail
-	_, err = link.LinkSubtree(parentPath, childPath, link.LinkOptions{
+	_, err = link.LinkSubtree(context.Background(), parentPath, childPath, link.LinkOptions{
 		MountPath:                    "SOFTWARE",
 		ImportRootValues:             false,
 		FlattenDuplicateFirstSegment: false,
@@ -331,6 +332,7 @@ func TestLinkSubtreeComponents(t *testing.T) {
 
 	// Link using convenience wrapper
 	stats, err := link.LinkSubtreeComponents(
+		context.Background(),
 		parentPath,
 		childPath,
 		"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SideBySide\\Components",
@@ -384,7 +386,7 @@ func TestLinkSubtree_MultipleKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link under SOFTWARE
-	stats, err := link.LinkSubtree(parentPath, childPath, link.LinkOptions{
+	stats, err := link.LinkSubtree(context.Background(), parentPath, childPath, link.LinkOptions{
 		MountPath:                    "SOFTWARE",
 		ImportRootValues:             false,
 		FlattenDuplicateFirstSegment: false,
@@ -427,7 +429,7 @@ func TestLinkSubtree_EmptyChild(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link empty child - should succeed with no operations
-	stats, err := link.LinkSubtree(parentPath, childPath, link.LinkOptions{
+	stats, err := link.LinkSubtree(context.Background(), parentPath, childPath, link.LinkOptions{
 		MountPath:                    "SOFTWARE\\Empty",
 		ImportRootValues:             false,
 		FlattenDuplicateFirstSegment: false,
@@ -450,7 +452,7 @@ func TestLinkSubtree_InvalidPaths(t *testing.T) {
 	require.NoError(t, err)
 
 	// Link with non-existent parent hive
-	_, err = link.LinkSubtree("/nonexistent/parent.hive", childPath, link.LinkOptions{
+	_, err = link.LinkSubtree(context.Background(), "/nonexistent/parent.hive", childPath, link.LinkOptions{
 		MountPath:        "SOFTWARE",
 		ConflictStrategy: link.ConflictOverwrite,
 	})
@@ -464,7 +466,7 @@ func TestLinkSubtree_InvalidPaths(t *testing.T) {
 	err = pb.Commit()
 	require.NoError(t, err)
 
-	_, err = link.LinkSubtree(parentPath, "/nonexistent/child.hive", link.LinkOptions{
+	_, err = link.LinkSubtree(context.Background(), parentPath, "/nonexistent/child.hive", link.LinkOptions{
 		MountPath:        "SOFTWARE",
 		ConflictStrategy: link.ConflictOverwrite,
 	})

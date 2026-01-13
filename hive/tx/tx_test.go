@@ -1,6 +1,7 @@
 package tx
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,7 +31,7 @@ func (m *mockDirtyTracker) Add(off, length int) {
 	m.adds = append(m.adds, addCall{off, length})
 }
 
-func (m *mockDirtyTracker) FlushDataOnly() error {
+func (m *mockDirtyTracker) FlushDataOnly(ctx context.Context) error {
 	m.flushDataCalls++
 	if m.shouldFailFlushData {
 		return os.ErrPermission
@@ -38,7 +39,7 @@ func (m *mockDirtyTracker) FlushDataOnly() error {
 	return nil
 }
 
-func (m *mockDirtyTracker) FlushHeaderAndMeta(mode dirty.FlushMode) error {
+func (m *mockDirtyTracker) FlushHeaderAndMeta(ctx context.Context, mode dirty.FlushMode) error {
 	m.flushHeaderCalls++
 	m.lastFlushMode = mode
 	if m.shouldFailFlushHdr {
@@ -98,7 +99,7 @@ func Test_TxManager_Begin_IncrementsSequence(t *testing.T) {
 	initialSecondary := format.ReadU32(data, format.REGFSecondarySeqOffset)
 
 	// Begin transaction
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
@@ -144,7 +145,7 @@ func Test_TxManager_Begin_UpdatesTimestamp(t *testing.T) {
 	before := time.Now()
 
 	// Begin transaction
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
@@ -172,7 +173,7 @@ func Test_TxManager_Commit_FlushesDataFirst(t *testing.T) {
 	tm := NewManager(h, dt, dirty.FlushAuto)
 
 	// Begin transaction
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
@@ -182,7 +183,7 @@ func Test_TxManager_Commit_FlushesDataFirst(t *testing.T) {
 	dt.flushHeaderCalls = 0
 
 	// Commit transaction
-	if err := tm.Commit(); err != nil {
+	if err := tm.Commit(context.Background()); err != nil {
 		t.Fatalf("Commit() failed: %v", err)
 	}
 
@@ -248,12 +249,12 @@ func Test_TxManager_CrashSimulation_SequenceMismatch(t *testing.T) {
 	initialSeq := format.ReadU32(hiveData, format.REGFPrimarySeqOffset)
 
 	// Begin transaction
-	if beginErr := tm.Begin(); beginErr != nil {
+	if beginErr := tm.Begin(context.Background()); beginErr != nil {
 		t.Fatalf("Begin() failed: %v", beginErr)
 	}
 
 	// Simulate: FlushDataOnly succeeds but we crash before commit
-	if flushErr := dt.FlushDataOnly(); flushErr != nil {
+	if flushErr := dt.FlushDataOnly(context.Background()); flushErr != nil {
 		t.Fatalf("FlushDataOnly() failed: %v", flushErr)
 	}
 
@@ -300,7 +301,7 @@ func Test_TxManager_Begin_Idempotent(t *testing.T) {
 	tm := NewManager(h, dt, dirty.FlushAuto)
 
 	// Begin first time
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("First Begin() failed: %v", err)
 	}
 
@@ -311,7 +312,7 @@ func Test_TxManager_Begin_Idempotent(t *testing.T) {
 	dt.adds = nil
 
 	// Begin second time (should be no-op)
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("Second Begin() failed: %v", err)
 	}
 
@@ -337,7 +338,7 @@ func Test_TxManager_Rollback_ClearsTransaction(t *testing.T) {
 	tm := NewManager(h, dt, dirty.FlushAuto)
 
 	// Begin transaction
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
@@ -353,7 +354,7 @@ func Test_TxManager_Rollback_ClearsTransaction(t *testing.T) {
 	}
 
 	// Verify we can begin a new transaction
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() after Rollback() failed: %v", err)
 	}
 
@@ -382,11 +383,11 @@ func Test_TxManager_FlushModes(t *testing.T) {
 			tm := NewManager(h, dt, tt.mode)
 
 			// Begin and commit
-			if err := tm.Begin(); err != nil {
+			if err := tm.Begin(context.Background()); err != nil {
 				t.Fatalf("Begin() failed: %v", err)
 			}
 
-			if err := tm.Commit(); err != nil {
+			if err := tm.Commit(context.Background()); err != nil {
 				t.Fatalf("Commit() failed: %v", err)
 			}
 
@@ -407,7 +408,7 @@ func Test_TxManager_Commit_WithoutBegin(t *testing.T) {
 	tm := NewManager(h, dt, dirty.FlushAuto)
 
 	// Commit without Begin
-	if err := tm.Commit(); err != nil {
+	if err := tm.Commit(context.Background()); err != nil {
 		t.Fatalf("Commit() without Begin() should not fail: %v", err)
 	}
 
@@ -430,12 +431,12 @@ func Test_TxManager_Commit_DataFlushFailure(t *testing.T) {
 	tm := NewManager(h, dt, dirty.FlushAuto)
 
 	// Begin transaction
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
 	// Commit should fail
-	if err := tm.Commit(); err == nil {
+	if err := tm.Commit(context.Background()); err == nil {
 		t.Fatal("Commit() should have failed on data flush")
 	}
 
@@ -454,12 +455,12 @@ func Test_TxManager_Commit_HeaderFlushFailure(t *testing.T) {
 	tm := NewManager(h, dt, dirty.FlushAuto)
 
 	// Begin transaction
-	if err := tm.Begin(); err != nil {
+	if err := tm.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
 	// Commit should fail
-	if err := tm.Commit(); err == nil {
+	if err := tm.Commit(context.Background()); err == nil {
 		t.Fatal("Commit() should have failed on header flush")
 	}
 
@@ -500,7 +501,7 @@ func Benchmark_TxManager_Begin(b *testing.B) {
 		// Reset state
 		tm.inTx = false
 
-		if beginErr := tm.Begin(); beginErr != nil {
+		if beginErr := tm.Begin(context.Background()); beginErr != nil {
 			b.Fatal(beginErr)
 		}
 	}

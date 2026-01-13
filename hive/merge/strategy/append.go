@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -52,7 +53,12 @@ func NewAppend(
 // Creates keys using normal editor logic (allocates new cells as needed).
 // If the key already exists, returns the existing ref.
 // Returns the final NK reference and the count of keys created.
-func (ap *Append) EnsureKey(path []string) (uint32, int, error) {
+func (ap *Append) EnsureKey(ctx context.Context, path []string) (uint32, int, error) {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+
 	// Empty path refers to root key (always exists)
 	if len(path) == 0 {
 		return ap.rootRef, 0, nil
@@ -78,7 +84,12 @@ func (ap *Append) EnsureKey(path []string) (uint32, int, error) {
 // For updates, allocates new VK cell and leaves old one orphaned (never freed).
 //
 // Note: The editor's Free() calls are skipped by temporarily swapping the allocator.
-func (ap *Append) SetValue(path []string, name string, typ uint32, data []byte) error {
+func (ap *Append) SetValue(ctx context.Context, path []string, name string, typ uint32, data []byte) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	var keyRef uint32
 	var err error
 
@@ -114,7 +125,12 @@ func (ap *Append) SetValue(path []string, name string, typ uint32, data []byte) 
 // The orphaned VK cell remains in the hive (append-only semantics).
 //
 // Note: The editor will attempt to call Free(), but those cells remain allocated.
-func (ap *Append) DeleteValue(path []string, name string) error {
+func (ap *Append) DeleteValue(ctx context.Context, path []string, name string) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	var keyRef uint32
 	var err error
 
@@ -147,7 +163,12 @@ func (ap *Append) DeleteValue(path []string, name string) error {
 // The orphaned NK cell remains in the hive (append-only semantics).
 //
 // Note: The editor will attempt to call Free(), but those cells remain allocated.
-func (ap *Append) DeleteKey(path []string, recursive bool) error {
+func (ap *Append) DeleteKey(ctx context.Context, path []string, recursive bool) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if len(path) == 0 {
 		return errors.New("DeleteKey: empty key path")
 	}

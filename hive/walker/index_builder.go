@@ -1,6 +1,7 @@
 package walker
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -38,16 +39,20 @@ func NewIndexBuilder(h *hive.Hive, nkCapacity, vkCapacity int) *IndexBuilder {
 // Build traverses the hive and builds a complete index of all keys and values.
 // Returns the built index and any error encountered during traversal.
 //
+// The context can be used to cancel the build operation early. If the context
+// is cancelled, Build returns the context error (context.Canceled or
+// context.DeadlineExceeded).
+//
 // Example:
 //
 //	builder := NewIndexBuilder(h, 10000, 10000)
-//	idx, err := builder.Build()
+//	idx, err := builder.Build(ctx)
 //	if err != nil {
 //	    return err
 //	}
 //	// Now idx can be used for O(1) lookups
 //	offset, found := idx.LookupNK(parentOffset, "SubkeyName")
-func (ib *IndexBuilder) Build() (index.Index, error) {
+func (ib *IndexBuilder) Build(ctx context.Context) (index.Index, error) {
 	rootOffset := ib.h.RootCellOffset()
 
 	// Push root onto stack (parent is itself for root)
@@ -59,6 +64,13 @@ func (ib *IndexBuilder) Build() (index.Index, error) {
 
 	// Iterative DFS
 	for len(ib.stack) > 0 {
+		// Check for cancellation at the start of each iteration
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		// Pop from stack
 		entry := &ib.stack[len(ib.stack)-1]
 

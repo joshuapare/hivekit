@@ -3,6 +3,7 @@
 package alloc
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,7 +65,7 @@ func Test_FastAlloc_Grow_Integration_DirtyTracking(t *testing.T) {
 	txMgr := tx.NewManager(h, dt, dirty.FlushAuto)
 
 	// Begin transaction
-	if beginErr := txMgr.Begin(); beginErr != nil {
+	if beginErr := txMgr.Begin(context.Background()); beginErr != nil {
 		t.Fatalf("Begin() failed: %v", beginErr)
 	}
 
@@ -101,7 +102,7 @@ func Test_FastAlloc_Grow_Integration_DirtyTracking(t *testing.T) {
 	}
 
 	// Commit transaction - this should flush header to disk
-	if commitErr := txMgr.Commit(); commitErr != nil {
+	if commitErr := txMgr.Commit(context.Background()); commitErr != nil {
 		t.Fatalf("Commit() failed: %v", commitErr)
 	}
 

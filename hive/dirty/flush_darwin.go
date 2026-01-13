@@ -3,6 +3,8 @@
 package dirty
 
 import (
+	"context"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -11,7 +13,15 @@ import (
 // On macOS, msync() requires the address to match the original mmap() address.
 // We cannot pass sub-slices because their base pointer differs from the mmap address.
 // Solution: Flush the entire mmap'd region. The kernel only writes dirty pages anyway.
-func (t *Tracker) flushRanges(data []byte) error {
+//
+// The context parameter is accepted for interface consistency but is not checked
+// during the single msync operation on Darwin.
+func (t *Tracker) flushRanges(ctx context.Context, data []byte) error {
+	// Check for cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// On Darwin, we must sync the entire mmap'd region
 	// The kernel will only write pages that are actually dirty
 	return unix.Msync(data, unix.MS_SYNC)

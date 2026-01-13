@@ -1,6 +1,7 @@
 package link
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -73,9 +74,13 @@ type LinkStats struct {
 //  5. Handle conflicts according to strategy
 //  6. Apply all operations in a single transaction
 //
+// The context can be used to cancel the operation. If cancelled during the walk
+// or apply phases, partial operations may have been applied.
+//
 // Example:
 //
 //	stats, err := link.LinkSubtree(
+//	    ctx,
 //	    "parent.hive",
 //	    "child.hive",
 //	    link.LinkOptions{
@@ -87,6 +92,7 @@ type LinkStats struct {
 //	)
 //
 // Parameters:
+//   - ctx: Context for cancellation support
 //   - parentHivePath: Path to the parent hive file to modify
 //   - childHivePath: Path to the child hive file to read from
 //   - opts: Linking options
@@ -94,8 +100,13 @@ type LinkStats struct {
 // Returns:
 //   - LinkStats: Statistics about the operation
 //   - error: If hives cannot be opened or operations fail
-func LinkSubtree(parentHivePath, childHivePath string, opts LinkOptions) (LinkStats, error) {
+func LinkSubtree(ctx context.Context, parentHivePath, childHivePath string, opts LinkOptions) (LinkStats, error) {
 	var stats LinkStats
+
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return stats, err
+	}
 
 	// Open parent hive
 	parentHive, err := hive.Open(parentHivePath)
@@ -135,27 +146,27 @@ func LinkSubtree(parentHivePath, childHivePath string, opts LinkOptions) (LinkSt
 
 	// Handle root values if requested
 	if opts.ImportRootValues {
-		err = importRootValues(childHive, mountPath, plan, opts.ConflictStrategy, &stats)
+		err = importRootValues(ctx, childHive, mountPath, plan, opts.ConflictStrategy, &stats)
 		if err != nil {
 			return stats, fmt.Errorf("import root values: %w", err)
 		}
 	}
 
 	// Walk child hive tree and build operations
-	err = walkAndLink(childHive, "", mountPath, skipFirstSegment, parentHive, plan, opts.ConflictStrategy, &stats)
+	err = walkAndLink(ctx, childHive, "", mountPath, skipFirstSegment, parentHive, plan, opts.ConflictStrategy, &stats)
 	if err != nil {
 		return stats, fmt.Errorf("walk child hive: %w", err)
 	}
 
 	// Create merge session and apply operations
-	sess, err := merge.NewSession(parentHive, merge.Options{})
+	sess, err := merge.NewSession(ctx, parentHive, merge.Options{})
 	if err != nil {
 		return stats, fmt.Errorf("create session: %w", err)
 	}
-	defer sess.Close()
+	defer sess.Close(ctx)
 
 	// Apply the plan
-	applied, err := sess.ApplyWithTx(plan)
+	applied, err := sess.ApplyWithTx(ctx, plan)
 	if err != nil {
 		return stats, fmt.Errorf("apply operations: %w", err)
 	}
@@ -177,15 +188,18 @@ func LinkSubtree(parentHivePath, childHivePath string, opts LinkOptions) (LinkSt
 // This is useful for mounting component hives where the child hive is mounted
 // raw under the mount path with root values imported directly.
 //
+// The context can be used to cancel the operation.
+//
 // Example:
 //
 //	stats, err := link.LinkSubtreeComponents(
+//	    ctx,
 //	    "parent.hive",
 //	    "component.hive",
 //	    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SideBySide\\Components",
 //	)
-func LinkSubtreeComponents(parentHivePath, childHivePath, mountPath string) (LinkStats, error) {
-	return LinkSubtree(parentHivePath, childHivePath, LinkOptions{
+func LinkSubtreeComponents(ctx context.Context, parentHivePath, childHivePath, mountPath string) (LinkStats, error) {
+	return LinkSubtree(ctx, parentHivePath, childHivePath, LinkOptions{
 		MountPath:                    mountPath,
 		ImportRootValues:             true,
 		FlattenDuplicateFirstSegment: false,
@@ -228,7 +242,12 @@ func splitAndStripPath(path string) []string {
 }
 
 // walkAndLink recursively walks the child hive and builds link operations.
-func walkAndLink(childHive *hive.Hive, childPath string, mountPath []string, skipFirstSegment bool, parentHive *hive.Hive, plan *merge.Plan, strategy ConflictStrategy, stats *LinkStats) error {
+func walkAndLink(ctx context.Context, childHive *hive.Hive, childPath string, mountPath []string, skipFirstSegment bool, parentHive *hive.Hive, plan *merge.Plan, strategy ConflictStrategy, stats *LinkStats) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// List subkeys at current path
 	subkeys, err := childHive.ListSubkeys(childPath)
 	if err != nil {
@@ -236,6 +255,11 @@ func walkAndLink(childHive *hive.Hive, childPath string, mountPath []string, ski
 	}
 
 	for _, subkey := range subkeys {
+		// Check for cancellation before processing each subkey
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		// Build full child path
 		var fullChildPath string
 		if childPath == "" {
@@ -266,13 +290,13 @@ func walkAndLink(childHive *hive.Hive, childPath string, mountPath []string, ski
 		stats.KeysCreated++
 
 		// Copy all values from this key
-		err := copyKeyValues(childHive, fullChildPath, targetPath, parentHive, plan, strategy, stats)
+		err := copyKeyValues(ctx, childHive, fullChildPath, targetPath, parentHive, plan, strategy, stats)
 		if err != nil {
 			return fmt.Errorf("copy values from %s: %w", fullChildPath, err)
 		}
 
 		// Recurse into subkeys
-		err = walkAndLink(childHive, fullChildPath, mountPath, skipFirstSegment, parentHive, plan, strategy, stats)
+		err = walkAndLink(ctx, childHive, fullChildPath, mountPath, skipFirstSegment, parentHive, plan, strategy, stats)
 		if err != nil {
 			return err
 		}
@@ -282,7 +306,12 @@ func walkAndLink(childHive *hive.Hive, childPath string, mountPath []string, ski
 }
 
 // importRootValues imports values from the child's root key to the mount path.
-func importRootValues(childHive *hive.Hive, mountPath []string, plan *merge.Plan, strategy ConflictStrategy, stats *LinkStats) error {
+func importRootValues(ctx context.Context, childHive *hive.Hive, mountPath []string, plan *merge.Plan, strategy ConflictStrategy, stats *LinkStats) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// List all values at root
 	values, err := childHive.ListValues("")
 	if err != nil {
@@ -311,7 +340,12 @@ func importRootValues(childHive *hive.Hive, mountPath []string, plan *merge.Plan
 }
 
 // copyKeyValues copies all values from a child key to a target path in the parent.
-func copyKeyValues(childHive *hive.Hive, childPath string, targetPath []string, parentHive *hive.Hive, plan *merge.Plan, strategy ConflictStrategy, stats *LinkStats) error {
+func copyKeyValues(ctx context.Context, childHive *hive.Hive, childPath string, targetPath []string, parentHive *hive.Hive, plan *merge.Plan, strategy ConflictStrategy, stats *LinkStats) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// List all values at this key
 	values, err := childHive.ListValues(childPath)
 	if err != nil {

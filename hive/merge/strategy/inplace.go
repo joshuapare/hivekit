@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -54,7 +55,12 @@ func NewInPlace(
 //   - Subkey list structures (LF/LH/LI/RI)
 //
 // Returns the final NK reference and the count of keys created.
-func (ip *InPlace) EnsureKey(path []string) (uint32, int, error) {
+func (ip *InPlace) EnsureKey(ctx context.Context, path []string) (uint32, int, error) {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+
 	// Empty path refers to root key (always exists)
 	if len(path) == 0 {
 		return ip.rootRef, 0, nil
@@ -78,7 +84,12 @@ func (ip *InPlace) EnsureKey(path []string) (uint32, int, error) {
 //   - VK cells
 //   - Value data (inline or external)
 //   - DB/BL/RD structures (for large values > 16KB)
-func (ip *InPlace) SetValue(path []string, name string, typ uint32, data []byte) error {
+func (ip *InPlace) SetValue(ctx context.Context, path []string, name string, typ uint32, data []byte) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	var keyRef uint32
 	var err error
 
@@ -112,7 +123,12 @@ func (ip *InPlace) SetValue(path []string, name string, typ uint32, data []byte)
 //   - Freed value data cells
 //
 // If the value doesn't exist, this is a no-op (idempotent).
-func (ip *InPlace) DeleteValue(path []string, name string) error {
+func (ip *InPlace) DeleteValue(ctx context.Context, path []string, name string) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	var keyRef uint32
 	var err error
 
@@ -147,7 +163,12 @@ func (ip *InPlace) DeleteValue(path []string, name string) error {
 //   - Freed value structures (if recursive)
 //
 // If the key doesn't exist, this is a no-op (idempotent).
-func (ip *InPlace) DeleteKey(path []string, recursive bool) error {
+func (ip *InPlace) DeleteKey(ctx context.Context, path []string, recursive bool) error {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if len(path) == 0 {
 		return errors.New("DeleteKey: empty key path")
 	}

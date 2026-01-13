@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -21,11 +22,11 @@ func Test_E2E_SoftwareInstallation(t *testing.T) {
 	defer cleanup()
 
 	// Create session (handles transactions, dirty tracking, checksum)
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	plan := NewPlan()
 
@@ -55,7 +56,7 @@ func Test_E2E_SoftwareInstallation(t *testing.T) {
 		[]byte("Test Application\x00"),
 	)
 
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
@@ -101,11 +102,11 @@ func Test_E2E_ConfigurationUpdate(t *testing.T) {
 	h, _, tempHivePath, cleanup := setupTestHive(t)
 	defer cleanup()
 
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	// First, create initial configuration
 	initialPlan := NewPlan()
@@ -124,7 +125,7 @@ func Test_E2E_ConfigurationUpdate(t *testing.T) {
 		[]byte{0xFF, 0xFF, 0xFF, 0xFF},
 	)
 
-	_, err = session.ApplyWithTx(initialPlan)
+	_, err = session.ApplyWithTx(context.Background(), initialPlan)
 	if err != nil {
 		t.Fatalf("Initial apply failed: %v", err)
 	}
@@ -141,7 +142,7 @@ func Test_E2E_ConfigurationUpdate(t *testing.T) {
 	updatePlan.AddDeleteValue([]string{"Software", "TestConfig"}, "ObsoleteSetting")
 	updatePlan.AddSetValue([]string{"Software", "TestConfig"}, "NewSetting", format.REGSZ, []byte("Added\x00"))
 
-	result, err := session.ApplyWithTx(updatePlan)
+	result, err := session.ApplyWithTx(context.Background(), updatePlan)
 	if err != nil {
 		t.Fatalf("Update apply failed: %v", err)
 	}
@@ -174,11 +175,11 @@ func Test_E2E_LargeDataMerge(t *testing.T) {
 	h, _, tempHivePath, cleanup := setupTestHive(t)
 	defer cleanup()
 
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	plan := NewPlan()
 
@@ -204,7 +205,7 @@ func Test_E2E_LargeDataMerge(t *testing.T) {
 		plan.AddSetValue([]string{"Software", "LargeDataTest"}, ts.name, format.REGBinary, data)
 	}
 
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply with large data failed: %v", err)
 	}
@@ -254,11 +255,11 @@ func Test_E2E_LargeDataDeletion(t *testing.T) {
 	h, _, tempHivePath, cleanup := setupTestHive(t)
 	defer cleanup()
 
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	// First, create large values
 	createPlan := NewPlan()
@@ -271,7 +272,7 @@ func Test_E2E_LargeDataDeletion(t *testing.T) {
 	createPlan.AddSetValue([]string{"Software", "LargeDataDel"}, "LargeValue1", format.REGBinary, largeData)
 	createPlan.AddSetValue([]string{"Software", "LargeDataDel"}, "LargeValue2", format.REGBinary, largeData)
 
-	_, err = session.ApplyWithTx(createPlan)
+	_, err = session.ApplyWithTx(context.Background(), createPlan)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -299,7 +300,7 @@ func Test_E2E_LargeDataDeletion(t *testing.T) {
 	deletePlan.AddDeleteValue([]string{"Software", "LargeDataDel"}, "LargeValue1")
 	deletePlan.AddDeleteValue([]string{"Software", "LargeDataDel"}, "LargeValue2")
 
-	result, err := session.ApplyWithTx(deletePlan)
+	result, err := session.ApplyWithTx(context.Background(), deletePlan)
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
@@ -336,11 +337,11 @@ func Test_E2E_DeepHierarchyOperations(t *testing.T) {
 	h, _, tempHivePath, cleanup := setupTestHive(t)
 	defer cleanup()
 
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	plan := NewPlan()
 
@@ -362,7 +363,7 @@ func Test_E2E_DeepHierarchyOperations(t *testing.T) {
 		plan.AddSetValue(subPath, "Data", format.REGSZ, []byte(fmt.Sprintf("SubData%d\x00", i)))
 	}
 
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
@@ -401,11 +402,11 @@ func Test_E2E_MixedOperations(t *testing.T) {
 	h, _, tempHivePath, cleanup := setupTestHive(t)
 	defer cleanup()
 
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	// Phase 1: Create initial structure
 	phase1 := NewPlan()
@@ -419,7 +420,7 @@ func Test_E2E_MixedOperations(t *testing.T) {
 		[]byte{0x01, 0x00, 0x00, 0x00},
 	)
 
-	_, err = session.ApplyWithTx(phase1)
+	_, err = session.ApplyWithTx(context.Background(), phase1)
 	if err != nil {
 		t.Fatalf("Phase 1 failed: %v", err)
 	}
@@ -443,7 +444,7 @@ func Test_E2E_MixedOperations(t *testing.T) {
 	}
 	phase2.AddSetValue([]string{"Software", "MixedTest", "New"}, "LargeConfig", format.REGBinary, largeData)
 
-	result, err := session.ApplyWithTx(phase2)
+	result, err := session.ApplyWithTx(context.Background(), phase2)
 	if err != nil {
 		t.Fatalf("Phase 2 failed: %v", err)
 	}
@@ -497,11 +498,11 @@ func Test_E2E_MultipleApplySessions(t *testing.T) {
 	h, _, tempHivePath, cleanup := setupTestHive(t)
 	defer cleanup()
 
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	// Simulate multiple configuration changes over time
 	sessions := []struct {
@@ -558,7 +559,7 @@ func Test_E2E_MultipleApplySessions(t *testing.T) {
 
 	for _, sess := range sessions {
 		t.Logf("Applying session: %s", sess.name)
-		result, applyErr := session.ApplyWithTx(sess.plan)
+		result, applyErr := session.ApplyWithTx(context.Background(), sess.plan)
 		if applyErr != nil {
 			t.Fatalf("Session %s failed: %v", sess.name, applyErr)
 		}
@@ -586,11 +587,11 @@ func Test_E2E_RealisticUpdate(t *testing.T) {
 	h, _, tempHivePath, cleanup := setupTestHive(t)
 	defer cleanup()
 
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	plan := NewPlan()
 
@@ -625,7 +626,7 @@ func Test_E2E_RealisticUpdate(t *testing.T) {
 	plan.AddSetValue([]string{"Software", "Microsoft", "Windows", "CurrentVersion", "Uninstall", "TestApp"},
 		"Icon", format.REGBinary, iconData)
 
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Realistic update failed: %v", err)
 	}
@@ -680,7 +681,7 @@ func Test_E2E_IndexConsistency(t *testing.T) {
 	}
 
 	// Step 3: Create session (which manages allocator, dirty tracker, index, tx)
-	session, err := NewSession(h, Options{})
+	session, err := NewSession(context.Background(), h, Options{})
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
@@ -699,9 +700,9 @@ func Test_E2E_IndexConsistency(t *testing.T) {
 	}
 	create.AddSetValue([]string{"Software", "IndexTest"}, "LargeValue", format.REGBinary, largeData)
 
-	_, err = session.ApplyWithTx(create)
+	_, err = session.ApplyWithTx(context.Background(), create)
 	if err != nil {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -711,13 +712,13 @@ func Test_E2E_IndexConsistency(t *testing.T) {
 	rootRef := h.RootCellOffset()
 	softwareRef, ok := idx.GetNK(rootRef, "software")
 	if !ok {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 		t.Fatal("Software not in index")
 	}
 	indexTestRef, ok := idx.GetNK(softwareRef, "indextest")
 	if !ok {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 		t.Fatal("IndexTest not in index after create")
 	}
@@ -737,9 +738,9 @@ func Test_E2E_IndexConsistency(t *testing.T) {
 	modify.AddDeleteValue([]string{"Software", "IndexTest"}, "Value2")
 	modify.AddSetValue([]string{"Software", "IndexTest"}, "Value3", format.REGSZ, []byte("Data3\x00"))
 
-	_, err = session.ApplyWithTx(modify)
+	_, err = session.ApplyWithTx(context.Background(), modify)
 	if err != nil {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 		t.Fatalf("Modify failed: %v", err)
 	}
@@ -762,9 +763,9 @@ func Test_E2E_IndexConsistency(t *testing.T) {
 	deleteLarge := NewPlan()
 	deleteLarge.AddDeleteValue([]string{"Software", "IndexTest"}, "LargeValue")
 
-	_, err = session.ApplyWithTx(deleteLarge)
+	_, err = session.ApplyWithTx(context.Background(), deleteLarge)
 	if err != nil {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 		t.Fatalf("Delete large value failed: %v", err)
 	}
@@ -778,9 +779,9 @@ func Test_E2E_IndexConsistency(t *testing.T) {
 	deleteKey := NewPlan()
 	deleteKey.AddDeleteKey([]string{"Software", "IndexTest"})
 
-	_, err = session.ApplyWithTx(deleteKey)
+	_, err = session.ApplyWithTx(context.Background(), deleteKey)
 	if err != nil {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 		t.Fatalf("Delete key failed: %v", err)
 	}
@@ -793,7 +794,7 @@ func Test_E2E_IndexConsistency(t *testing.T) {
 	t.Log("Index consistency verified through all operations")
 
 	// Step 8: Close session (flushes all dirty pages to disk)
-	if closeErr := session.Close(); closeErr != nil {
+	if closeErr := session.Close(context.Background()); closeErr != nil {
 		h.Close()
 		t.Fatalf("Failed to close session: %v", closeErr)
 	}

@@ -2,6 +2,7 @@ package merge
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -54,12 +55,12 @@ func Test_E2E_ComplexMerge_Session(t *testing.T) {
 		t.Fatalf("Failed to open hive: %v", err)
 	}
 
-	session, err := NewSession(h, DefaultOptions())
+	session, err := NewSession(context.Background(), h, DefaultOptions())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	// Create complex plan
 	plan := NewPlan()
@@ -127,7 +128,7 @@ func Test_E2E_ComplexMerge_Session(t *testing.T) {
 
 	// Apply plan and measure performance
 	start := time.Now()
-	applied, err := session.ApplyWithTx(plan)
+	applied, err := session.ApplyWithTx(context.Background(), plan)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -165,11 +166,11 @@ func Test_E2E_ComplexMerge_Session(t *testing.T) {
 	defer h.Close()
 
 	// Rebuild index and verify keys exist
-	session, err = NewSession(h, DefaultOptions())
+	session, err = NewSession(context.Background(), h, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Failed to create session after reopen: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	idx := session.Index()
 
@@ -308,16 +309,16 @@ func Test_E2E_StrategyComparison(t *testing.T) {
 			opt := DefaultOptions()
 			opt.Strategy = strat.strategy
 
-			session, err := NewSession(h, opt)
+			session, err := NewSession(context.Background(), h, opt)
 			if err != nil {
 				h.Close()
 				t.Fatalf("Failed to create session: %v", err)
 			}
-			defer session.Close()
+			defer session.Close(context.Background())
 
 			// Apply plan and measure
 			start := time.Now()
-			applied, err := session.ApplyWithTx(plan)
+			applied, err := session.ApplyWithTx(context.Background(), plan)
 			elapsed := time.Since(start)
 
 			if err != nil {
@@ -411,12 +412,12 @@ func Test_E2E_TransactionSequences(t *testing.T) {
 	initialSecondary := format.ReadU32(data, format.REGFSecondarySeqOffset)
 	t.Logf("Initial sequences: Primary=%d, Secondary=%d", initialPrimary, initialSecondary)
 
-	session, err := NewSession(h, DefaultOptions())
+	session, err := NewSession(context.Background(), h, DefaultOptions())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	// Apply 5 transactions
 	for i := range 5 {
@@ -425,7 +426,7 @@ func Test_E2E_TransactionSequences(t *testing.T) {
 		plan.AddEnsureKey(keyPath)
 		plan.AddSetValue(keyPath, "Counter", format.REGDWORD, []byte{byte(i), 0, 0, 0})
 
-		if _, applyErr := session.ApplyWithTx(plan); applyErr != nil {
+		if _, applyErr := session.ApplyWithTx(context.Background(), plan); applyErr != nil {
 			t.Fatalf("Transaction %d failed: %v", i, applyErr)
 		}
 
@@ -512,12 +513,12 @@ func Test_E2E_DirtyRangeVerification(t *testing.T) {
 		t.Fatalf("Failed to open hive: %v", err)
 	}
 
-	session, err := NewSession(h, DefaultOptions())
+	session, err := NewSession(context.Background(), h, DefaultOptions())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	// Create plan with various operations
 	plan := NewPlan()
@@ -535,12 +536,12 @@ func Test_E2E_DirtyRangeVerification(t *testing.T) {
 	plan.AddSetValue(baseKey, "Counter", format.REGDWORD, []byte{42, 0, 0, 0})
 
 	// Begin transaction (don't commit yet)
-	if beginErr := session.Begin(); beginErr != nil {
+	if beginErr := session.Begin(context.Background()); beginErr != nil {
 		t.Fatalf("Begin failed: %v", beginErr)
 	}
 
 	// Apply operations
-	if _, applyErr := session.Apply(plan); applyErr != nil {
+	if _, applyErr := session.Apply(context.Background(), plan); applyErr != nil {
 		session.Rollback()
 		t.Fatalf("Apply failed: %v", applyErr)
 	}
@@ -550,7 +551,7 @@ func Test_E2E_DirtyRangeVerification(t *testing.T) {
 	t.Logf("Dirty tracking: operations applied successfully (internal ranges not exposed)")
 
 	// Commit
-	if commitErr := session.Commit(); commitErr != nil {
+	if commitErr := session.Commit(context.Background()); commitErr != nil {
 		t.Fatalf("Commit failed: %v", commitErr)
 	}
 
@@ -607,19 +608,19 @@ func Test_E2E_CrashRecovery(t *testing.T) {
 	opt := DefaultOptions()
 	opt.Flush = dirty.FlushDataOnly
 
-	session, err := NewSession(h, opt)
+	session, err := NewSession(context.Background(), h, opt)
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	// Apply a transaction
 	plan := NewPlan()
 	plan.AddEnsureKey([]string{"_E2E_Crash", "Test"})
 	plan.AddSetValue([]string{"_E2E_Crash", "Test"}, "Data", format.REGSZ, []byte("test\x00"))
 
-	if _, applyErr := session.ApplyWithTx(plan); applyErr != nil {
+	if _, applyErr := session.ApplyWithTx(context.Background(), plan); applyErr != nil {
 		t.Fatalf("ApplyWithTx failed: %v", applyErr)
 	}
 
@@ -698,12 +699,12 @@ func Test_E2E_ExternalValidation(t *testing.T) {
 		t.Fatalf("Failed to open hive: %v", err)
 	}
 
-	session, err := NewSession(h, DefaultOptions())
+	session, err := NewSession(context.Background(), h, DefaultOptions())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	defer session.Close()
+	defer session.Close(context.Background())
 
 	plan := NewPlan()
 	baseKey := []string{"_E2E_External"}
@@ -711,7 +712,7 @@ func Test_E2E_ExternalValidation(t *testing.T) {
 	plan.AddSetValue(baseKey, "TestValue", format.REGSZ, []byte("External validation\x00"))
 	plan.AddSetValue(baseKey, "Counter", format.REGDWORD, []byte{123, 0, 0, 0})
 
-	if _, applyErr := session.ApplyWithTx(plan); applyErr != nil {
+	if _, applyErr := session.ApplyWithTx(context.Background(), plan); applyErr != nil {
 		t.Fatalf("ApplyWithTx failed: %v", applyErr)
 	}
 
@@ -747,11 +748,11 @@ func Test_E2E_ExternalValidation(t *testing.T) {
 		}
 		defer h2.Close()
 
-		session2, sessionErr := NewSession(h2, DefaultOptions())
+		session2, sessionErr := NewSession(context.Background(), h2, DefaultOptions())
 		if sessionErr != nil {
 			t.Fatalf("Failed to create session: %v", sessionErr)
 		}
-		defer session2.Close()
+		defer session2.Close(context.Background())
 
 		idx := session2.Index()
 

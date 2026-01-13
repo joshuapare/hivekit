@@ -3,18 +3,26 @@
 package dirty
 
 import (
+	"context"
+
 	"golang.org/x/sys/unix"
 )
 
 // flushRanges flushes individual dirty ranges to disk.
 //
 // On Linux and other Unix systems, msync() can handle sub-slices correctly.
-func (t *Tracker) flushRanges(data []byte) error {
+// The context can be used to cancel the operation between range flushes.
+func (t *Tracker) flushRanges(ctx context.Context, data []byte) error {
 	// Coalesce ranges
 	coalesced := t.coalesce()
 
 	// Flush each range (excluding header)
 	for _, r := range coalesced {
+		// Check for cancellation between ranges
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		// Skip header range (offset 0)
 		if r.Off == 0 {
 			continue

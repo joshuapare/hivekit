@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -21,6 +22,9 @@ import (
 //   - Prepends the prefix to each operation's path
 //   - Applies all operations in a single transaction
 //
+// The context can be used to cancel the operation. If cancelled during apply,
+// partial operations may have been applied.
+//
 // Example:
 //
 //	regText := `Windows Registry Editor Version 5.00
@@ -31,6 +35,7 @@ import (
 //
 //	// Apply under SOFTWARE prefix
 //	applied, err := merge.MergeRegTextWithPrefix(
+//	    ctx,
 //	    "my.hive",
 //	    regText,
 //	    "SOFTWARE",
@@ -42,6 +47,7 @@ import (
 //	// Result: SOFTWARE\Microsoft\Windows\Version="10.0"
 //
 // Parameters:
+//   - ctx: Context for cancellation support
 //   - hivePath: Path to existing hive file to modify
 //   - regText: Windows .reg file format text
 //   - prefix: Path prefix to prepend to all operations (e.g., "SOFTWARE" or "SOFTWARE\Microsoft")
@@ -50,7 +56,7 @@ import (
 // Returns:
 //   - Applied: Statistics about operations applied
 //   - error: If parsing fails, hive cannot be opened, or operations fail
-func MergeRegTextWithPrefix(hivePath string, regText string, prefix string, opts *Options) (Applied, error) {
+func MergeRegTextWithPrefix(ctx context.Context, hivePath string, regText string, prefix string, opts *Options) (Applied, error) {
 	var result Applied
 
 	// Parse prefix into path components
@@ -87,11 +93,11 @@ func MergeRegTextWithPrefix(hivePath string, regText string, prefix string, opts
 	if opts == nil {
 		opts = &Options{}
 	}
-	sess, err := NewSession(h, *opts)
+	sess, err := NewSession(ctx, h, *opts)
 	if err != nil {
 		return result, fmt.Errorf("create session: %w", err)
 	}
-	defer sess.Close()
+	defer sess.Close(ctx)
 
 	// Convert EditOps to merge.Ops and apply
 	plan := NewPlan()
@@ -104,7 +110,7 @@ func MergeRegTextWithPrefix(hivePath string, regText string, prefix string, opts
 	}
 
 	// Apply with transaction
-	result, err = sess.ApplyWithTx(plan)
+	result, err = sess.ApplyWithTx(ctx, plan)
 	if err != nil {
 		return result, fmt.Errorf("apply operations: %w", err)
 	}

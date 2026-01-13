@@ -1,6 +1,8 @@
 package strategy
 
 import (
+	"context"
+
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/alloc"
 	"github.com/joshuapare/hivekit/hive/dirty"
@@ -90,8 +92,8 @@ func (hy *Hybrid) shouldUseInPlace(needed, available int) bool {
 //   - Keys are small (typically <256 bytes)
 //   - Keys are rarely updated after creation
 //   - In-place allocation is efficient for keys
-func (hy *Hybrid) EnsureKey(path []string) (uint32, int, error) {
-	return hy.inplace.EnsureKey(path)
+func (hy *Hybrid) EnsureKey(ctx context.Context, path []string) (uint32, int, error) {
+	return hy.inplace.EnsureKey(ctx, path)
 }
 
 // SetValue implements Strategy.
@@ -102,13 +104,13 @@ func (hy *Hybrid) EnsureKey(path []string) (uint32, int, error) {
 //
 // Future enhancement: Check existing VK cell size and use shouldUseInPlace()
 // to make smarter decisions for updates vs. creates.
-func (hy *Hybrid) SetValue(path []string, name string, typ uint32, data []byte) error {
+func (hy *Hybrid) SetValue(ctx context.Context, path []string, name string, typ uint32, data []byte) error {
 	// Simple heuristic: small values use InPlace, large values use Append
 	// TODO: For updates, check if fits in existing cell with slack
 	if len(data) < smallValueThreshold {
-		return hy.inplace.SetValue(path, name, typ, data)
+		return hy.inplace.SetValue(ctx, path, name, typ, data)
 	}
-	return hy.append.SetValue(path, name, typ, data)
+	return hy.append.SetValue(ctx, path, name, typ, data)
 }
 
 // DeleteValue implements Strategy.
@@ -117,8 +119,8 @@ func (hy *Hybrid) SetValue(path []string, name string, typ uint32, data []byte) 
 //   - Deletes should free cells for reuse
 //   - InPlace strategy properly frees VK cells
 //   - No benefit to append-only for deletes
-func (hy *Hybrid) DeleteValue(path []string, name string) error {
-	return hy.inplace.DeleteValue(path, name)
+func (hy *Hybrid) DeleteValue(ctx context.Context, path []string, name string) error {
+	return hy.inplace.DeleteValue(ctx, path, name)
 }
 
 // DeleteKey implements Strategy.
@@ -127,6 +129,6 @@ func (hy *Hybrid) DeleteValue(path []string, name string) error {
 //   - Deletes should free cells for reuse
 //   - InPlace strategy properly frees NK cells
 //   - No benefit to append-only for deletes
-func (hy *Hybrid) DeleteKey(path []string, recursive bool) error {
-	return hy.inplace.DeleteKey(path, recursive)
+func (hy *Hybrid) DeleteKey(ctx context.Context, path []string, recursive bool) error {
+	return hy.inplace.DeleteKey(ctx, path, recursive)
 }

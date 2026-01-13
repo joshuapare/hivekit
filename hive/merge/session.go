@@ -5,6 +5,7 @@
 package merge
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -44,16 +45,18 @@ type Session struct {
 // This function builds an index from the existing hive structure using a walker.
 // For large hives, this may take some time (target: <100ms for 10K keys).
 //
+// The context can be used to cancel index building for large hives.
+//
 // If you already have an index built, use NewSessionWithIndex instead.
-func NewSession(h *hive.Hive, opt Options) (*Session, error) {
+func NewSession(ctx context.Context, h *hive.Hive, opt Options) (*Session, error) {
 	// Build index using walker
 	builder := walker.NewIndexBuilder(h, defaultIndexCapacity, defaultIndexCapacity)
-	idx, err := builder.Build()
+	idx, err := builder.Build(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("build index: %w", err)
 	}
 
-	return NewSessionWithIndex(h, idx, opt)
+	return NewSessionWithIndex(ctx, h, idx, opt)
 }
 
 // NewSessionWithIndex creates a session using an existing index.
@@ -61,11 +64,18 @@ func NewSession(h *hive.Hive, opt Options) (*Session, error) {
 // This is more efficient than NewSession if you already have an index built,
 // or if you want to reuse an index across multiple sessions.
 //
+// The context is passed through for consistency but is not used directly
+// since index building is already complete.
+//
 // The strategy is selected based on opt.Strategy:
 //   - StrategyInPlace: Mutates cells in-place when possible
 //   - StrategyAppend: Never frees cells, always appends
 //   - StrategyHybrid: Heuristic selection between InPlace and Append (default)
-func NewSessionWithIndex(h *hive.Hive, idx index.Index, opt Options) (*Session, error) {
+func NewSessionWithIndex(ctx context.Context, h *hive.Hive, idx index.Index, opt Options) (*Session, error) {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Create dirty tracker first (needed by allocator)
 	dt := dirty.NewTracker(h)
 
@@ -108,8 +118,9 @@ func NewSessionWithIndex(h *hive.Hive, idx index.Index, opt Options) (*Session, 
 // After Begin(), all modifications will be tracked by the dirty page tracker.
 //
 // You must call either Commit() or Rollback() after Begin().
-func (s *Session) Begin() error {
-	return s.txMgr.Begin()
+// The context can be used to cancel the operation.
+func (s *Session) Begin(ctx context.Context) error {
+	return s.txMgr.Begin(ctx)
 }
 
 // Commit flushes changes and updates REGF sequences.
@@ -120,8 +131,9 @@ func (s *Session) Begin() error {
 // 3. Flush header page + fdatasync (based on FlushMode)
 //
 // After Commit(), the transaction is complete and changes are durable.
-func (s *Session) Commit() error {
-	return s.txMgr.Commit()
+// The context can be used to cancel the operation.
+func (s *Session) Commit(ctx context.Context) error {
+	return s.txMgr.Commit(ctx)
 }
 
 // Rollback aborts the transaction.
@@ -141,13 +153,21 @@ func (s *Session) Rollback() {
 // Phase 3: This delegates to the selected Strategy (InPlace, Append, or Hybrid).
 // Dirty tracking is handled automatically by the strategy implementations.
 //
+// The context can be used to cancel the operation. If cancelled, partial
+// operations may have been applied.
+//
 // Returns Applied statistics (keys created, values set, etc.).
-func (s *Session) Apply(plan *Plan) (Applied, error) {
+func (s *Session) Apply(ctx context.Context, plan *Plan) (Applied, error) {
 	var result Applied
 
 	// Apply each operation in the plan
 	for i, op := range plan.Ops {
-		if err := s.applyOp(&op, &result); err != nil {
+		// Check for cancellation before each operation
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+
+		if err := s.applyOp(ctx, &op, &result); err != nil {
 			return result, fmt.Errorf("operation %d (%s): %w", i, op.Type, err)
 		}
 	}
@@ -156,10 +176,10 @@ func (s *Session) Apply(plan *Plan) (Applied, error) {
 }
 
 // applyOp applies a single operation using the strategy.
-func (s *Session) applyOp(op *Op, result *Applied) error {
+func (s *Session) applyOp(ctx context.Context, op *Op, result *Applied) error {
 	switch op.Type {
 	case OpEnsureKey:
-		_, keysCreated, err := s.strategy.EnsureKey(op.KeyPath)
+		_, keysCreated, err := s.strategy.EnsureKey(ctx, op.KeyPath)
 		if err != nil {
 			return err
 		}
@@ -167,7 +187,7 @@ func (s *Session) applyOp(op *Op, result *Applied) error {
 		return nil
 
 	case OpSetValue:
-		err := s.strategy.SetValue(op.KeyPath, op.ValueName, op.ValueType, op.Data)
+		err := s.strategy.SetValue(ctx, op.KeyPath, op.ValueName, op.ValueType, op.Data)
 		if err != nil {
 			return err
 		}
@@ -175,7 +195,7 @@ func (s *Session) applyOp(op *Op, result *Applied) error {
 		return nil
 
 	case OpDeleteValue:
-		err := s.strategy.DeleteValue(op.KeyPath, op.ValueName)
+		err := s.strategy.DeleteValue(ctx, op.KeyPath, op.ValueName)
 		if err != nil {
 			return err
 		}
@@ -189,7 +209,7 @@ func (s *Session) applyOp(op *Op, result *Applied) error {
 		_, keyExists := index.WalkPath(s.idx, s.h.RootCellOffset(), op.KeyPath...)
 
 		// Delete the key (idempotent - no-op if doesn't exist)
-		err := s.strategy.DeleteKey(op.KeyPath, true) // recursive=true
+		err := s.strategy.DeleteKey(ctx, op.KeyPath, true) // recursive=true
 		if err != nil {
 			return err
 		}
@@ -210,26 +230,28 @@ func (s *Session) applyOp(op *Op, result *Applied) error {
 // This is the recommended way to apply a plan if you don't need manual
 // transaction control. If Apply fails, Rollback is called automatically.
 //
+// The context can be used to cancel the entire operation (begin, apply, commit).
+//
 // Example:
 //
 //	plan := merge.NewPlan()
 //	plan.AddSetValue([]string{"Software", "Test"}, "Version", 1, []byte("1.0\x00"))
-//	applied, err := session.ApplyWithTx(plan)
-func (s *Session) ApplyWithTx(plan *Plan) (Applied, error) {
+//	applied, err := session.ApplyWithTx(ctx, plan)
+func (s *Session) ApplyWithTx(ctx context.Context, plan *Plan) (Applied, error) {
 	// Begin transaction
-	if err := s.Begin(); err != nil {
+	if err := s.Begin(ctx); err != nil {
 		return Applied{}, fmt.Errorf("begin: %w", err)
 	}
 
 	// Apply plan
-	result, err := s.Apply(plan)
+	result, err := s.Apply(ctx, plan)
 	if err != nil {
 		s.Rollback()
 		return result, fmt.Errorf("apply: %w", err)
 	}
 
 	// Commit transaction
-	if commitErr := s.Commit(); commitErr != nil {
+	if commitErr := s.Commit(ctx); commitErr != nil {
 		return result, fmt.Errorf("commit: %w", commitErr)
 	}
 
@@ -300,13 +322,15 @@ func (s *Session) GetEfficiencyStats() alloc.EfficiencyStats {
 // CRITICAL: Flushes all dirty pages to disk before cleanup.
 // This ensures all modifications made during the session are persisted.
 // The underlying hive is NOT closed - you must close it separately.
-func (s *Session) Close() error {
+//
+// The context can be used to cancel the flush operations.
+func (s *Session) Close(ctx context.Context) error {
 	// CRITICAL: Flush dirty pages before resetting tracker
 	// Without this, all tracked dirty pages are discarded and changes are lost
-	if err := s.dt.FlushDataOnly(); err != nil {
+	if err := s.dt.FlushDataOnly(ctx); err != nil {
 		return fmt.Errorf("failed to flush data pages: %w", err)
 	}
-	if err := s.dt.FlushHeaderAndMeta(dirty.FlushAuto); err != nil {
+	if err := s.dt.FlushHeaderAndMeta(ctx, dirty.FlushAuto); err != nil {
 		return fmt.Errorf("failed to flush header: %w", err)
 	}
 

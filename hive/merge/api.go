@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -210,13 +211,19 @@ func stripHiveRootAndSplit(path string) []string {
 // All operations in the plan are applied atomically - if any operation fails,
 // the entire transaction is rolled back.
 //
+// The context can be used to cancel the operation. If cancelled during apply,
+// partial operations may have been applied and the caller should consider
+// the hive state indeterminate.
+//
 // Example:
 //
 //	plan := merge.NewPlan()
 //	plan.AddEnsureKey([]string{"Software", "Test"})
 //	plan.AddSetValue([]string{"Software", "Test"}, "Version", format.REGSZ, []byte("1.0\x00"))
 //
-//	applied, err := merge.MergePlan("/path/to/system.hive", plan, merge.DefaultOptions())
+//	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+//	defer cancel()
+//	applied, err := merge.MergePlan(ctx, "/path/to/system.hive", plan, merge.DefaultOptions())
 //	if err != nil {
 //	    return fmt.Errorf("merge failed: %w", err)
 //	}
@@ -225,7 +232,7 @@ func stripHiveRootAndSplit(path string) []string {
 // Options can be nil to use defaults (StrategyHybrid with FlushAuto).
 //
 // Returns Applied statistics about what changed, or an error if the operation failed.
-func MergePlan(hivePath string, plan *Plan, opts *Options) (Applied, error) {
+func MergePlan(ctx context.Context, hivePath string, plan *Plan, opts *Options) (Applied, error) {
 	if opts == nil {
 		defaultOpts := DefaultOptions()
 		opts = &defaultOpts
@@ -239,14 +246,14 @@ func MergePlan(hivePath string, plan *Plan, opts *Options) (Applied, error) {
 	defer h.Close()
 
 	// Create session (builds index automatically)
-	session, err := NewSession(h, *opts)
+	session, err := NewSession(ctx, h, *opts)
 	if err != nil {
 		return Applied{}, fmt.Errorf("create session: %w", err)
 	}
-	defer session.Close()
+	defer session.Close(ctx)
 
 	// Apply plan in transaction
-	applied, err := session.ApplyWithTx(plan)
+	applied, err := session.ApplyWithTx(ctx, plan)
 	if err != nil {
 		return Applied{}, fmt.Errorf("apply plan: %w", err)
 	}
@@ -259,6 +266,8 @@ func MergePlan(hivePath string, plan *Plan, opts *Options) (Applied, error) {
 // This is a convenience wrapper that combines PlanFromRegText() + MergePlan().
 // Perfect for simple cases where you have .reg text and want to apply it in one call.
 //
+// The context can be used to cancel the operation.
+//
 // Example:
 //
 //	regText := `Windows Registry Editor Version 5.00
@@ -267,7 +276,7 @@ func MergePlan(hivePath string, plan *Plan, opts *Options) (Applied, error) {
 //	"Enabled"=dword:00000001
 //	`
 //
-//	applied, err := merge.MergeRegText("/path/to/system.hive", regText, nil)
+//	applied, err := merge.MergeRegText(ctx, "/path/to/system.hive", regText, nil)
 //	if err != nil {
 //	    return err
 //	}
@@ -277,7 +286,7 @@ func MergePlan(hivePath string, plan *Plan, opts *Options) (Applied, error) {
 // Options can be nil to use defaults.
 //
 // Returns Applied statistics or an error.
-func MergeRegText(hivePath string, regText string, opts *Options) (Applied, error) {
+func MergeRegText(ctx context.Context, hivePath string, regText string, opts *Options) (Applied, error) {
 	// Parse .reg text into plan
 	plan, err := PlanFromRegText(regText)
 	if err != nil {
@@ -285,7 +294,7 @@ func MergeRegText(hivePath string, regText string, opts *Options) (Applied, erro
 	}
 
 	// Apply plan to hive
-	return MergePlan(hivePath, plan, opts)
+	return MergePlan(ctx, hivePath, plan, opts)
 }
 
 // WithSession opens a hive and provides a session for multiple operations.
@@ -296,21 +305,25 @@ func MergeRegText(hivePath string, regText string, opts *Options) (Applied, erro
 // The session is automatically closed after the callback returns, ensuring
 // proper cleanup even if the callback panics.
 //
+// The context can be used to cancel the operation. Note that the callback
+// receives only the session; the context should be passed to session methods
+// as needed within the callback.
+//
 // Example:
 //
-//	err := merge.WithSession("/path/to/system.hive", merge.DefaultOptions(),
+//	err := merge.WithSession(ctx, "/path/to/system.hive", merge.DefaultOptions(),
 //	    func(s *merge.Session) error {
 //	        // Operation 1: Apply a plan
 //	        plan1 := merge.NewPlan()
 //	        plan1.AddEnsureKey([]string{"Software", "Test1"})
-//	        if _, err := s.ApplyWithTx(plan1); err != nil {
+//	        if _, err := s.ApplyWithTx(ctx, plan1); err != nil {
 //	            return err
 //	        }
 //
 //	        // Operation 2: Apply another plan
 //	        plan2 := merge.NewPlan()
 //	        plan2.AddEnsureKey([]string{"Software", "Test2"})
-//	        if _, err := s.ApplyWithTx(plan2); err != nil {
+//	        if _, err := s.ApplyWithTx(ctx, plan2); err != nil {
 //	            return err
 //	        }
 //
@@ -320,7 +333,7 @@ func MergeRegText(hivePath string, regText string, opts *Options) (Applied, erro
 // Options can be nil to use defaults.
 //
 // Returns an error if session creation fails or if the callback returns an error.
-func WithSession(hivePath string, opts *Options, fn func(*Session) error) error {
+func WithSession(ctx context.Context, hivePath string, opts *Options, fn func(*Session) error) error {
 	if opts == nil {
 		defaultOpts := DefaultOptions()
 		opts = &defaultOpts
@@ -334,11 +347,11 @@ func WithSession(hivePath string, opts *Options, fn func(*Session) error) error 
 	defer h.Close()
 
 	// Create session
-	session, err := NewSession(h, *opts)
+	session, err := NewSession(ctx, h, *opts)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
 	}
-	defer session.Close()
+	defer session.Close(ctx)
 
 	// Execute callback
 	return fn(session)

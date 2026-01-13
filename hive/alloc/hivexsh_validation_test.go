@@ -3,6 +3,7 @@
 package alloc
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,14 +54,14 @@ func Test_Hivexsh_MultipleGrows(t *testing.T) {
 		t.Logf("Grow iteration %d", i+1)
 
 		// Begin transaction
-		require.NoError(t, txMgr.Begin())
+		require.NoError(t, txMgr.Begin(context.Background()))
 
 		// Grow by 8KB
 		err = fa.GrowByPages(2) // Add 8KB HBIN
 		require.NoError(t, err)
 
 		// Commit transaction
-		require.NoError(t, txMgr.Commit())
+		require.NoError(t, txMgr.Commit(context.Background()))
 	}
 
 	// Close hive to ensure all data is flushed

@@ -14,6 +14,8 @@
 package strategy
 
 import (
+	"context"
+
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/alloc"
 	"github.com/joshuapare/hivekit/hive/dirty"
@@ -26,6 +28,9 @@ import (
 // All strategies must properly track dirty ranges via DirtyTracker to ensure
 // transaction commits flush the correct pages.
 //
+// All methods accept a context for cancellation support. If the context is
+// cancelled, operations should return the context error as soon as practical.
+//
 // Implementations:
 //   - InPlace: Direct mutation (may reuse cells)
 //   - Append: Append-only (never free cells)
@@ -33,19 +38,23 @@ import (
 type Strategy interface {
 	// EnsureKey ensures a key path exists, creating keys as needed.
 	// Returns the NK cell reference, the count of keys created, and any error.
-	EnsureKey(path []string) (nkRef uint32, keysCreated int, err error)
+	// The context can be used to cancel the operation.
+	EnsureKey(ctx context.Context, path []string) (nkRef uint32, keysCreated int, err error)
 
 	// SetValue sets a value (creates or updates).
 	// The path specifies the parent key, name is the value name.
-	SetValue(path []string, name string, typ uint32, data []byte) error
+	// The context can be used to cancel the operation.
+	SetValue(ctx context.Context, path []string, name string, typ uint32, data []byte) error
 
 	// DeleteValue removes a value from a key.
 	// If the value doesn't exist, this is a no-op (idempotent).
-	DeleteValue(path []string, name string) error
+	// The context can be used to cancel the operation.
+	DeleteValue(ctx context.Context, path []string, name string) error
 
 	// DeleteKey removes a key and optionally its subkeys (if recursive=true).
 	// If the key doesn't exist, this is a no-op (idempotent).
-	DeleteKey(path []string, recursive bool) error
+	// The context can be used to cancel the operation.
+	DeleteKey(ctx context.Context, path []string, recursive bool) error
 }
 
 // Base provides common functionality shared by all strategies.

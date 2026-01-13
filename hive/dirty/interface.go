@@ -1,5 +1,7 @@
 package dirty
 
+import "context"
+
 // DirtyTracker is the minimal interface for tracking dirty (modified) byte ranges.
 // Implementations track which regions of a memory-mapped hive file have been modified
 // and need to be flushed to disk.
@@ -19,8 +21,10 @@ type FlushableTracker interface {
 	DirtyTracker
 
 	// FlushDataOnly flushes only the data regions (not header/metadata).
-	FlushDataOnly() error
+	// The context can be used to cancel the operation.
+	FlushDataOnly(ctx context.Context) error
 
 	// FlushHeaderAndMeta flushes header and metadata based on the specified mode.
-	FlushHeaderAndMeta(mode FlushMode) error
+	// The context can be used to cancel the operation.
+	FlushHeaderAndMeta(ctx context.Context, mode FlushMode) error
 }

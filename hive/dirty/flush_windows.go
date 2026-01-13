@@ -3,10 +3,47 @@
 package dirty
 
 import (
+	"context"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// flushRanges flushes dirty ranges to disk.
+//
+// On Windows, we flush each coalesced range individually using FlushViewOfFile.
+// The context can be used to cancel the operation between range flushes.
+func (t *Tracker) flushRanges(ctx context.Context, data []byte) error {
+	// Coalesce ranges
+	coalesced := t.coalesce()
+
+	// Flush each range (excluding header)
+	for _, r := range coalesced {
+		// Check for cancellation between ranges
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		// Skip header range (offset 0)
+		if r.Off == 0 {
+			continue
+		}
+
+		// Bounds check
+		start := int(r.Off)
+		end := int(r.Off + r.Len)
+		if end > len(data) {
+			continue
+		}
+
+		// Flush this range
+		if err := msync(data[start:end]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 
 // msync performs memory sync for the given byte slice using FlushViewOfFile.
 //

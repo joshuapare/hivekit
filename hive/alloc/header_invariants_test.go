@@ -3,6 +3,7 @@
 package alloc
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -122,13 +123,13 @@ func Test_Header_SequenceNumbers_IncrementOnGrow(t *testing.T) {
 	require.Equal(t, initialSeq1, initialSeq2, "Initial sequences should be equal (clean state)")
 
 	// Begin transaction, perform Grow(), and commit
-	err = txMgr.Begin()
+	err = txMgr.Begin(context.Background())
 	require.NoError(t, err)
 
 	err = fa.GrowByPages(1) // Add 4KB HBIN
 	require.NoError(t, err)
 
-	err = txMgr.Commit()
+	err = txMgr.Commit(context.Background())
 	require.NoError(t, err)
 
 	// Check sequence numbers after Grow()
@@ -195,13 +196,13 @@ func Test_Header_Timestamp_UpdatesOnGrow(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 
 	// Begin transaction, perform Grow(), and commit
-	err = txMgr.Begin()
+	err = txMgr.Begin(context.Background())
 	require.NoError(t, err)
 
 	err = fa.GrowByPages(1) // Add 4KB HBIN
 	require.NoError(t, err)
 
-	err = txMgr.Commit()
+	err = txMgr.Commit(context.Background())
 	require.NoError(t, err)
 
 	// Check timestamp after Grow()

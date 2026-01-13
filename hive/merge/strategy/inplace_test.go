@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -64,7 +65,7 @@ func setupTestStrategy(t *testing.T) (*InPlace, func()) {
 
 	// Build index
 	builder := walker.NewIndexBuilder(h, 10000, 10000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to build index: %v", err)
@@ -89,7 +90,7 @@ func Test_InPlace_EnsureKey(t *testing.T) {
 	path := []string{"_StrategyTest_InPlace", "TestKey"}
 
 	// Ensure key
-	nkRef, keysCreated, err := strategy.EnsureKey(path)
+	nkRef, keysCreated, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
@@ -131,7 +132,7 @@ func Test_InPlace_SetValue_Small(t *testing.T) {
 	valueData := []byte("Hello, World!\x00")
 
 	// Set value (REG_SZ)
-	err := strategy.SetValue(path, valueName, format.REGSZ, valueData)
+	err := strategy.SetValue(context.Background(), path, valueName, format.REGSZ, valueData)
 	if err != nil {
 		t.Fatalf("SetValue failed: %v", err)
 	}
@@ -165,7 +166,7 @@ func Test_InPlace_SetValue_Large(t *testing.T) {
 	valueData := bytes.Repeat([]byte{0xAB}, 50*1024)
 
 	// Set value (REG_BINARY)
-	err := strategy.SetValue(path, valueName, format.REGBinary, valueData)
+	err := strategy.SetValue(context.Background(), path, valueName, format.REGBinary, valueData)
 	if err != nil {
 		t.Fatalf("SetValue (large) failed: %v", err)
 	}
@@ -199,7 +200,7 @@ func Test_InPlace_DeleteValue(t *testing.T) {
 	valueName := "ToDelete"
 
 	// First, create a value
-	err := strategy.SetValue(path, valueName, format.REGSZ, []byte("delete me\x00"))
+	err := strategy.SetValue(context.Background(), path, valueName, format.REGSZ, []byte("delete me\x00"))
 	if err != nil {
 		t.Fatalf("SetValue failed: %v", err)
 	}
@@ -219,7 +220,7 @@ func Test_InPlace_DeleteValue(t *testing.T) {
 	}
 
 	// Delete the value
-	err = strategy.DeleteValue(path, valueName)
+	err = strategy.DeleteValue(context.Background(), path, valueName)
 	if err != nil {
 		t.Fatalf("DeleteValue failed: %v", err)
 	}
@@ -241,7 +242,7 @@ func Test_InPlace_DeleteKey(t *testing.T) {
 	path := []string{"_StrategyTest_InPlace", "DeleteKeyTest"}
 
 	// First, create a key
-	_, keysCreated, err := strategy.EnsureKey(path)
+	_, keysCreated, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
@@ -259,7 +260,7 @@ func Test_InPlace_DeleteKey(t *testing.T) {
 	}
 
 	// Delete the key (non-recursive for now)
-	err = strategy.DeleteKey(path, false)
+	err = strategy.DeleteKey(context.Background(), path, false)
 	if err != nil {
 		t.Fatalf("DeleteKey failed: %v", err)
 	}
@@ -281,13 +282,13 @@ func Test_InPlace_EnsureKey_Idempotent(t *testing.T) {
 	path := []string{"_StrategyTest_InPlace", "IdempotentKey"}
 
 	// First call
-	nkRef1, _, err := strategy.EnsureKey(path)
+	nkRef1, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("First EnsureKey failed: %v", err)
 	}
 
 	// Second call (should be idempotent)
-	nkRef2, keysCreated2, err := strategy.EnsureKey(path)
+	nkRef2, keysCreated2, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Second EnsureKey failed: %v", err)
 	}

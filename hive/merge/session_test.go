@@ -2,6 +2,7 @@ package merge
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -39,14 +40,14 @@ func setupTestSession(t *testing.T) (*Session, func()) {
 	}
 
 	// Create session with default options
-	session, err := NewSession(h, DefaultOptions())
+	session, err := NewSession(context.Background(), h, DefaultOptions())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
 	}
 
 	cleanup := func() {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 	}
 
@@ -103,7 +104,7 @@ func Test_Session_BeginCommit(t *testing.T) {
 	initialSeq1 := format.ReadU32(data, format.REGFPrimarySeqOffset)
 
 	// Begin transaction
-	if err := session.Begin(); err != nil {
+	if err := session.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
@@ -115,7 +116,7 @@ func Test_Session_BeginCommit(t *testing.T) {
 	}
 
 	// Commit transaction
-	if err := session.Commit(); err != nil {
+	if err := session.Commit(context.Background()); err != nil {
 		t.Fatalf("Commit() failed: %v", err)
 	}
 
@@ -148,18 +149,18 @@ func Test_Session_Apply_SingleKey(t *testing.T) {
 	plan.AddEnsureKey([]string{"_SessionTest", "TestKey"})
 
 	// Begin transaction
-	if err := session.Begin(); err != nil {
+	if err := session.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
 	// Apply plan
-	result, err := session.Apply(plan)
+	result, err := session.Apply(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply() failed: %v", err)
 	}
 
 	// Commit transaction
-	if commitErr := session.Commit(); commitErr != nil {
+	if commitErr := session.Commit(context.Background()); commitErr != nil {
 		t.Fatalf("Commit() failed: %v", commitErr)
 	}
 
@@ -195,7 +196,7 @@ func Test_Session_Apply_ComplexPlan(t *testing.T) {
 	plan.AddSetValue([]string{"_SessionTest", "App"}, "Build", format.REGDWORD, []byte{42, 0, 0, 0})
 
 	// Apply with transaction
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("ApplyWithTx() failed: %v", err)
 	}
@@ -243,14 +244,14 @@ func Test_Session_Rollback(t *testing.T) {
 	initialSeq1 := format.ReadU32(data, format.REGFPrimarySeqOffset)
 
 	// Begin transaction
-	if err := session.Begin(); err != nil {
+	if err := session.Begin(context.Background()); err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
 
 	// Apply plan (but don't commit)
 	plan := NewPlan()
 	plan.AddEnsureKey([]string{"_SessionTest", "Rollback"})
-	if _, err := session.Apply(plan); err != nil {
+	if _, err := session.Apply(context.Background(), plan); err != nil {
 		t.Fatalf("Apply() failed: %v", err)
 	}
 
@@ -297,7 +298,7 @@ func Test_Session_ApplyWithTx(t *testing.T) {
 	initialSeq1 := format.ReadU32(data, format.REGFPrimarySeqOffset)
 
 	// Apply with single call
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("ApplyWithTx() failed: %v", err)
 	}
@@ -341,7 +342,7 @@ func Test_Session_Apply_LargeValue(t *testing.T) {
 	plan.AddSetValue([]string{"_SessionTest", "LargeValue"}, "BigData", format.REGBinary, largeData)
 
 	// Apply with transaction
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("ApplyWithTx() with large value failed: %v", err)
 	}
@@ -412,7 +413,7 @@ func Test_Session_TransactionSequences(t *testing.T) {
 	// Apply first transaction
 	plan1 := NewPlan()
 	plan1.AddEnsureKey([]string{"_SessionTest", "Tx1"})
-	if _, err := session.ApplyWithTx(plan1); err != nil {
+	if _, err := session.ApplyWithTx(context.Background(), plan1); err != nil {
 		t.Fatalf("First transaction failed: %v", err)
 	}
 
@@ -431,7 +432,7 @@ func Test_Session_TransactionSequences(t *testing.T) {
 	// Apply second transaction
 	plan2 := NewPlan()
 	plan2.AddEnsureKey([]string{"_SessionTest", "Tx2"})
-	if _, err := session.ApplyWithTx(plan2); err != nil {
+	if _, err := session.ApplyWithTx(context.Background(), plan2); err != nil {
 		t.Fatalf("Second transaction failed: %v", err)
 	}
 
@@ -480,30 +481,30 @@ func Test_Session_NewSessionWithIndex(t *testing.T) {
 	defer h.Close()
 
 	// Create session with NewSession (builds index)
-	session1, err := NewSession(h, DefaultOptions())
+	session1, err := NewSession(context.Background(), h, DefaultOptions())
 	if err != nil {
 		t.Fatalf("NewSession failed: %v", err)
 	}
-	defer session1.Close()
+	defer session1.Close(context.Background())
 
 	// Get the built index
 	idx := session1.Index()
 
 	// Close first session
-	session1.Close()
+	session1.Close(context.Background())
 
 	// Create second session reusing the index
-	session2, err := NewSessionWithIndex(h, idx, DefaultOptions())
+	session2, err := NewSessionWithIndex(context.Background(), h, idx, DefaultOptions())
 	if err != nil {
 		t.Fatalf("NewSessionWithIndex failed: %v", err)
 	}
-	defer session2.Close()
+	defer session2.Close(context.Background())
 
 	// Verify session works
 	plan := NewPlan()
 	plan.AddEnsureKey([]string{"_SessionTest", "ReuseIndex"})
 
-	result, err := session2.ApplyWithTx(plan)
+	result, err := session2.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("ApplyWithTx with reused index failed: %v", err)
 	}
@@ -550,7 +551,7 @@ func Test_Session_BeginCommitIdempotency(t *testing.T) {
 	plan.AddEnsureKey([]string{"_IdempotencyTest"})
 
 	// Apply with transaction - should call Begin() exactly once
-	_, err := session.ApplyWithTx(plan)
+	_, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("ApplyWithTx failed: %v", err)
 	}
@@ -614,7 +615,7 @@ func Test_Session_MultipleOperations(t *testing.T) {
 	plan.AddSetValue([]string{"_SessionTest", "Multi"}, "Large", format.REGBinary, largeData)
 
 	// Apply all operations in single transaction
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("ApplyWithTx with multiple operations failed: %v", err)
 	}

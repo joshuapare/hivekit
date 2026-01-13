@@ -1,6 +1,7 @@
 package walker
 
 import (
+	"context"
 	"testing"
 )
 
@@ -39,7 +40,7 @@ func Benchmark_IndexBuilder(b *testing.B) {
 	for range b.N {
 		builder := NewIndexBuilder(h, 10000, 10000)
 
-		_, err := builder.Build()
+		_, err := builder.Build(context.Background())
 		if err != nil {
 			b.Fatalf("Build failed: %v", err)
 		}

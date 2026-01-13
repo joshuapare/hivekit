@@ -1,6 +1,7 @@
 package merge_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestMergeRegTextWithPrefix_SimplePrefix(t *testing.T) {
 `
 
 	// Apply with SOFTWARE prefix
-	applied, err := merge.MergeRegTextWithPrefix(hivePath, regText, "SOFTWARE", nil)
+	applied, err := merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "SOFTWARE", nil)
 	require.NoError(t, err)
 	require.Greater(t, applied.KeysCreated, 0)
 	require.Greater(t, applied.ValuesSet, 0)
@@ -78,6 +79,7 @@ func TestMergeRegTextWithPrefix_NestedPrefix(t *testing.T) {
 
 	// Apply with nested prefix
 	applied, err := merge.MergeRegTextWithPrefix(
+		context.Background(),
 		hivePath,
 		regText,
 		"SOFTWARE\\Microsoft\\Windows",
@@ -123,7 +125,7 @@ func TestMergeRegTextWithPrefix_MultipleKeys(t *testing.T) {
 `
 
 	// Apply with SOFTWARE prefix
-	applied, err := merge.MergeRegTextWithPrefix(hivePath, regText, "SOFTWARE", nil)
+	applied, err := merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "SOFTWARE", nil)
 	require.NoError(t, err)
 	require.Greater(t, applied.KeysCreated, 2) // At least App1, App2, App3
 
@@ -167,7 +169,7 @@ func TestMergeRegTextWithPrefix_ExistingHive(t *testing.T) {
 "Value"="Fresh"
 `
 
-	applied, err := merge.MergeRegTextWithPrefix(hivePath, regText, "SOFTWARE", nil)
+	applied, err := merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "SOFTWARE", nil)
 	require.NoError(t, err)
 	require.Greater(t, applied.KeysCreated, 0)
 
@@ -205,7 +207,7 @@ func TestMergeRegTextWithPrefix_EmptyPrefix(t *testing.T) {
 `
 
 	// Apply with empty prefix (no prepending)
-	applied, err := merge.MergeRegTextWithPrefix(hivePath, regText, "", nil)
+	applied, err := merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "", nil)
 	require.NoError(t, err)
 	require.Greater(t, applied.KeysCreated, 0)
 
@@ -240,6 +242,7 @@ func TestMergeRegTextWithPrefix_PrefixWithHiveRoot(t *testing.T) {
 
 	// Apply with prefix that includes hive root (should be stripped)
 	applied, err := merge.MergeRegTextWithPrefix(
+		context.Background(),
 		hivePath,
 		regText,
 		"HKEY_LOCAL_MACHINE\\SOFTWARE",
@@ -282,7 +285,7 @@ func TestMergeRegTextWithPrefix_DeleteOperations(t *testing.T) {
 `
 
 	// Apply with SOFTWARE prefix
-	applied, err := merge.MergeRegTextWithPrefix(hivePath, regText, "SOFTWARE", nil)
+	applied, err := merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "SOFTWARE", nil)
 	require.NoError(t, err)
 	require.Greater(t, applied.KeysDeleted, 0)
 
@@ -321,7 +324,7 @@ func TestMergeRegTextWithPrefix_AllValueTypes(t *testing.T) {
 `
 
 	// Apply with SOFTWARE prefix
-	applied, err := merge.MergeRegTextWithPrefix(hivePath, regText, "SOFTWARE", nil)
+	applied, err := merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "SOFTWARE", nil)
 	require.NoError(t, err)
 	require.Greater(t, applied.ValuesSet, 2)
 
@@ -361,7 +364,7 @@ func TestMergeRegTextWithPrefix_InvalidRegText(t *testing.T) {
 `
 
 	// Should error during parsing
-	_, err = merge.MergeRegTextWithPrefix(hivePath, regText, "SOFTWARE", nil)
+	_, err = merge.MergeRegTextWithPrefix(context.Background(), hivePath, regText, "SOFTWARE", nil)
 	require.Error(t, err, "should error on invalid regtext")
 }
 
@@ -373,6 +376,6 @@ func TestMergeRegTextWithPrefix_InvalidHivePath(t *testing.T) {
 `
 
 	// Should error on non-existent hive
-	_, err := merge.MergeRegTextWithPrefix("/nonexistent/hive", regText, "SOFTWARE", nil)
+	_, err := merge.MergeRegTextWithPrefix(context.Background(), "/nonexistent/hive", regText, "SOFTWARE", nil)
 	require.Error(t, err, "should error on invalid hive path")
 }

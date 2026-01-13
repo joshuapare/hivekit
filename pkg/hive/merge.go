@@ -1,6 +1,7 @@
 package hive
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -126,6 +127,6 @@ func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
 	}
 
 	// Apply optimized plan
-	_, err = merge.MergePlan(hivePath, plan, nil)
+	_, err = merge.MergePlan(context.Background(), hivePath, plan, nil)
 	return err
 }

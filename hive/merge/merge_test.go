@@ -2,6 +2,7 @@ package merge
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,14 +46,14 @@ func setupTestHive(t *testing.T) (*hive.Hive, *Session, string, func()) {
 	idx := index.NewStringIndex(10000, 10000)
 
 	// Create session (it will create its own allocator and dirty tracker)
-	session, err := NewSessionWithIndex(h, idx, Options{Strategy: StrategyInPlace})
+	session, err := NewSessionWithIndex(context.Background(), h, idx, Options{Strategy: StrategyInPlace})
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to create session: %v", err)
 	}
 
 	cleanup := func() {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 	}
 
@@ -247,7 +248,7 @@ func Test_Executor_EnsureKey(t *testing.T) {
 	plan.AddEnsureKey([]string{"_MergeTest", "TestKey"})
 
 	// Execute the plan
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
@@ -280,7 +281,7 @@ func Test_Executor_SetValue(t *testing.T) {
 	plan.AddSetValue([]string{"_MergeTest", "Values"}, "TestValue", 1, []byte("TestData\x00"))
 
 	// Execute the plan
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
@@ -317,13 +318,13 @@ func Test_Executor_Idempotency(t *testing.T) {
 	plan.AddSetValue([]string{"_MergeTest", "Idempotent"}, "Value1", 4, []byte{0x01, 0x00, 0x00, 0x00})
 
 	// Execute first time
-	result1, err := session.ApplyWithTx(plan)
+	result1, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("First Apply failed: %v", err)
 	}
 
 	// Execute second time (should be idempotent)
-	result2, err := session.ApplyWithTx(plan)
+	result2, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Second Apply failed: %v", err)
 	}
@@ -366,7 +367,7 @@ func Test_Executor_ComplexPlan(t *testing.T) {
 	plan.AddSetValue(basePath, "Config", 3, largeData)
 
 	// Execute the plan
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
@@ -409,7 +410,7 @@ func Test_Executor_DeleteValue(t *testing.T) {
 	plan1 := NewPlan()
 	plan1.AddSetValue([]string{"_MergeTest", "DeleteTest"}, "ToDelete", 1, []byte("value\x00"))
 
-	_, err := session.ApplyWithTx(plan1)
+	_, err := session.ApplyWithTx(context.Background(), plan1)
 	if err != nil {
 		t.Fatalf("Setup Apply failed: %v", err)
 	}
@@ -418,7 +419,7 @@ func Test_Executor_DeleteValue(t *testing.T) {
 	plan2 := NewPlan()
 	plan2.AddDeleteValue([]string{"_MergeTest", "DeleteTest"}, "ToDelete")
 
-	result, err := session.ApplyWithTx(plan2)
+	result, err := session.ApplyWithTx(context.Background(), plan2)
 	if err != nil {
 		t.Fatalf("Delete Apply failed: %v", err)
 	}
@@ -442,7 +443,7 @@ func Test_Executor_DeleteKey(t *testing.T) {
 	plan1.AddSetValue([]string{"_MergeTest", "ToDelete"}, "Value1", 1, []byte("data1\x00"))
 	plan1.AddSetValue([]string{"_MergeTest", "ToDelete"}, "Value2", 1, []byte("data2\x00"))
 
-	result1, err := session.ApplyWithTx(plan1)
+	result1, err := session.ApplyWithTx(context.Background(), plan1)
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -459,7 +460,7 @@ func Test_Executor_DeleteKey(t *testing.T) {
 	plan2 := NewPlan()
 	plan2.AddDeleteKey([]string{"_MergeTest", "ToDelete"})
 
-	result2, err := session.ApplyWithTx(plan2)
+	result2, err := session.ApplyWithTx(context.Background(), plan2)
 	if err != nil {
 		t.Fatalf("DeleteKey failed: %v", err)
 	}
@@ -478,7 +479,7 @@ func Test_Executor_DeleteKey_Idempotency(t *testing.T) {
 	plan1 := NewPlan()
 	plan1.AddEnsureKey([]string{"_MergeTest", "ToDeleteTwice"})
 
-	_, err := session.ApplyWithTx(plan1)
+	_, err := session.ApplyWithTx(context.Background(), plan1)
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -487,7 +488,7 @@ func Test_Executor_DeleteKey_Idempotency(t *testing.T) {
 	plan2 := NewPlan()
 	plan2.AddDeleteKey([]string{"_MergeTest", "ToDeleteTwice"})
 
-	result, err := session.ApplyWithTx(plan2)
+	result, err := session.ApplyWithTx(context.Background(), plan2)
 	if err != nil {
 		t.Fatalf("First DeleteKey failed: %v", err)
 	}
@@ -498,7 +499,7 @@ func Test_Executor_DeleteKey_Idempotency(t *testing.T) {
 
 	// Second delete of same key - idempotent, should succeed but count as 0
 	// Note: Due to index staleness (Phase 1 limitation), this creates then deletes
-	result2, err := session.ApplyWithTx(plan2)
+	result2, err := session.ApplyWithTx(context.Background(), plan2)
 	if err != nil {
 		t.Fatalf("Second DeleteKey failed: %v", err)
 	}
@@ -520,7 +521,7 @@ func Test_Executor_DeleteKey_WithSubkeys(t *testing.T) {
 	plan1.AddSetValue([]string{"_MergeTest", "Parent"}, "ParentValue", 1, []byte("data\x00"))
 	plan1.AddSetValue([]string{"_MergeTest", "Parent", "Child1"}, "ChildValue", 1, []byte("data\x00"))
 
-	result1, err := session.ApplyWithTx(plan1)
+	result1, err := session.ApplyWithTx(context.Background(), plan1)
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -537,7 +538,7 @@ func Test_Executor_DeleteKey_WithSubkeys(t *testing.T) {
 	plan2 := NewPlan()
 	plan2.AddDeleteKey([]string{"_MergeTest", "Parent"})
 
-	result2, err := session.ApplyWithTx(plan2)
+	result2, err := session.ApplyWithTx(context.Background(), plan2)
 	if err != nil {
 		t.Fatalf("DeleteKey with subkeys failed: %v", err)
 	}
@@ -588,7 +589,7 @@ func Test_Executor_ErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := session.ApplyWithTx(tt.plan)
+			_, err := session.ApplyWithTx(context.Background(), tt.plan)
 			if tt.expectError && err == nil {
 				t.Error("Expected error, got nil")
 			}
@@ -748,7 +749,7 @@ func Test_Executor_EmptyPlan(t *testing.T) {
 	defer cleanup()
 
 	plan := NewPlan()
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
 		t.Errorf("Empty plan should not error: %v", err)
 	}
@@ -770,7 +771,7 @@ func Test_Executor_UnknownOpType(t *testing.T) {
 		},
 	}
 
-	_, err := session.ApplyWithTx(plan)
+	_, err := session.ApplyWithTx(context.Background(), plan)
 	if err == nil {
 		t.Error("Expected error for unknown op type, got nil")
 	}

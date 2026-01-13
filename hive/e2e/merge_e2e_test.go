@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -350,7 +351,7 @@ func runMergeTest(t *testing.T, tc MergeTestCase) {
 
 	// CRITICAL: Build index from existing hive to avoid creating duplicate keys
 	builder := walker.NewIndexBuilder(h, 10000, 10000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to build index: %v", err)
@@ -358,6 +359,7 @@ func runMergeTest(t *testing.T, tc MergeTestCase) {
 
 	// Create session (it will create its own allocator and dirty tracker)
 	session, err := merge.NewSessionWithIndex(
+		context.Background(),
 		h,
 		idx,
 		merge.Options{Strategy: merge.StrategyInPlace},
@@ -371,9 +373,9 @@ func runMergeTest(t *testing.T, tc MergeTestCase) {
 	plan := merge.NewPlan()
 	tc.Operations(plan)
 
-	result, err := session.ApplyWithTx(plan)
+	result, err := session.ApplyWithTx(context.Background(), plan)
 	if err != nil {
-		session.Close()
+		session.Close(context.Background())
 		h.Close()
 		t.Fatalf("Merge execution failed: %v", err)
 	}
@@ -384,7 +386,7 @@ func runMergeTest(t *testing.T, tc MergeTestCase) {
 	}
 
 	// Step 4b: Close session (flushes dirty pages automatically)
-	if closeErr := session.Close(); closeErr != nil {
+	if closeErr := session.Close(context.Background()); closeErr != nil {
 		h.Close()
 		t.Fatalf("Failed to close session: %v", closeErr)
 	}

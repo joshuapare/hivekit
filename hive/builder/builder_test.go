@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,7 +66,7 @@ func TestBuilder_SetString(t *testing.T) {
 
 	// Walk to the key and verify values
 	builder := walker.NewIndexBuilder(h, 1000, 1000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	require.NoError(t, err)
 
 	// Find the Software\MyApp key
@@ -112,7 +113,7 @@ func TestBuilder_SetDWORD(t *testing.T) {
 	defer h.Close()
 
 	builder := walker.NewIndexBuilder(h, 1000, 1000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	require.NoError(t, err)
 
 	rootNK := h.RootCellOffset()
@@ -159,7 +160,7 @@ func TestBuilder_MultipleValueTypes(t *testing.T) {
 	defer h.Close()
 
 	builder := walker.NewIndexBuilder(h, 1000, 1000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	require.NoError(t, err)
 
 	rootNK := h.RootCellOffset()
@@ -213,7 +214,7 @@ func TestBuilder_DeleteValue(t *testing.T) {
 	defer h.Close()
 
 	builder := walker.NewIndexBuilder(h, 1000, 1000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	require.NoError(t, err)
 
 	rootNK := h.RootCellOffset()
@@ -258,7 +259,7 @@ func TestBuilder_DeleteKey(t *testing.T) {
 	defer h.Close()
 
 	builder := walker.NewIndexBuilder(h, 1000, 1000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	require.NoError(t, err)
 
 	rootNK := h.RootCellOffset()
@@ -300,7 +301,7 @@ func TestBuilder_ProgressiveFlush(t *testing.T) {
 	defer h.Close()
 
 	builder := walker.NewIndexBuilder(h, 1000, 1000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	require.NoError(t, err)
 
 	rootNK := h.RootCellOffset()
@@ -346,7 +347,7 @@ func TestBuilder_OpenExisting(t *testing.T) {
 	defer h.Close()
 
 	builder := walker.NewIndexBuilder(h, 1000, 1000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	require.NoError(t, err)
 
 	rootNK := h.RootCellOffset()

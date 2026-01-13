@@ -14,6 +14,7 @@
 package tx
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -63,8 +64,15 @@ func NewManager(h *hive.Hive, dt dirty.FlushableTracker, mode dirty.FlushMode) *
 // The transaction is NOT visible to readers until Commit() is called.
 // If Begin() is called while already in a transaction, it's a no-op.
 //
+// The context can be used to cancel the operation before it starts.
+//
 // Performance: < 1 μs (header write only, no allocations).
-func (m *Manager) Begin() error {
+func (m *Manager) Begin(ctx context.Context) error {
+	// Check for cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if m.inTx {
 		// Already in transaction, idempotent
 		return nil
@@ -115,17 +123,25 @@ func (m *Manager) Begin() error {
 //
 // If Commit() is called without an active transaction, it's a no-op.
 //
+// The context can be used to cancel the operation. Note that partial commits
+// may occur if cancelled mid-way through the flush process.
+//
 // Performance: Depends on dirty page count and OS page cache.
 // Typical: 5-10ms for 100KB of dirty data.
-func (m *Manager) Commit() error {
+func (m *Manager) Commit(ctx context.Context) error {
 	if !m.inTx {
 		// No active transaction
 		return nil
 	}
 
 	// Step 1: Flush all dirty data pages (NOT header yet)
-	if err := m.dt.FlushDataOnly(); err != nil {
+	if err := m.dt.FlushDataOnly(ctx); err != nil {
 		return fmt.Errorf("flush data pages: %w", err)
+	}
+
+	// Check for cancellation before header updates
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Step 2: Set SecondarySeq = PrimarySeq (transaction complete marker)
@@ -146,7 +162,7 @@ func (m *Manager) Commit() error {
 	m.dt.Add(0, format.HeaderSize)
 
 	// Step 5 & 6: Flush header and optionally fdatasync
-	if err := m.dt.FlushHeaderAndMeta(m.mode); err != nil {
+	if err := m.dt.FlushHeaderAndMeta(ctx, m.mode); err != nil {
 		return fmt.Errorf("flush header: %w", err)
 	}
 

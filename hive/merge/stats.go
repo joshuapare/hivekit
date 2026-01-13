@@ -1,6 +1,8 @@
 package merge
 
 import (
+	"context"
+
 	"github.com/joshuapare/hivekit/hive"
 )
 
@@ -62,11 +64,12 @@ func StatHive(hivePath string) (StorageStats, error) {
 
 	// Create a temporary session to access the allocator
 	// This builds the allocator which scans the hive and tracks free space
-	sess, err := NewSession(h, Options{})
+	ctx := context.Background()
+	sess, err := NewSession(ctx, h, Options{})
 	if err != nil {
 		return stats, err
 	}
-	defer sess.Close()
+	defer sess.Close(ctx)
 
 	// Get efficiency stats from the allocator
 	// This provides: TotalCapacity, TotalAllocated, TotalWasted

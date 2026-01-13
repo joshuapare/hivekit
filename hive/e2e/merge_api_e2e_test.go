@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -30,7 +31,7 @@ func Test_MergePlan_OneLiner(t *testing.T) {
 	)
 
 	// Apply plan using one-liner
-	applied, err := merge.MergePlan(hivePath, plan, nil)
+	applied, err := merge.MergePlan(context.Background(), hivePath, plan, nil)
 	if err != nil {
 		t.Fatalf("MergePlan failed: %v", err)
 	}
@@ -87,7 +88,7 @@ func Test_MergeRegText_OneLiner(t *testing.T) {
 `
 
 	// Apply using one-liner
-	applied, err := merge.MergeRegText(hivePath, regText, nil)
+	applied, err := merge.MergeRegText(context.Background(), hivePath, regText, nil)
 	if err != nil {
 		t.Fatalf("MergeRegText failed: %v", err)
 	}
@@ -144,13 +145,13 @@ func Test_WithSession_MultipleOps(t *testing.T) {
 	var totalKeysCreated int
 	var totalValuesSet int
 
-	err := merge.WithSession(hivePath, nil, func(s *merge.Session) error {
+	err := merge.WithSession(context.Background(), hivePath, nil, func(s *merge.Session) error {
 		// Operation 1: Create first key tree
 		plan1 := merge.NewPlan()
 		plan1.AddEnsureKey([]string{"Software", "WithSessionTest", "Op1"})
 		plan1.AddSetValue([]string{"Software", "WithSessionTest", "Op1"}, "Value1", format.REGSZ, []byte("First\x00"))
 
-		applied1, err := s.ApplyWithTx(plan1)
+		applied1, err := s.ApplyWithTx(context.Background(), plan1)
 		if err != nil {
 			return err
 		}
@@ -162,7 +163,7 @@ func Test_WithSession_MultipleOps(t *testing.T) {
 		plan2.AddEnsureKey([]string{"Software", "WithSessionTest", "Op2"})
 		plan2.AddSetValue([]string{"Software", "WithSessionTest", "Op2"}, "Value2", format.REGSZ, []byte("Second\x00"))
 
-		applied2, err := s.ApplyWithTx(plan2)
+		applied2, err := s.ApplyWithTx(context.Background(), plan2)
 		if err != nil {
 			return err
 		}
@@ -178,7 +179,7 @@ func Test_WithSession_MultipleOps(t *testing.T) {
 			[]byte{0xFF, 0x00, 0x00, 0x00},
 		)
 
-		applied3, err := s.ApplyWithTx(plan3)
+		applied3, err := s.ApplyWithTx(context.Background(), plan3)
 		if err != nil {
 			return err
 		}
@@ -309,7 +310,7 @@ func Test_MergePlan_ErrorHandling(t *testing.T) {
 	plan := merge.NewPlan()
 	plan.AddEnsureKey([]string{"Software", "Test"})
 
-	_, err := merge.MergePlan("/nonexistent/path/to/hive", plan, nil)
+	_, err := merge.MergePlan(context.Background(), "/nonexistent/path/to/hive", plan, nil)
 	if err == nil {
 		t.Error("Expected error for non-existent hive file")
 	}
@@ -322,7 +323,7 @@ func Test_MergePlan_ErrorHandling(t *testing.T) {
 	}
 
 	malformedReg := `This is not valid .reg text`
-	_, err = merge.MergeRegText(hivePath, malformedReg, nil)
+	_, err = merge.MergeRegText(context.Background(), hivePath, malformedReg, nil)
 	if err == nil {
 		t.Error("Expected error for malformed .reg text")
 	}
@@ -348,7 +349,7 @@ func Test_MergePlan_LargeValue(t *testing.T) {
 	plan.AddSetValue([]string{"Software", "LargeValueTest"}, "BigData", format.REGBinary, largeData)
 
 	// Apply using MergePlan
-	applied, err := merge.MergePlan(hivePath, plan, nil)
+	applied, err := merge.MergePlan(context.Background(), hivePath, plan, nil)
 	if err != nil {
 		t.Fatalf("MergePlan with large value failed: %v", err)
 	}

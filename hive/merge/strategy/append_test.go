@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -53,7 +54,7 @@ func setupAppendStrategy(t *testing.T) (*Append, *hive.Hive, func()) {
 
 	// Build index
 	builder := walker.NewIndexBuilder(h, 10000, 10000)
-	idx, err := builder.Build()
+	idx, err := builder.Build(context.Background())
 	if err != nil {
 		h.Close()
 		t.Fatalf("Failed to build index: %v", err)
@@ -78,7 +79,7 @@ func Test_Append_EnsureKey(t *testing.T) {
 	path := []string{"_StrategyTest_Append", "TestKey"}
 
 	// Ensure key
-	nkRef, keysCreated, err := strategy.EnsureKey(path)
+	nkRef, keysCreated, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
@@ -98,14 +99,14 @@ func Test_Append_SetValue_Small(t *testing.T) {
 
 	// Create parent key
 	path := []string{"_StrategyTest_Append", "SmallValue"}
-	_, _, err := strategy.EnsureKey(path)
+	_, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
 
 	// Set small value
 	data := []byte("Hello, Append Strategy!")
-	err = strategy.SetValue(path, "TestValue", format.REGSZ, data)
+	err = strategy.SetValue(context.Background(), path, "TestValue", format.REGSZ, data)
 	if err != nil {
 		t.Fatalf("SetValue failed: %v", err)
 	}
@@ -120,14 +121,14 @@ func Test_Append_SetValue_Large(t *testing.T) {
 
 	// Create parent key
 	path := []string{"_StrategyTest_Append", "LargeValue"}
-	_, _, err := strategy.EnsureKey(path)
+	_, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
 
 	// Set large value (50KB)
 	data := bytes.Repeat([]byte("X"), 50*1024)
-	err = strategy.SetValue(path, "LargeData", format.REGBinary, data)
+	err = strategy.SetValue(context.Background(), path, "LargeData", format.REGBinary, data)
 	if err != nil {
 		t.Fatalf("SetValue (large) failed: %v", err)
 	}
@@ -142,13 +143,13 @@ func Test_Append_DeleteValue(t *testing.T) {
 
 	// Create key and value
 	path := []string{"_StrategyTest_Append", "DeleteTest"}
-	_, _, err := strategy.EnsureKey(path)
+	_, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
 
 	data := []byte("ToBeDeleted")
-	err = strategy.SetValue(path, "TempValue", format.REGSZ, data)
+	err = strategy.SetValue(context.Background(), path, "TempValue", format.REGSZ, data)
 	if err != nil {
 		t.Fatalf("SetValue failed: %v", err)
 	}
@@ -157,7 +158,7 @@ func Test_Append_DeleteValue(t *testing.T) {
 	sizeBefore := len(h.Bytes())
 
 	// Delete value
-	err = strategy.DeleteValue(path, "TempValue")
+	err = strategy.DeleteValue(context.Background(), path, "TempValue")
 	if err != nil {
 		t.Fatalf("DeleteValue failed: %v", err)
 	}
@@ -178,7 +179,7 @@ func Test_Append_DeleteKey(t *testing.T) {
 
 	// Create key
 	path := []string{"_StrategyTest_Append", "KeyToDelete"}
-	_, _, err := strategy.EnsureKey(path)
+	_, _, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("EnsureKey failed: %v", err)
 	}
@@ -187,7 +188,7 @@ func Test_Append_DeleteKey(t *testing.T) {
 	sizeBefore := len(h.Bytes())
 
 	// Delete key
-	err = strategy.DeleteKey(path, false)
+	err = strategy.DeleteKey(context.Background(), path, false)
 	if err != nil {
 		t.Fatalf("DeleteKey failed: %v", err)
 	}
@@ -209,13 +210,13 @@ func Test_Append_EnsureKey_Idempotent(t *testing.T) {
 	path := []string{"_StrategyTest_Append", "IdempotentKey"}
 
 	// First call: create
-	ref1, keysCreated1, err := strategy.EnsureKey(path)
+	ref1, keysCreated1, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("First EnsureKey failed: %v", err)
 	}
 
 	// Second call: should return existing
-	ref2, keysCreated2, err := strategy.EnsureKey(path)
+	ref2, keysCreated2, err := strategy.EnsureKey(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Second EnsureKey failed: %v", err)
 	}
@@ -244,14 +245,15 @@ func Test_Append_MonotonicGrowth(t *testing.T) {
 		fn   func() error
 	}{
 		{"Create Key", func() error {
-			_, _, err := strategy.EnsureKey([]string{"MonotonicTest", "Key1"})
+			_, _, err := strategy.EnsureKey(context.Background(), []string{"MonotonicTest", "Key1"})
 			return err
 		}},
 		{"Set Value", func() error {
-			return strategy.SetValue([]string{"MonotonicTest", "Key1"}, "Val1", format.REGSZ, []byte("data"))
+			return strategy.SetValue(context.Background(), []string{"MonotonicTest", "Key1"}, "Val1", format.REGSZ, []byte("data"))
 		}},
 		{"Update Value", func() error {
 			return strategy.SetValue(
+				context.Background(),
 				[]string{"MonotonicTest", "Key1"},
 				"Val1",
 				format.REGSZ,
@@ -259,14 +261,14 @@ func Test_Append_MonotonicGrowth(t *testing.T) {
 			)
 		}},
 		{"Delete Value", func() error {
-			return strategy.DeleteValue([]string{"MonotonicTest", "Key1"}, "Val1")
+			return strategy.DeleteValue(context.Background(), []string{"MonotonicTest", "Key1"}, "Val1")
 		}},
 		{"Create Another Key", func() error {
-			_, _, err := strategy.EnsureKey([]string{"MonotonicTest", "Key2"})
+			_, _, err := strategy.EnsureKey(context.Background(), []string{"MonotonicTest", "Key2"})
 			return err
 		}},
 		{"Delete Key", func() error {
-			return strategy.DeleteKey([]string{"MonotonicTest", "Key2"}, false)
+			return strategy.DeleteKey(context.Background(), []string{"MonotonicTest", "Key2"}, false)
 		}},
 	}
 

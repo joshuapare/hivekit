@@ -1,6 +1,7 @@
 package hive
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -61,7 +62,7 @@ func SetValue(
 	plan.AddSetValue(pathSegments, valueName, uint32(valueType), data)
 
 	// Apply plan
-	_, err := merge.MergePlan(hivePath, plan, nil)
+	_, err := merge.MergePlan(context.Background(), hivePath, plan, nil)
 	if err != nil {
 		return fmt.Errorf("failed to set value: %w", err)
 	}
@@ -128,7 +129,7 @@ func DeleteKey(hivePath string, keyPath string, recursive bool, opts *OperationO
 	plan.AddDeleteKey(pathSegments)
 
 	// Apply plan
-	_, err := merge.MergePlan(hivePath, plan, nil)
+	_, err := merge.MergePlan(context.Background(), hivePath, plan, nil)
 	if err != nil {
 		return fmt.Errorf("failed to delete key: %w", err)
 	}
@@ -174,7 +175,7 @@ func DeleteValue(hivePath string, keyPath string, valueName string, opts *Operat
 	plan.AddDeleteValue(pathSegments, valueName)
 
 	// Apply plan
-	_, err := merge.MergePlan(hivePath, plan, nil)
+	_, err := merge.MergePlan(context.Background(), hivePath, plan, nil)
 	if err != nil {
 		return fmt.Errorf("failed to delete value: %w", err)
 	}
