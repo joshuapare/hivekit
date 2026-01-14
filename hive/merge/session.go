@@ -365,20 +365,32 @@ func (s *Session) GetEfficiencyStats() alloc.EfficiencyStats {
 // GetStorageStats returns storage statistics for the hive.
 //
 // This provides file size, free space, and usage metrics without reopening the hive.
-// The statistics are derived from the allocator's efficiency data.
+// The statistics are derived from the allocator's basic stats, which avoids the
+// expensive O(n²) sorting done by GetEfficiencyStats().
 func (s *Session) GetStorageStats() StorageStats {
-	effStats := s.GetEfficiencyStats()
 	fileSize := s.h.Size()
 
+	// Use GetBasicStats for lightweight computation (avoids sorting)
+	var capacity, allocated int64
+	if fa, ok := s.alloc.(*alloc.FastAllocator); ok {
+		capacity, allocated = fa.GetBasicStats()
+	} else {
+		// Fallback to full stats if not FastAllocator (shouldn't happen)
+		effStats := s.GetEfficiencyStats()
+		capacity = effStats.TotalCapacity
+		allocated = effStats.TotalAllocated
+	}
+
+	wasted := capacity - allocated
 	var freePercent float64
 	if fileSize > 0 {
-		freePercent = float64(effStats.TotalWasted) / float64(fileSize) * 100.0
+		freePercent = float64(wasted) / float64(fileSize) * 100.0
 	}
 
 	return StorageStats{
 		FileSize:    fileSize,
-		FreeBytes:   effStats.TotalWasted,
-		UsedBytes:   effStats.TotalAllocated,
+		FreeBytes:   wasted,
+		UsedBytes:   allocated,
 		FreePercent: freePercent,
 	}
 }
