@@ -3,8 +3,17 @@ package index
 import (
 	"strconv"
 	"strings"
-	"unsafe"
+	"sync"
 )
+
+// keyBufferPool pools byte buffers for makeKey to reduce allocation pressure.
+// Most keys are short (< 64 bytes), so we pre-allocate 64 bytes per buffer.
+var keyBufferPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 64)
+		return &b
+	},
+}
 
 const (
 	// estimatedBytesPerMapEntry is the rough estimate of memory overhead per map entry.
@@ -82,6 +91,20 @@ func (s *StringIndex) AddVK(parentOff uint32, valueName string, offset uint32) {
 	s.values[key] = offset
 }
 
+// AddNKLower implements Index.
+// Use this when the name is already lowercased to avoid redundant ToLower calls.
+func (s *StringIndex) AddNKLower(parentOff uint32, nameLower string, offset uint32) {
+	key := makeKey(parentOff, nameLower)
+	s.nodes[key] = offset
+}
+
+// AddVKLower implements Index.
+// Use this when the value name is already lowercased to avoid redundant ToLower calls.
+func (s *StringIndex) AddVKLower(parentOff uint32, valueNameLower string, offset uint32) {
+	key := makeKey(parentOff, valueNameLower)
+	s.values[key] = offset
+}
+
 // RemoveNK implements Index.
 // Removes the NK entry from the index. Safe to call even if the entry doesn't exist.
 // Names are automatically lowercased for case-insensitive lookups.
@@ -142,12 +165,33 @@ func (s *StringIndex) Stats() Stats {
 //   - strconv.AppendUint is faster than fmt.Sprintf
 //   - Most names are ASCII, so no escaping needed
 //
-// Benchmark: ~15ns per call (dominated by string allocation).
+// Uses sync.Pool for buffer reuse to reduce allocation pressure in the hot path.
 func makeKey(parentOff uint32, name string) string {
-	// Pre-allocate buffer: uint32 max = 10 digits + ':' + name
-	buf := make([]byte, 0, keyPrefixSize+len(name))
+	needed := keyPrefixSize + len(name)
+
+	// Get buffer from pool
+	bufPtr := keyBufferPool.Get().(*[]byte)
+	buf := *bufPtr
+
+	// Ensure buffer has sufficient capacity
+	if cap(buf) < needed {
+		buf = make([]byte, 0, needed)
+	} else {
+		buf = buf[:0]
+	}
+
+	// Build key: "offset:name"
 	buf = strconv.AppendUint(buf, uint64(parentOff), decimalBase)
 	buf = append(buf, ':')
 	buf = append(buf, name...)
-	return unsafe.String(&buf[0], len(buf))
+
+	// Must copy to owned memory before returning buffer to pool
+	// (the string must outlive the pooled buffer)
+	result := string(buf)
+
+	// Return buffer to pool
+	*bufPtr = buf[:0]
+	keyBufferPool.Put(bufPtr)
+
+	return result
 }
