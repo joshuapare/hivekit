@@ -3,12 +3,32 @@ package walker
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/index"
 	"github.com/joshuapare/hivekit/hive/subkeys"
 	"github.com/joshuapare/hivekit/internal/format"
 )
+
+// runeBufferPool pools rune buffers for UTF-16 value name decoding.
+// This eliminates per-value allocations in the hot path.
+// Most value names are short (< 64 chars), so we pre-allocate 128 runes.
+var runeBufferPool = sync.Pool{
+	New: func() any {
+		b := make([]rune, 0, 128)
+		return &b
+	},
+}
+
+// byteBufferPool pools byte buffers for ASCII lowercase conversion.
+// Most value names are short (< 64 bytes).
+var byteBufferPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 64)
+		return &b
+	},
+}
 
 const (
 	// utf16BytesPerChar is the number of bytes per UTF-16 character.
@@ -103,6 +123,7 @@ func (ib *IndexBuilder) Build(ctx context.Context) (index.Index, error) {
 }
 
 // processNK processes an NK cell, indexing its subkeys and pushing them onto the stack.
+// It also caches value info in the current StackEntry to avoid redundant NK parsing in processValues.
 func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 	payload := ib.resolveAndParseCellFast(nkOffset)
 	if len(payload) < signatureSize {
@@ -113,6 +134,11 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 	if err != nil {
 		return fmt.Errorf("parse NK at 0x%X: %w", nkOffset, err)
 	}
+
+	// Cache value info in StackEntry to avoid re-parsing NK in processValues
+	entry := &ib.stack[len(ib.stack)-1]
+	entry.valueCount = nk.ValueCount()
+	entry.valueListOffset = nk.ValueListOffsetRel()
 
 	// Get subkey list
 	subkeyListOffset := nk.SubkeyListOffsetRel()
@@ -131,8 +157,9 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 		childOffset := entry.NKRef
 		nameLower := entry.NameLower
 
-		// Index this child under its parent
-		ib.idx.AddNK(nkOffset, nameLower, childOffset)
+		// Index this child under its parent (use AddNKLower since subkeys.Read
+		// already returns lowercased names - avoids redundant strings.ToLower)
+		ib.idx.AddNKLower(nkOffset, nameLower, childOffset)
 
 		// Push child onto stack if not visited
 		if !ib.visited.IsSet(childOffset) {
@@ -145,20 +172,17 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 }
 
 // processValues indexes all values for a key.
+// Uses cached value info from StackEntry (set by processNK) to avoid redundant NK parsing.
 func (ib *IndexBuilder) processValues(nkOffset uint32) error {
-	payload := ib.resolveAndParseCellFast(nkOffset)
-	nk, err := hive.ParseNK(payload)
-	if err != nil {
-		return err
-	}
-
-	valueCount := nk.ValueCount()
+	// Use cached value info from StackEntry (set by processNK)
+	entry := &ib.stack[len(ib.stack)-1]
+	valueCount := entry.valueCount
 	if valueCount == 0 {
 		return nil
 	}
 
-	// Get VK offsets
-	vkOffsets, err := ib.walkValuesFast(nk)
+	// Get VK offsets using cached value list offset
+	vkOffsets, err := ib.walkValuesFastCached(entry.valueListOffset, valueCount)
 	if err != nil {
 		return err
 	}
@@ -173,6 +197,46 @@ func (ib *IndexBuilder) processValues(nkOffset uint32) error {
 	}
 
 	return nil
+}
+
+// walkValuesFastCached processes a value list using cached offset and count.
+// This avoids the need to parse the NK cell again to get these values.
+func (ib *IndexBuilder) walkValuesFastCached(listOffset, valueCount uint32) ([]uint32, error) {
+	if valueCount == 0 || listOffset == format.InvalidOffset {
+		return nil, nil
+	}
+
+	// Sanity check: value count
+	if valueCount > format.MaxValueCount {
+		return nil, fmt.Errorf("value count %d exceeds limit: %w", valueCount, format.ErrSanityLimit)
+	}
+
+	payload := ib.resolveAndParseCellFast(listOffset)
+	if payload == nil {
+		return nil, fmt.Errorf("value list cell not found at offset 0x%X", listOffset)
+	}
+
+	// Check bounds with overflow protection
+	needed := int(valueCount) * format.DWORDSize
+	if needed < 0 || needed > len(payload) {
+		return nil, fmt.Errorf("value list too small: need %d bytes, have %d", needed, len(payload))
+	}
+
+	// Extract VK offsets
+	vkOffsets := make([]uint32, 0, valueCount)
+	for i := range valueCount {
+		off := int(i) * format.DWORDSize
+		vkOffset, err := format.CheckedReadU32(payload, off)
+		if err != nil {
+			// Skip malformed entry, continue processing
+			continue
+		}
+		if vkOffset != 0 && vkOffset != format.InvalidOffset {
+			vkOffsets = append(vkOffsets, vkOffset)
+		}
+	}
+
+	return vkOffsets, nil
 }
 
 // indexValue indexes a single value under its parent key.
@@ -196,29 +260,97 @@ func (ib *IndexBuilder) indexValue(parentOffset, vkOffset uint32) error {
 
 	nameBytes := payload[20 : 20+nameLen]
 
-	// Check if compressed (ASCII) or uncompressed (UTF-16LE)
-	var name string
+	// Decode and lowercase value name in one pass (fused operation)
+	// This avoids the separate strings.ToLower call in AddVK
+	var nameLower string
 	if flags&0x0001 != 0 {
-		// Compressed (ASCII)
-		name = string(nameBytes)
+		// Compressed (ASCII) - fused decode+lowercase
+		nameLower = decodeASCIILower(nameBytes)
 	} else {
-		// Uncompressed (UTF-16LE) - convert to string
-		// Validate that UTF-16LE name has even length
+		// Uncompressed (UTF-16LE) - fused decode+lowercase
 		if nameLen%utf16BytesPerChar != 0 {
 			return fmt.Errorf("invalid UTF-16LE name at offset 0x%X: odd length %d", vkOffset, nameLen)
 		}
-
-		// Simple conversion: take every other byte (assumes BMP only)
-		nameRunes := make([]rune, nameLen/utf16BytesPerChar)
-		for i := range nameRunes {
-			char := format.ReadU16(nameBytes, i*utf16BytesPerChar)
-			nameRunes[i] = rune(char)
-		}
-		name = string(nameRunes)
+		nameLower = decodeUTF16LELower(nameBytes)
 	}
 
-	// Index this value (index handles case-insensitivity internally)
-	ib.idx.AddVK(parentOffset, name, vkOffset)
+	// Index this value with pre-lowercased name (avoids redundant ToLower)
+	ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
 
 	return nil
+}
+
+// decodeASCIILower decodes ASCII bytes to a lowercase string.
+// Uses a fast path for already-lowercase names (zero-copy).
+func decodeASCIILower(data []byte) string {
+	// Fast path: check if already lowercase
+	hasUpper := false
+	for _, c := range data {
+		if c >= 'A' && c <= 'Z' {
+			hasUpper = true
+			break
+		}
+	}
+
+	if !hasUpper {
+		// Already lowercase - return directly (zero allocation for common case)
+		return string(data)
+	}
+
+	// Need to lowercase - use pooled buffer
+	bufPtr := byteBufferPool.Get().(*[]byte)
+	buf := *bufPtr
+
+	if cap(buf) < len(data) {
+		buf = make([]byte, len(data))
+	} else {
+		buf = buf[:len(data)]
+	}
+
+	for i, c := range data {
+		if c >= 'A' && c <= 'Z' {
+			buf[i] = c + ('a' - 'A')
+		} else {
+			buf[i] = c
+		}
+	}
+
+	result := string(buf)
+
+	*bufPtr = buf[:0]
+	byteBufferPool.Put(bufPtr)
+
+	return result
+}
+
+// decodeUTF16LELower decodes UTF-16LE bytes to a lowercase string.
+// Uses pooled rune buffer and lowercases during decode.
+func decodeUTF16LELower(data []byte) string {
+	runeCount := len(data) / utf16BytesPerChar
+
+	bufPtr := runeBufferPool.Get().(*[]rune)
+	buf := *bufPtr
+
+	if cap(buf) < runeCount {
+		buf = make([]rune, runeCount)
+	} else {
+		buf = buf[:runeCount]
+	}
+
+	// Decode and lowercase in one pass
+	for i := range runeCount {
+		char := rune(format.ReadU16(data, i*utf16BytesPerChar))
+		// Lowercase ASCII range (most common case)
+		if char >= 'A' && char <= 'Z' {
+			char = char + ('a' - 'A')
+		}
+		buf[i] = char
+	}
+
+	result := string(buf)
+
+	*bufPtr = buf[:0]
+	runeBufferPool.Put(bufPtr)
+
+	return result
 }

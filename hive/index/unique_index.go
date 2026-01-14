@@ -92,6 +92,26 @@ func (u *UniqueIndex) AddVK(parentOff uint32, valueName string, offset uint32) {
 	u.values[key] = offset
 }
 
+// AddNKLower implements Index.
+// Use this when the name is already lowercased to avoid redundant ToLower calls.
+func (u *UniqueIndex) AddNKLower(parentOff uint32, nameLower string, offset uint32) {
+	key := PathKey{
+		ParentOff: parentOff,
+		Name:      unique.Make(nameLower),
+	}
+	u.nodes[key] = offset
+}
+
+// AddVKLower implements Index.
+// Use this when the value name is already lowercased to avoid redundant ToLower calls.
+func (u *UniqueIndex) AddVKLower(parentOff uint32, valueNameLower string, offset uint32) {
+	key := PathKey{
+		ParentOff: parentOff,
+		Name:      unique.Make(valueNameLower),
+	}
+	u.values[key] = offset
+}
+
 // RemoveNK implements Index.
 // Removes the NK entry from the index. Safe to call even if the entry doesn't exist.
 // Names are automatically lowercased for case-insensitive lookups.

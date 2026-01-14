@@ -106,9 +106,15 @@ func (b *Bitmap) IsSet(offset uint32) bool {
 // StackEntry represents a position in the iterative DFS traversal.
 // The state field tracks which sub-structures have been processed to avoid
 // redundant work when resuming from the stack.
+//
+// The value cache fields (valueCount, valueListOffset) allow IndexBuilder to
+// avoid redundant NK parsing - NK is parsed once in processNK and the value
+// info is cached for use in processValues.
 type StackEntry struct {
-	offset uint32 // Relative cell offset
-	state  uint8  // Processing state: 0=initial, 1=subkeys done, 2=values done, etc.
+	offset          uint32 // Relative cell offset
+	state           uint8  // Processing state: 0=initial, 1=subkeys done, 2=values done, etc.
+	valueCount      uint32 // Cached value count from NK (0 if not yet parsed)
+	valueListOffset uint32 // Cached value list offset from NK (0 if not yet parsed)
 }
 
 // Processing states for StackEntry.

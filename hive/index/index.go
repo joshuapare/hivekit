@@ -46,6 +46,22 @@ type Index interface {
 	// offset is this VK's cell offset.
 	AddVK(parentOff uint32, valueName string, offset uint32)
 
+	// AddNKLower registers an NK cell with a pre-lowercased name.
+	// Use this when the name is already lowercased (e.g., from subkeys.Read())
+	// to avoid redundant strings.ToLower() calls in the hot path.
+	// parentOff is the parent NK's offset (0 for root).
+	// nameLower is the NK's name, already lowercased.
+	// offset is this NK's cell offset.
+	AddNKLower(parentOff uint32, nameLower string, offset uint32)
+
+	// AddVKLower registers a VK cell with a pre-lowercased name.
+	// Use this when the value name is already lowercased to avoid
+	// redundant strings.ToLower() calls in the hot path.
+	// parentOff is the parent NK's offset.
+	// valueNameLower is the VK's name, already lowercased.
+	// offset is this VK's cell offset.
+	AddVKLower(parentOff uint32, valueNameLower string, offset uint32)
+
 	// RemoveNK removes an NK entry from the index.
 	// parentOff is the parent NK's offset (0 for root).
 	// name is the NK's name (case-insensitive for StringIndex).
