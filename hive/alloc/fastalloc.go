@@ -1538,6 +1538,28 @@ func (fa *FastAllocator) scanHBINEfficiency() {
 	}
 }
 
+// GetBasicStats returns aggregate capacity and allocation totals without computing
+// detailed efficiency metrics or sorting. This is significantly faster than
+// GetEfficiencyStats() when you only need total wasted/allocated bytes.
+//
+// Use this for quick storage checks like GetStorageStats() which only needs totals.
+// For detailed per-HBIN analysis, use GetEfficiencyStats() instead.
+//
+// Returns (totalCapacity, totalAllocated) in bytes.
+func (fa *FastAllocator) GetBasicStats() (totalCapacity, totalAllocated int64) {
+	// If hbinTracking is empty, scan the existing hive
+	if len(fa.hbinTracking) == 0 {
+		fa.scanHBINEfficiency()
+	}
+
+	// Sum totals without sorting or per-HBIN analysis
+	for _, hbin := range fa.hbinTracking {
+		totalCapacity += int64(hbin.initialSize)
+		totalAllocated += int64(hbin.bytesAllocated)
+	}
+	return totalCapacity, totalAllocated
+}
+
 // GetEfficiencyStats computes detailed efficiency and fragmentation metrics
 // by analyzing per-HBIN allocation tracking data.
 func (fa *FastAllocator) GetEfficiencyStats() EfficiencyStats {
