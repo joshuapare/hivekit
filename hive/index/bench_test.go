@@ -307,6 +307,32 @@ func Benchmark_Build_UniqueIndex(b *testing.B) {
 	}
 }
 
+// Benchmark_Build_NumericIndex measures index build time with numeric keys.
+// This is the allocation-optimized implementation using uint64 map keys.
+func Benchmark_Build_NumericIndex(b *testing.B) {
+	for _, hivePath := range testHives {
+		data := loadHiveData(b, hivePath)
+		name := filepath.Base(hivePath)
+
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				idx := NewNumericIndex(len(data.nks), len(data.vks))
+				for _, nk := range data.nks {
+					parentOff, offset, nameIdx := nk[0], nk[1], nk[2]
+					idx.AddNK(parentOff, data.names[nameIdx], offset)
+				}
+				for _, vk := range data.vks {
+					parentOff, offset, nameIdx := vk[0], vk[1], vk[2]
+					idx.AddVK(parentOff, data.names[nameIdx], offset)
+				}
+			}
+		})
+	}
+}
+
 // Benchmark_Lookup_Hot measures repeated lookups of the same keys (cache warm).
 func Benchmark_Lookup_Hot_StringIndex(b *testing.B) {
 	benchLookupHot(b, testHives[0], func(nkCap, vkCap int) ReadWriteIndex {

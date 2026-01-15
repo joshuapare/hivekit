@@ -13,6 +13,7 @@ package merge
 
 import (
 	"github.com/joshuapare/hivekit/hive/dirty"
+	"github.com/joshuapare/hivekit/hive/index"
 	"github.com/joshuapare/hivekit/pkg/types"
 )
 
@@ -114,6 +115,11 @@ type Options struct {
 	//     "Windows Registry Editor Version 5.00" header. Default: false.
 	//   - InputEncoding: Specifies input encoding (default: UTF-8).
 	ParseOptions types.RegParseOptions
+
+	// IndexKind selects the index implementation for key/value lookups.
+	// Default: index.IndexNumeric (zero-allocation, faster)
+	// Alternative: index.IndexString (traditional, useful for debugging)
+	IndexKind index.IndexKind
 }
 
 // DefaultOptions returns production-ready defaults optimized for general use.
@@ -134,5 +140,6 @@ func DefaultOptions() Options {
 		WillNeedHint:     false,
 		HybridSlackPct:   defaultHybridSlackPct,
 		CompactThreshold: defaultCompactThreshold,
+		IndexKind:        index.IndexNumeric, // zero-allocation, faster
 	}
 }
