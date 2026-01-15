@@ -1,5 +1,36 @@
 package index
 
+// IndexKind selects which index implementation to use.
+type IndexKind int
+
+const (
+	// IndexNumeric uses uint64 map keys (parentOff << 32 | fnv32(name)).
+	// Zero allocation for AddNKLower/AddVKLower operations.
+	// Recommended for high-throughput environments.
+	// Default since it's faster and uses less memory.
+	IndexNumeric IndexKind = iota
+
+	// IndexString uses string map keys ("parentOff:name").
+	// Traditional implementation, useful for debugging or when hash collisions
+	// are a concern (extremely rare in practice).
+	IndexString
+)
+
+// NewIndex creates an Index of the specified kind with capacity hints.
+// This is the preferred factory function for creating indexes.
+//
+// Example:
+//
+//	idx := index.NewIndex(index.IndexNumeric, 10000, 40000)
+func NewIndex(kind IndexKind, nkCap, vkCap int) Index {
+	switch kind {
+	case IndexString:
+		return NewStringIndex(nkCap, vkCap)
+	default:
+		return NewNumericIndex(nkCap, vkCap)
+	}
+}
+
 // ReadOnlyIndex is the read-only interface for fast NK/VK lookups.
 // Use this when you only need to query the index without modifying it.
 //

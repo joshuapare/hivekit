@@ -51,8 +51,8 @@ type Session struct {
 //
 // If you already have an index built, use NewSessionWithIndex instead.
 func NewSession(ctx context.Context, h *hive.Hive, opt Options) (*Session, error) {
-	// Build index using walker
-	builder := walker.NewIndexBuilder(h, defaultIndexCapacity, defaultIndexCapacity)
+	// Build index using walker with configurable index kind
+	builder := walker.NewIndexBuilderWithKind(h, defaultIndexCapacity, defaultIndexCapacity, opt.IndexKind)
 	idx, err := builder.Build(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("build index: %w", err)

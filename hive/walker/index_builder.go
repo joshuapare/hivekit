@@ -49,10 +49,20 @@ type IndexBuilder struct {
 
 // NewIndexBuilder creates a new index builder for the given hive.
 // The capacity hints help pre-size the index to reduce allocations during building.
+// Uses NumericIndex by default (zero-allocation, faster).
 func NewIndexBuilder(h *hive.Hive, nkCapacity, vkCapacity int) *IndexBuilder {
+	return NewIndexBuilderWithKind(h, nkCapacity, vkCapacity, index.IndexNumeric)
+}
+
+// NewIndexBuilderWithKind creates an index builder with the specified index implementation.
+//
+// IndexKind options:
+//   - index.IndexNumeric: Zero-allocation uint64 map keys (recommended, default)
+//   - index.IndexString: Traditional string map keys (useful for debugging)
+func NewIndexBuilderWithKind(h *hive.Hive, nkCapacity, vkCapacity int, kind index.IndexKind) *IndexBuilder {
 	return &IndexBuilder{
 		WalkerCore: NewWalkerCore(h),
-		idx:        index.NewStringIndex(nkCapacity, vkCapacity),
+		idx:        index.NewIndex(kind, nkCapacity, vkCapacity),
 	}
 }
 
