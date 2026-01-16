@@ -30,6 +30,7 @@ var byteBufferPool = sync.Pool{
 	},
 }
 
+
 const (
 	// utf16BytesPerChar is the number of bytes per UTF-16 character.
 	utf16BytesPerChar = 2
@@ -45,6 +46,11 @@ type IndexBuilder struct {
 	*WalkerCore
 
 	idx index.Index
+
+	// Reusable slices for zero-allocation offset extraction.
+	// These are reused across all processNK and processValues calls.
+	vkOffsetsBuf    []uint32 // For VK offset extraction in walkValuesFastCached
+	childOffsetsBuf []uint32 // For child offset extraction in processNK
 }
 
 // estimateIndexCapacity estimates NK/VK counts from hive size.
@@ -220,14 +226,15 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 		return nil // No subkeys
 	}
 
-	// Read only child offsets (no name decoding) - this is the key optimization
-	childOffsets, err := subkeys.ReadOffsets(ib.h, subkeyListOffset)
-	if err != nil {
-		return fmt.Errorf("read subkey offsets at 0x%X: %w", subkeyListOffset, err)
+	// Read only child offsets (no name decoding) using reusable buffer
+	var readErr error
+	ib.childOffsetsBuf, readErr = subkeys.ReadOffsetsInto(ib.h, subkeyListOffset, ib.childOffsetsBuf)
+	if readErr != nil {
+		return fmt.Errorf("read subkey offsets at 0x%X: %w", subkeyListOffset, readErr)
 	}
 
 	// Push children onto stack with this NK as their parent
-	for _, childOffset := range childOffsets {
+	for _, childOffset := range ib.childOffsetsBuf {
 		if !ib.visited.IsSet(childOffset) {
 			ib.visited.Set(childOffset)
 			ib.stack = append(ib.stack, StackEntry{
@@ -251,7 +258,7 @@ func (ib *IndexBuilder) processValues(nkOffset uint32) error {
 		return nil
 	}
 
-	// Get VK offsets using cached value list offset
+	// Get VK offsets using cached value list offset (reusable buffer)
 	vkOffsets, err := ib.walkValuesFastCached(entry.valueListOffset, valueCount)
 	if err != nil {
 		return err
@@ -271,6 +278,8 @@ func (ib *IndexBuilder) processValues(nkOffset uint32) error {
 
 // walkValuesFastCached processes a value list using cached offset and count.
 // This avoids the need to parse the NK cell again to get these values.
+// Uses the IndexBuilder's reusable vkOffsetsBuf slice for zero-allocation.
+// The returned slice is only valid until the next call to walkValuesFastCached.
 func (ib *IndexBuilder) walkValuesFastCached(listOffset, valueCount uint32) ([]uint32, error) {
 	if valueCount == 0 || listOffset == format.InvalidOffset {
 		return nil, nil
@@ -292,8 +301,15 @@ func (ib *IndexBuilder) walkValuesFastCached(listOffset, valueCount uint32) ([]u
 		return nil, fmt.Errorf("value list too small: need %d bytes, have %d", needed, len(payload))
 	}
 
+	// Reuse the IndexBuilder's buffer (reset to zero length, keep capacity)
+	ib.vkOffsetsBuf = ib.vkOffsetsBuf[:0]
+
+	// Ensure capacity (will allocate only once if initial capacity is exceeded)
+	if cap(ib.vkOffsetsBuf) < int(valueCount) {
+		ib.vkOffsetsBuf = make([]uint32, 0, valueCount)
+	}
+
 	// Extract VK offsets
-	vkOffsets := make([]uint32, 0, valueCount)
 	for i := range valueCount {
 		off := int(i) * format.DWORDSize
 		vkOffset, err := format.CheckedReadU32(payload, off)
@@ -302,11 +318,11 @@ func (ib *IndexBuilder) walkValuesFastCached(listOffset, valueCount uint32) ([]u
 			continue
 		}
 		if vkOffset != 0 && vkOffset != format.InvalidOffset {
-			vkOffsets = append(vkOffsets, vkOffset)
+			ib.vkOffsetsBuf = append(ib.vkOffsetsBuf, vkOffset)
 		}
 	}
 
-	return vkOffsets, nil
+	return ib.vkOffsetsBuf, nil
 }
 
 // indexValue indexes a single value under its parent key.

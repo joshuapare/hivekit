@@ -25,6 +25,7 @@ var byteBufferPool = sync.Pool{
 	},
 }
 
+
 const (
 	// signatureSize is the size of cell signature fields (e.g., "lf", "lh", "ri").
 	signatureSize = 2
@@ -103,6 +104,34 @@ func ReadOffsets(h *hive.Hive, listRef uint32) ([]uint32, error) {
 	return readDirectListOffsets(payload)
 }
 
+// ReadOffsetsInto reads a subkey list and appends NK cell offsets to the provided buffer.
+// This is the zero-allocation version of ReadOffsets for hot paths.
+// The buffer is reset to zero length before appending and returned (may be reallocated if capacity exceeded).
+//
+// listRef is the HCELL_INDEX offset to the list cell.
+// Returns the updated buffer slice (caller should assign back: dst = ReadOffsetsInto(h, ref, dst)).
+func ReadOffsetsInto(h *hive.Hive, listRef uint32, dst []uint32) ([]uint32, error) {
+	// Reset buffer to zero length (keep capacity)
+	dst = dst[:0]
+
+	if listRef == 0 || listRef == format.InvalidOffset {
+		return dst, nil
+	}
+
+	payload, err := resolveCell(h, listRef)
+	if err != nil {
+		return dst, fmt.Errorf("failed to resolve list cell: %w", err)
+	}
+
+	// Check if it's an RI (indirect) list
+	if len(payload) >= signatureSize && payload[0] == 'r' && payload[1] == 'i' {
+		return readRIListOffsetsInto(h, payload, dst)
+	}
+
+	// Read direct list offsets
+	return readDirectListOffsetsInto(payload, dst)
+}
+
 // readDirectListOffsets reads NK offsets from a single LF, LH, or LI list.
 func readDirectListOffsets(payload []byte) ([]uint32, error) {
 	if len(payload) < format.ListHeaderSize {
@@ -123,6 +152,28 @@ func readDirectListOffsets(payload []byte) ([]uint32, error) {
 	}
 
 	return nil, ErrInvalidSignature
+}
+
+// readDirectListOffsetsInto reads NK offsets from a single LF, LH, or LI list into the provided buffer.
+func readDirectListOffsetsInto(payload []byte, dst []uint32) ([]uint32, error) {
+	if len(payload) < format.ListHeaderSize {
+		return dst, ErrTruncated
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return dst, fmt.Errorf("list count: %w", err)
+	}
+
+	// Check signature bytes directly
+	sig0, sig1 := payload[0], payload[1]
+	if (sig0 == 'l' && sig1 == 'f') || (sig0 == 'l' && sig1 == 'h') {
+		return readLFLHInto(payload, count, dst)
+	} else if sig0 == 'l' && sig1 == 'i' {
+		return readLIInto(payload, count, dst)
+	}
+
+	return dst, ErrInvalidSignature
 }
 
 // readRIListOffsets reads NK offsets from an RI (indirect) list.
@@ -163,6 +214,49 @@ func readRIListOffsets(h *hive.Hive, payload []byte) ([]uint32, error) {
 	}
 
 	return allOffsets, nil
+}
+
+// readRIListOffsetsInto reads NK offsets from an RI (indirect) list into the provided buffer.
+func readRIListOffsetsInto(h *hive.Hive, payload []byte, dst []uint32) ([]uint32, error) {
+	if len(payload) < format.ListHeaderSize {
+		return dst, ErrInvalidRI
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return dst, fmt.Errorf("ri list count: %w", err)
+	}
+
+	if uint32(count) > format.MaxRIListCount {
+		return dst, fmt.Errorf("ri list count %d exceeds limit: %w", count, format.ErrSanityLimit)
+	}
+
+	if _, boundsErr := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); boundsErr != nil {
+		return dst, ErrTruncated
+	}
+
+	// Use a temporary buffer for sub-list reads to avoid corrupting main buffer during recursion
+	var tempBuf []uint32
+
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.DWORDSize
+		subListRef, readErr := format.CheckedReadU32(payload, offset)
+		if readErr != nil {
+			continue
+		}
+
+		// Read sub-list into temp buffer (recursive call)
+		var subErr error
+		tempBuf, subErr = ReadOffsetsInto(h, subListRef, tempBuf)
+		if subErr != nil {
+			continue
+		}
+
+		// Append sub-list offsets to main buffer
+		dst = append(dst, tempBuf...)
+	}
+
+	return dst, nil
 }
 
 // Read reads a subkey list from the hive and returns a List with all entries.
@@ -331,6 +425,59 @@ func readLI(payload []byte, count uint16) ([]uint32, error) {
 	}
 
 	return refs, nil
+}
+
+// readLFLHInto reads LF or LH list entries into the provided buffer.
+func readLFLHInto(payload []byte, count uint16, dst []uint32) ([]uint32, error) {
+	// Each entry is 8 bytes: 4 bytes offset + 4 bytes hash
+	// Overflow-safe bounds check
+	if _, err := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.QWORDSize); err != nil {
+		return dst, ErrTruncated
+	}
+
+	// Ensure capacity
+	if cap(dst) < int(count) {
+		dst = make([]uint32, 0, count)
+	}
+
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.QWORDSize
+		val, err := format.CheckedReadU32(payload, offset)
+		if err != nil {
+			// Return partial results on read error
+			return dst, nil
+		}
+		dst = append(dst, val)
+		// Skip the 4-byte hash (we don't need it for reading)
+	}
+
+	return dst, nil
+}
+
+// readLIInto reads LI list entries into the provided buffer.
+func readLIInto(payload []byte, count uint16, dst []uint32) ([]uint32, error) {
+	// Each entry is 4 bytes: offset only (no hash)
+	// Overflow-safe bounds check
+	if _, err := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); err != nil {
+		return dst, ErrTruncated
+	}
+
+	// Ensure capacity
+	if cap(dst) < int(count) {
+		dst = make([]uint32, 0, count)
+	}
+
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.DWORDSize
+		val, err := format.CheckedReadU32(payload, offset)
+		if err != nil {
+			// Return partial results on read error
+			return dst, nil
+		}
+		dst = append(dst, val)
+	}
+
+	return dst, nil
 }
 
 // readNKEntry reads an NK cell and extracts the key name.
