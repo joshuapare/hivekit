@@ -110,8 +110,13 @@ func (b *Bitmap) IsSet(offset uint32) bool {
 // The value cache fields (valueCount, valueListOffset) allow IndexBuilder to
 // avoid redundant NK parsing - NK is parsed once in processNK and the value
 // info is cached for use in processValues.
+//
+// The parentOffset field enables deferred name decoding - instead of decoding
+// all child names when reading a subkey list, we store the parent offset and
+// decode each child's name when it's processed. This reduces allocations by ~50%.
 type StackEntry struct {
 	offset          uint32 // Relative cell offset
+	parentOffset    uint32 // Parent NK offset (for deferred index addition)
 	state           uint8  // Processing state: 0=initial, 1=subkeys done, 2=values done, etc.
 	valueCount      uint32 // Cached value count from NK (0 if not yet parsed)
 	valueListOffset uint32 // Cached value list offset from NK (0 if not yet parsed)

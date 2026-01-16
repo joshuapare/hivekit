@@ -78,6 +78,93 @@ var win1252Table = [32]rune{
 	0x0178, // 0x9F → Ÿ (Latin capital letter Y with diaeresis)
 }
 
+// ReadOffsets reads a subkey list and returns only the NK cell offsets.
+// This is a lightweight alternative to Read() that avoids decoding NK names.
+// Use this when you only need the offsets and will decode names later.
+//
+// listRef is the HCELL_INDEX offset to the list cell.
+// Returns a slice of NK cell offsets.
+func ReadOffsets(h *hive.Hive, listRef uint32) ([]uint32, error) {
+	if listRef == 0 || listRef == format.InvalidOffset {
+		return nil, nil
+	}
+
+	payload, err := resolveCell(h, listRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve list cell: %w", err)
+	}
+
+	// Check if it's an RI (indirect) list
+	if len(payload) >= signatureSize && payload[0] == 'r' && payload[1] == 'i' {
+		return readRIListOffsets(h, payload)
+	}
+
+	// Read direct list offsets
+	return readDirectListOffsets(payload)
+}
+
+// readDirectListOffsets reads NK offsets from a single LF, LH, or LI list.
+func readDirectListOffsets(payload []byte) ([]uint32, error) {
+	if len(payload) < format.ListHeaderSize {
+		return nil, ErrTruncated
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return nil, fmt.Errorf("list count: %w", err)
+	}
+
+	// Check signature bytes directly
+	sig0, sig1 := payload[0], payload[1]
+	if (sig0 == 'l' && sig1 == 'f') || (sig0 == 'l' && sig1 == 'h') {
+		return readLFLH(payload, count)
+	} else if sig0 == 'l' && sig1 == 'i' {
+		return readLI(payload, count)
+	}
+
+	return nil, ErrInvalidSignature
+}
+
+// readRIListOffsets reads NK offsets from an RI (indirect) list.
+func readRIListOffsets(h *hive.Hive, payload []byte) ([]uint32, error) {
+	if len(payload) < format.ListHeaderSize {
+		return nil, ErrInvalidRI
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return nil, fmt.Errorf("ri list count: %w", err)
+	}
+
+	if uint32(count) > format.MaxRIListCount {
+		return nil, fmt.Errorf("ri list count %d exceeds limit: %w", count, format.ErrSanityLimit)
+	}
+
+	if _, boundsErr := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); boundsErr != nil {
+		return nil, ErrTruncated
+	}
+
+	// Collect offsets from all sub-lists
+	var allOffsets []uint32
+
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.DWORDSize
+		subListRef, readErr := format.CheckedReadU32(payload, offset)
+		if readErr != nil {
+			continue
+		}
+
+		subOffsets, err := ReadOffsets(h, subListRef)
+		if err != nil {
+			continue
+		}
+
+		allOffsets = append(allOffsets, subOffsets...)
+	}
+
+	return allOffsets, nil
+}
+
 // Read reads a subkey list from the hive and returns a List with all entries.
 // The list can be LF, LH, LI, or RI (indirect). For RI lists, this function
 // automatically follows the indirection and reads all sub-lists.

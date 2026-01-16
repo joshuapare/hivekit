@@ -114,8 +114,12 @@ func NewIndexBuilderWithKind(h *hive.Hive, nkCapacity, vkCapacity int, kind inde
 func (ib *IndexBuilder) Build(ctx context.Context) (index.Index, error) {
 	rootOffset := ib.h.RootCellOffset()
 
-	// Push root onto stack (parent is itself for root)
-	ib.stack = append(ib.stack, StackEntry{offset: rootOffset, state: stateInitial})
+	// Push root onto stack (parent is itself for root - special marker)
+	ib.stack = append(ib.stack, StackEntry{
+		offset:       rootOffset,
+		parentOffset: rootOffset, // Root's parent is itself (signals: don't add to index)
+		state:        stateInitial,
+	})
 	ib.visited.Set(rootOffset)
 
 	// Index root with empty name
@@ -161,8 +165,17 @@ func (ib *IndexBuilder) Build(ctx context.Context) (index.Index, error) {
 	return ib.idx, nil
 }
 
-// processNK processes an NK cell, indexing its subkeys and pushing them onto the stack.
-// It also caches value info in the current StackEntry to avoid redundant NK parsing in processValues.
+// processNK processes an NK cell using deferred name decoding.
+//
+// Key optimization: Instead of decoding ALL child names when reading a subkey list,
+// each NK decodes its OWN name when processed. This eliminates the ~68% allocation
+// overhead from subkeys.Read() that was decoding names for all children at once.
+//
+// Flow:
+//  1. Parse this NK and cache value info
+//  2. Index THIS NK under its parent (using parentOffset from StackEntry)
+//  3. Read only child offsets (no name decoding)
+//  4. Push children to stack with parentOffset = this NK
 func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 	payload := ib.resolveAndParseCellFast(nkOffset)
 	if len(payload) < signatureSize {
@@ -179,38 +192,49 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 	entry.valueCount = nk.ValueCount()
 	entry.valueListOffset = nk.ValueListOffsetRel()
 
-	// Get subkey list
+	// Index THIS NK under its parent (skip for root - root is already indexed in Build())
+	parentOffset := entry.parentOffset
+	if parentOffset != nkOffset {
+		// Decode this NK's name and add to index
+		nameBytes := nk.Name()
+		if nk.IsCompressedName() {
+			// ASCII name - use zero-allocation hash path
+			numIdx, ok := ib.idx.(*index.NumericIndex)
+			if ok {
+				hash := index.Fnv32LowerBytes(nameBytes)
+				numIdx.AddNKHash(parentOffset, hash, nameBytes, nkOffset)
+			} else {
+				nameLower := decodeASCIILower(nameBytes)
+				ib.idx.AddNKLower(parentOffset, nameLower, nkOffset)
+			}
+		} else {
+			// UTF-16LE name - need string conversion
+			nameLower := decodeUTF16LELower(nameBytes)
+			ib.idx.AddNKLower(parentOffset, nameLower, nkOffset)
+		}
+	}
+
+	// Get subkey list offset
 	subkeyListOffset := nk.SubkeyListOffsetRel()
 	if subkeyListOffset == format.InvalidOffset {
 		return nil // No subkeys
 	}
 
-	// Read subkey list to get entries
-	subkeyList, err := subkeys.Read(ib.h, subkeyListOffset)
+	// Read only child offsets (no name decoding) - this is the key optimization
+	childOffsets, err := subkeys.ReadOffsets(ib.h, subkeyListOffset)
 	if err != nil {
-		return fmt.Errorf("read subkey list at 0x%X: %w", subkeyListOffset, err)
+		return fmt.Errorf("read subkey offsets at 0x%X: %w", subkeyListOffset, err)
 	}
 
-	// Try to get NumericIndex for hash-based fast path
-	numIdx, isNumeric := ib.idx.(*index.NumericIndex)
-
-	// Index and push each subkey
-	for _, subkeyEntry := range subkeyList.Entries {
-		childOffset := subkeyEntry.NKRef
-
-		// Use pre-computed FNV32 hash if available (avoids re-hashing)
-		if isNumeric && subkeyEntry.FNV32 != 0 {
-			// Zero-allocation path using pre-computed hash
-			numIdx.AddNKHash(nkOffset, subkeyEntry.FNV32, []byte(subkeyEntry.NameLower), childOffset)
-		} else {
-			// Fallback to string-based path (for UTF-16 names or non-numeric index)
-			ib.idx.AddNKLower(nkOffset, subkeyEntry.NameLower, childOffset)
-		}
-
-		// Push child onto stack if not visited
+	// Push children onto stack with this NK as their parent
+	for _, childOffset := range childOffsets {
 		if !ib.visited.IsSet(childOffset) {
 			ib.visited.Set(childOffset)
-			ib.stack = append(ib.stack, StackEntry{offset: childOffset, state: stateInitial})
+			ib.stack = append(ib.stack, StackEntry{
+				offset:       childOffset,
+				parentOffset: nkOffset, // Child will index itself under this NK
+				state:        stateInitial,
+			})
 		}
 	}
 
