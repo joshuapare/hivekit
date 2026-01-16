@@ -6,6 +6,7 @@ type Entry struct {
 	NameLower string // Lowercased key name for case-insensitive comparison
 	NKRef     uint32 // HCELL_INDEX reference to the NK (key node) cell
 	Hash      uint32 // Cached Windows Registry hash (computed during decode)
+	FNV32     uint32 // FNV-1a hash for index lookup (computed during decode)
 }
 
 // List represents a subkey list with its entries.

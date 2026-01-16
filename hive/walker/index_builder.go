@@ -30,6 +30,7 @@ var byteBufferPool = sync.Pool{
 	},
 }
 
+
 const (
 	// utf16BytesPerChar is the number of bytes per UTF-16 character.
 	utf16BytesPerChar = 2
@@ -45,12 +46,46 @@ type IndexBuilder struct {
 	*WalkerCore
 
 	idx index.Index
+
+	// Reusable slices for zero-allocation offset extraction.
+	// These are reused across all processNK and processValues calls.
+	vkOffsetsBuf    []uint32 // For VK offset extraction in walkValuesFastCached
+	childOffsetsBuf []uint32 // For child offset extraction in processNK
+}
+
+// estimateIndexCapacity estimates NK/VK counts from hive size.
+// Based on empirical analysis of test suite hives:
+//   - ~1 NK per 256-512 bytes of hive data
+//   - ~2-4 VKs per NK
+//
+// This helps pre-size maps to reduce rehashing overhead (which can be 8+ seconds
+// for large hives according to profiling).
+func estimateIndexCapacity(hiveSize int64) (nkCap, vkCap int) {
+	// Conservative estimate: 1 NK per 300 bytes
+	nkCap = int(hiveSize / 300)
+	vkCap = nkCap * 3
+
+	// Ensure minimums for small hives
+	if nkCap < 1024 {
+		nkCap = 1024
+	}
+	if vkCap < 4096 {
+		vkCap = 4096
+	}
+
+	return nkCap, vkCap
 }
 
 // NewIndexBuilder creates a new index builder for the given hive.
 // The capacity hints help pre-size the index to reduce allocations during building.
 // Uses NumericIndex by default (zero-allocation, faster).
+//
+// If nkCapacity or vkCapacity is 0, capacity will be estimated from hive size.
 func NewIndexBuilder(h *hive.Hive, nkCapacity, vkCapacity int) *IndexBuilder {
+	// If hints are default/zero, use estimation from hive size
+	if nkCapacity == 0 || vkCapacity == 0 {
+		nkCapacity, vkCapacity = estimateIndexCapacity(h.Size())
+	}
 	return NewIndexBuilderWithKind(h, nkCapacity, vkCapacity, index.IndexNumeric)
 }
 
@@ -85,8 +120,12 @@ func NewIndexBuilderWithKind(h *hive.Hive, nkCapacity, vkCapacity int, kind inde
 func (ib *IndexBuilder) Build(ctx context.Context) (index.Index, error) {
 	rootOffset := ib.h.RootCellOffset()
 
-	// Push root onto stack (parent is itself for root)
-	ib.stack = append(ib.stack, StackEntry{offset: rootOffset, state: stateInitial})
+	// Push root onto stack (parent is itself for root - special marker)
+	ib.stack = append(ib.stack, StackEntry{
+		offset:       rootOffset,
+		parentOffset: rootOffset, // Root's parent is itself (signals: don't add to index)
+		state:        stateInitial,
+	})
 	ib.visited.Set(rootOffset)
 
 	// Index root with empty name
@@ -132,8 +171,17 @@ func (ib *IndexBuilder) Build(ctx context.Context) (index.Index, error) {
 	return ib.idx, nil
 }
 
-// processNK processes an NK cell, indexing its subkeys and pushing them onto the stack.
-// It also caches value info in the current StackEntry to avoid redundant NK parsing in processValues.
+// processNK processes an NK cell using deferred name decoding.
+//
+// Key optimization: Instead of decoding ALL child names when reading a subkey list,
+// each NK decodes its OWN name when processed. This eliminates the ~68% allocation
+// overhead from subkeys.Read() that was decoding names for all children at once.
+//
+// Flow:
+//  1. Parse this NK and cache value info
+//  2. Index THIS NK under its parent (using parentOffset from StackEntry)
+//  3. Read only child offsets (no name decoding)
+//  4. Push children to stack with parentOffset = this NK
 func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 	payload := ib.resolveAndParseCellFast(nkOffset)
 	if len(payload) < signatureSize {
@@ -150,31 +198,50 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 	entry.valueCount = nk.ValueCount()
 	entry.valueListOffset = nk.ValueListOffsetRel()
 
-	// Get subkey list
+	// Index THIS NK under its parent (skip for root - root is already indexed in Build())
+	parentOffset := entry.parentOffset
+	if parentOffset != nkOffset {
+		// Decode this NK's name and add to index
+		nameBytes := nk.Name()
+		if nk.IsCompressedName() {
+			// ASCII name - use zero-allocation hash path
+			numIdx, ok := ib.idx.(*index.NumericIndex)
+			if ok {
+				hash := index.Fnv32LowerBytes(nameBytes)
+				numIdx.AddNKHashFast(parentOffset, hash, nkOffset)
+			} else {
+				nameLower := decodeASCIILower(nameBytes)
+				ib.idx.AddNKLower(parentOffset, nameLower, nkOffset)
+			}
+		} else {
+			// UTF-16LE name - need string conversion
+			nameLower := decodeUTF16LELower(nameBytes)
+			ib.idx.AddNKLower(parentOffset, nameLower, nkOffset)
+		}
+	}
+
+	// Get subkey list offset
 	subkeyListOffset := nk.SubkeyListOffsetRel()
 	if subkeyListOffset == format.InvalidOffset {
 		return nil // No subkeys
 	}
 
-	// Read subkey list to get entries
-	subkeyList, err := subkeys.Read(ib.h, subkeyListOffset)
-	if err != nil {
-		return fmt.Errorf("read subkey list at 0x%X: %w", subkeyListOffset, err)
+	// Read only child offsets (no name decoding) using reusable buffer
+	var readErr error
+	ib.childOffsetsBuf, readErr = subkeys.ReadOffsetsInto(ib.h, subkeyListOffset, ib.childOffsetsBuf)
+	if readErr != nil {
+		return fmt.Errorf("read subkey offsets at 0x%X: %w", subkeyListOffset, readErr)
 	}
 
-	// Index and push each subkey
-	for _, entry := range subkeyList.Entries {
-		childOffset := entry.NKRef
-		nameLower := entry.NameLower
-
-		// Index this child under its parent (use AddNKLower since subkeys.Read
-		// already returns lowercased names - avoids redundant strings.ToLower)
-		ib.idx.AddNKLower(nkOffset, nameLower, childOffset)
-
-		// Push child onto stack if not visited
+	// Push children onto stack with this NK as their parent
+	for _, childOffset := range ib.childOffsetsBuf {
 		if !ib.visited.IsSet(childOffset) {
 			ib.visited.Set(childOffset)
-			ib.stack = append(ib.stack, StackEntry{offset: childOffset, state: stateInitial})
+			ib.stack = append(ib.stack, StackEntry{
+				offset:       childOffset,
+				parentOffset: nkOffset, // Child will index itself under this NK
+				state:        stateInitial,
+			})
 		}
 	}
 
@@ -191,7 +258,7 @@ func (ib *IndexBuilder) processValues(nkOffset uint32) error {
 		return nil
 	}
 
-	// Get VK offsets using cached value list offset
+	// Get VK offsets using cached value list offset (reusable buffer)
 	vkOffsets, err := ib.walkValuesFastCached(entry.valueListOffset, valueCount)
 	if err != nil {
 		return err
@@ -211,6 +278,8 @@ func (ib *IndexBuilder) processValues(nkOffset uint32) error {
 
 // walkValuesFastCached processes a value list using cached offset and count.
 // This avoids the need to parse the NK cell again to get these values.
+// Uses the IndexBuilder's reusable vkOffsetsBuf slice for zero-allocation.
+// The returned slice is only valid until the next call to walkValuesFastCached.
 func (ib *IndexBuilder) walkValuesFastCached(listOffset, valueCount uint32) ([]uint32, error) {
 	if valueCount == 0 || listOffset == format.InvalidOffset {
 		return nil, nil
@@ -232,8 +301,15 @@ func (ib *IndexBuilder) walkValuesFastCached(listOffset, valueCount uint32) ([]u
 		return nil, fmt.Errorf("value list too small: need %d bytes, have %d", needed, len(payload))
 	}
 
+	// Reuse the IndexBuilder's buffer (reset to zero length, keep capacity)
+	ib.vkOffsetsBuf = ib.vkOffsetsBuf[:0]
+
+	// Ensure capacity (will allocate only once if initial capacity is exceeded)
+	if cap(ib.vkOffsetsBuf) < int(valueCount) {
+		ib.vkOffsetsBuf = make([]uint32, 0, valueCount)
+	}
+
 	// Extract VK offsets
-	vkOffsets := make([]uint32, 0, valueCount)
 	for i := range valueCount {
 		off := int(i) * format.DWORDSize
 		vkOffset, err := format.CheckedReadU32(payload, off)
@@ -242,11 +318,11 @@ func (ib *IndexBuilder) walkValuesFastCached(listOffset, valueCount uint32) ([]u
 			continue
 		}
 		if vkOffset != 0 && vkOffset != format.InvalidOffset {
-			vkOffsets = append(vkOffsets, vkOffset)
+			ib.vkOffsetsBuf = append(ib.vkOffsetsBuf, vkOffset)
 		}
 	}
 
-	return vkOffsets, nil
+	return ib.vkOffsetsBuf, nil
 }
 
 // indexValue indexes a single value under its parent key.
@@ -270,22 +346,26 @@ func (ib *IndexBuilder) indexValue(parentOffset, vkOffset uint32) error {
 
 	nameBytes := payload[20 : 20+nameLen]
 
-	// Decode and lowercase value name in one pass (fused operation)
-	// This avoids the separate strings.ToLower call in AddVK
-	var nameLower string
 	if flags&0x0001 != 0 {
-		// Compressed (ASCII) - fused decode+lowercase
-		nameLower = decodeASCIILower(nameBytes)
+		// Compressed (ASCII) - use zero-allocation hash-based path
+		// This avoids string allocation entirely in the common case
+		numIdx, ok := ib.idx.(*index.NumericIndex)
+		if ok {
+			hash := index.Fnv32LowerBytes(nameBytes)
+			numIdx.AddVKHashFast(parentOffset, hash, vkOffset)
+			return nil
+		}
+		// Fallback for non-numeric index
+		nameLower := decodeASCIILower(nameBytes)
+		ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
 	} else {
-		// Uncompressed (UTF-16LE) - fused decode+lowercase
+		// Uncompressed (UTF-16LE) - still need to decode to string
 		if nameLen%utf16BytesPerChar != 0 {
 			return fmt.Errorf("invalid UTF-16LE name at offset 0x%X: odd length %d", vkOffset, nameLen)
 		}
-		nameLower = decodeUTF16LELower(nameBytes)
+		nameLower := decodeUTF16LELower(nameBytes)
+		ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
 	}
-
-	// Index this value with pre-lowercased name (avoids redundant ToLower)
-	ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
 
 	return nil
 }

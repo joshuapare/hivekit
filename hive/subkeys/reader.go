@@ -25,6 +25,7 @@ var byteBufferPool = sync.Pool{
 	},
 }
 
+
 const (
 	// signatureSize is the size of cell signature fields (e.g., "lf", "lh", "ri").
 	signatureSize = 2
@@ -76,6 +77,186 @@ var win1252Table = [32]rune{
 	0x009D, // 0x9D → unused control
 	0x017E, // 0x9E → ž (Latin small letter z with caron)
 	0x0178, // 0x9F → Ÿ (Latin capital letter Y with diaeresis)
+}
+
+// ReadOffsets reads a subkey list and returns only the NK cell offsets.
+// This is a lightweight alternative to Read() that avoids decoding NK names.
+// Use this when you only need the offsets and will decode names later.
+//
+// listRef is the HCELL_INDEX offset to the list cell.
+// Returns a slice of NK cell offsets.
+func ReadOffsets(h *hive.Hive, listRef uint32) ([]uint32, error) {
+	if listRef == 0 || listRef == format.InvalidOffset {
+		return nil, nil
+	}
+
+	payload, err := resolveCell(h, listRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve list cell: %w", err)
+	}
+
+	// Check if it's an RI (indirect) list
+	if len(payload) >= signatureSize && payload[0] == 'r' && payload[1] == 'i' {
+		return readRIListOffsets(h, payload)
+	}
+
+	// Read direct list offsets
+	return readDirectListOffsets(payload)
+}
+
+// ReadOffsetsInto reads a subkey list and appends NK cell offsets to the provided buffer.
+// This is the zero-allocation version of ReadOffsets for hot paths.
+// The buffer is reset to zero length before appending and returned (may be reallocated if capacity exceeded).
+//
+// listRef is the HCELL_INDEX offset to the list cell.
+// Returns the updated buffer slice (caller should assign back: dst = ReadOffsetsInto(h, ref, dst)).
+func ReadOffsetsInto(h *hive.Hive, listRef uint32, dst []uint32) ([]uint32, error) {
+	// Reset buffer to zero length (keep capacity)
+	dst = dst[:0]
+
+	if listRef == 0 || listRef == format.InvalidOffset {
+		return dst, nil
+	}
+
+	payload, err := resolveCell(h, listRef)
+	if err != nil {
+		return dst, fmt.Errorf("failed to resolve list cell: %w", err)
+	}
+
+	// Check if it's an RI (indirect) list
+	if len(payload) >= signatureSize && payload[0] == 'r' && payload[1] == 'i' {
+		return readRIListOffsetsInto(h, payload, dst)
+	}
+
+	// Read direct list offsets
+	return readDirectListOffsetsInto(payload, dst)
+}
+
+// readDirectListOffsets reads NK offsets from a single LF, LH, or LI list.
+func readDirectListOffsets(payload []byte) ([]uint32, error) {
+	if len(payload) < format.ListHeaderSize {
+		return nil, ErrTruncated
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return nil, fmt.Errorf("list count: %w", err)
+	}
+
+	// Check signature bytes directly
+	sig0, sig1 := payload[0], payload[1]
+	if (sig0 == 'l' && sig1 == 'f') || (sig0 == 'l' && sig1 == 'h') {
+		return readLFLH(payload, count)
+	} else if sig0 == 'l' && sig1 == 'i' {
+		return readLI(payload, count)
+	}
+
+	return nil, ErrInvalidSignature
+}
+
+// readDirectListOffsetsInto reads NK offsets from a single LF, LH, or LI list into the provided buffer.
+func readDirectListOffsetsInto(payload []byte, dst []uint32) ([]uint32, error) {
+	if len(payload) < format.ListHeaderSize {
+		return dst, ErrTruncated
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return dst, fmt.Errorf("list count: %w", err)
+	}
+
+	// Check signature bytes directly
+	sig0, sig1 := payload[0], payload[1]
+	if (sig0 == 'l' && sig1 == 'f') || (sig0 == 'l' && sig1 == 'h') {
+		return readLFLHInto(payload, count, dst)
+	} else if sig0 == 'l' && sig1 == 'i' {
+		return readLIInto(payload, count, dst)
+	}
+
+	return dst, ErrInvalidSignature
+}
+
+// readRIListOffsets reads NK offsets from an RI (indirect) list.
+func readRIListOffsets(h *hive.Hive, payload []byte) ([]uint32, error) {
+	if len(payload) < format.ListHeaderSize {
+		return nil, ErrInvalidRI
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return nil, fmt.Errorf("ri list count: %w", err)
+	}
+
+	if uint32(count) > format.MaxRIListCount {
+		return nil, fmt.Errorf("ri list count %d exceeds limit: %w", count, format.ErrSanityLimit)
+	}
+
+	if _, boundsErr := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); boundsErr != nil {
+		return nil, ErrTruncated
+	}
+
+	// Collect offsets from all sub-lists
+	var allOffsets []uint32
+
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.DWORDSize
+		subListRef, readErr := format.CheckedReadU32(payload, offset)
+		if readErr != nil {
+			continue
+		}
+
+		subOffsets, err := ReadOffsets(h, subListRef)
+		if err != nil {
+			continue
+		}
+
+		allOffsets = append(allOffsets, subOffsets...)
+	}
+
+	return allOffsets, nil
+}
+
+// readRIListOffsetsInto reads NK offsets from an RI (indirect) list into the provided buffer.
+func readRIListOffsetsInto(h *hive.Hive, payload []byte, dst []uint32) ([]uint32, error) {
+	if len(payload) < format.ListHeaderSize {
+		return dst, ErrInvalidRI
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return dst, fmt.Errorf("ri list count: %w", err)
+	}
+
+	if uint32(count) > format.MaxRIListCount {
+		return dst, fmt.Errorf("ri list count %d exceeds limit: %w", count, format.ErrSanityLimit)
+	}
+
+	if _, boundsErr := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); boundsErr != nil {
+		return dst, ErrTruncated
+	}
+
+	// Use a temporary buffer for sub-list reads to avoid corrupting main buffer during recursion
+	var tempBuf []uint32
+
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.DWORDSize
+		subListRef, readErr := format.CheckedReadU32(payload, offset)
+		if readErr != nil {
+			continue
+		}
+
+		// Read sub-list into temp buffer (recursive call)
+		var subErr error
+		tempBuf, subErr = ReadOffsetsInto(h, subListRef, tempBuf)
+		if subErr != nil {
+			continue
+		}
+
+		// Append sub-list offsets to main buffer
+		dst = append(dst, tempBuf...)
+	}
+
+	return dst, nil
 }
 
 // Read reads a subkey list from the hive and returns a List with all entries.
@@ -246,6 +427,59 @@ func readLI(payload []byte, count uint16) ([]uint32, error) {
 	return refs, nil
 }
 
+// readLFLHInto reads LF or LH list entries into the provided buffer.
+func readLFLHInto(payload []byte, count uint16, dst []uint32) ([]uint32, error) {
+	// Each entry is 8 bytes: 4 bytes offset + 4 bytes hash
+	// Overflow-safe bounds check
+	if _, err := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.QWORDSize); err != nil {
+		return dst, ErrTruncated
+	}
+
+	// Ensure capacity
+	if cap(dst) < int(count) {
+		dst = make([]uint32, 0, count)
+	}
+
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.QWORDSize
+		val, err := format.CheckedReadU32(payload, offset)
+		if err != nil {
+			// Return partial results on read error
+			return dst, nil
+		}
+		dst = append(dst, val)
+		// Skip the 4-byte hash (we don't need it for reading)
+	}
+
+	return dst, nil
+}
+
+// readLIInto reads LI list entries into the provided buffer.
+func readLIInto(payload []byte, count uint16, dst []uint32) ([]uint32, error) {
+	// Each entry is 4 bytes: offset only (no hash)
+	// Overflow-safe bounds check
+	if _, err := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); err != nil {
+		return dst, ErrTruncated
+	}
+
+	// Ensure capacity
+	if cap(dst) < int(count) {
+		dst = make([]uint32, 0, count)
+	}
+
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.DWORDSize
+		val, err := format.CheckedReadU32(payload, offset)
+		if err != nil {
+			// Return partial results on read error
+			return dst, nil
+		}
+		dst = append(dst, val)
+	}
+
+	return dst, nil
+}
+
 // readNKEntry reads an NK cell and extracts the key name.
 func readNKEntry(h *hive.Hive, nkRef uint32) (Entry, error) {
 	payload, err := resolveCell(h, nkRef)
@@ -265,17 +499,19 @@ func readNKEntry(h *hive.Hive, nkRef uint32) (Entry, error) {
 		return Entry{}, errors.New("NK cell has empty name")
 	}
 
-	// Decode, lowercase, AND compute hash in one pass (Tier 3 optimization)
-	// This fuses decode + lowercase + hash to eliminate redundant iteration
+	// Decode, lowercase, AND compute both hashes in one pass
+	// This fuses decode + lowercase + dual hash to eliminate redundant iteration
 	var nameLower string
-	var hash uint32
+	var regHash, fnvHash uint32
 	var decodeErr error
 	if nk.IsCompressedName() {
-		// ASCII (or Windows-1252) - decode + lowercase + hash in one pass
-		nameLower, hash, decodeErr = decodeCompressedNameLowerWithHash(nameBytes)
+		// ASCII (or Windows-1252) - decode + lowercase + dual hash in one pass
+		nameLower, regHash, fnvHash, decodeErr = decodeCompressedNameLowerWithHashes(nameBytes)
 	} else {
 		// UTF-16LE - decode + lowercase + hash in one pass with ASCII-16 fast path
-		nameLower, hash, decodeErr = decodeUTF16LENameLowerWithHash(nameBytes)
+		// Note: FNV32 not computed for UTF-16 (rare, fallback to string path)
+		nameLower, regHash, decodeErr = decodeUTF16LENameLowerWithHash(nameBytes)
+		fnvHash = 0 // Will use string-based path in index builder
 	}
 
 	if decodeErr != nil {
@@ -285,7 +521,8 @@ func readNKEntry(h *hive.Hive, nkRef uint32) (Entry, error) {
 	return Entry{
 		NameLower: nameLower,
 		NKRef:     nkRef,
-		Hash:      hash,
+		Hash:      regHash,
+		FNV32:     fnvHash,
 	}, nil
 }
 
@@ -327,13 +564,31 @@ func resolveCell(h *hive.Hive, ref uint32) ([]byte, error) {
 	return data[payloadOffset:payloadEnd], nil
 }
 
+// FNV-1a constants for 32-bit hash (duplicated from index package to avoid import cycle).
+const (
+	fnvBasis32 uint32 = 2166136261
+	fnvPrime32 uint32 = 16777619
+)
+
 // decodeCompressedNameLowerWithHash decodes an ASCII/Windows-1252 encoded name,
 // lowercases it, AND computes its Windows Registry hash in a single pass.
 // This fuses decode + lowercase + hash computation to eliminate redundant iteration.
 //
-// Returns: (lowercaseName, hash, error).
+// Returns: (lowercaseName, regHash, error).
+// Note: Also computes FNV32 hash available via decodeCompressedNameLowerWithHashes.
 func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
-	var hash uint32
+	name, regHash, _, err := decodeCompressedNameLowerWithHashes(data)
+	return name, regHash, err
+}
+
+// decodeCompressedNameLowerWithHashes decodes an ASCII/Windows-1252 encoded name,
+// lowercases it, AND computes both Windows Registry hash AND FNV-1a hash in a single pass.
+// This fuses decode + lowercase + dual hash computation to eliminate redundant iteration.
+//
+// Returns: (lowercaseName, regHash, fnvHash, error).
+func decodeCompressedNameLowerWithHashes(data []byte) (string, uint32, uint32, error) {
+	var regHash uint32
+	fnvHash := fnvBasis32
 
 	// Fast path: pure ASCII with inline lowercase + hash
 	ascii := true
@@ -349,20 +604,22 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 	}
 
 	if ascii {
-		// Compute hash on uppercase, return lowercase string
+		// Compute both hashes: regHash on uppercase, fnvHash on lowercase
 		if !hasUpper {
-			// Already lowercase - compute hash with uppercase
+			// Already lowercase - compute both hashes
 			for _, c := range data {
 				upper := c
 				if c >= 'a' && c <= 'z' {
 					upper = c - ('a' - 'A')
 				}
-				hash = hash*hashMultiplier + uint32(upper)
+				regHash = regHash*hashMultiplier + uint32(upper)
+				fnvHash ^= uint32(c)
+				fnvHash *= fnvPrime32
 			}
-			return string(data), hash, nil
+			return string(data), regHash, fnvHash, nil
 		}
 
-		// Has uppercase - lowercase while computing hash
+		// Has uppercase - lowercase while computing both hashes
 		bufPtr := byteBufferPool.Get().(*[]byte) //nolint:errcheck // pool contains only *[]byte
 		buf := *bufPtr
 		if cap(buf) < len(data) {
@@ -384,16 +641,18 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 				upper = c
 			}
 			buf[i] = lower
-			hash = hash*hashMultiplier + uint32(upper)
+			regHash = regHash*hashMultiplier + uint32(upper)
+			fnvHash ^= uint32(lower)
+			fnvHash *= fnvPrime32
 		}
 
 		result := string(buf)
 		*bufPtr = buf[:0]
 		byteBufferPool.Put(bufPtr)
-		return result, hash, nil
+		return result, regHash, fnvHash, nil
 	}
 
-	// Windows-1252 → UTF-8 with inline mapping table + hash computation
+	// Windows-1252 → UTF-8 with inline mapping table + dual hash computation
 	bufPtr := byteBufferPool.Get().(*[]byte) //nolint:errcheck // pool contains only *[]byte
 	buf := *bufPtr
 	need := len(data) * 2
@@ -403,10 +662,10 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 		buf = buf[:0]
 	}
 
-	// Encode into buf with ASCII-lowercase, compute hash with uppercase runes
+	// Encode into buf with ASCII-lowercase, compute both hashes
 	for _, c := range data {
 		if c <= 0x7F {
-			// ASCII: lowercase for string, uppercase for hash
+			// ASCII: lowercase for string and fnvHash, uppercase for regHash
 			var lower, upper byte
 			if c >= 'A' && c <= 'Z' {
 				lower = c + ('a' - 'A')
@@ -419,11 +678,13 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 				upper = c
 			}
 			buf = append(buf, lower)
-			hash = hash*hashMultiplier + uint32(upper)
+			regHash = regHash*hashMultiplier + uint32(upper)
+			fnvHash ^= uint32(lower)
+			fnvHash *= fnvPrime32
 			continue
 		}
 
-		// Non-ASCII: decode to rune, append UTF-8, hash uppercase rune
+		// Non-ASCII: decode to rune, append UTF-8, compute both hashes
 		var r rune
 		if c >= 0xA0 {
 			r = rune(c)
@@ -432,16 +693,19 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 		}
 		buf = appendRuneUTF8(buf, r)
 
-		// Hash uses uppercase version of the decoded rune
-		// Note: This is rare compared to ASCII hot path
+		// regHash uses uppercase version of the decoded rune
+		// fnvHash uses the raw byte (for consistency with Fnv32LowerBytes)
 		upperRune := unicode.ToUpper(r)
-		hash = hash*hashMultiplier + uint32(upperRune)
+		regHash = regHash*hashMultiplier + uint32(upperRune)
+		// For non-ASCII, we hash the original byte lowercased
+		fnvHash ^= uint32(c)
+		fnvHash *= fnvPrime32
 	}
 
 	result := string(buf)
 	*bufPtr = buf[:0]
 	byteBufferPool.Put(bufPtr)
-	return result, hash, nil
+	return result, regHash, fnvHash, nil
 }
 
 // decodeUTF16LENameLowerWithHash decodes a UTF-16LE encoded name, lowercases it,
