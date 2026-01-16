@@ -47,10 +47,39 @@ type IndexBuilder struct {
 	idx index.Index
 }
 
+// estimateIndexCapacity estimates NK/VK counts from hive size.
+// Based on empirical analysis of test suite hives:
+//   - ~1 NK per 256-512 bytes of hive data
+//   - ~2-4 VKs per NK
+//
+// This helps pre-size maps to reduce rehashing overhead (which can be 8+ seconds
+// for large hives according to profiling).
+func estimateIndexCapacity(hiveSize int64) (nkCap, vkCap int) {
+	// Conservative estimate: 1 NK per 300 bytes
+	nkCap = int(hiveSize / 300)
+	vkCap = nkCap * 3
+
+	// Ensure minimums for small hives
+	if nkCap < 1024 {
+		nkCap = 1024
+	}
+	if vkCap < 4096 {
+		vkCap = 4096
+	}
+
+	return nkCap, vkCap
+}
+
 // NewIndexBuilder creates a new index builder for the given hive.
 // The capacity hints help pre-size the index to reduce allocations during building.
 // Uses NumericIndex by default (zero-allocation, faster).
+//
+// If nkCapacity or vkCapacity is 0, capacity will be estimated from hive size.
 func NewIndexBuilder(h *hive.Hive, nkCapacity, vkCapacity int) *IndexBuilder {
+	// If hints are default/zero, use estimation from hive size
+	if nkCapacity == 0 || vkCapacity == 0 {
+		nkCapacity, vkCapacity = estimateIndexCapacity(h.Size())
+	}
 	return NewIndexBuilderWithKind(h, nkCapacity, vkCapacity, index.IndexNumeric)
 }
 
@@ -162,14 +191,21 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 		return fmt.Errorf("read subkey list at 0x%X: %w", subkeyListOffset, err)
 	}
 
-	// Index and push each subkey
-	for _, entry := range subkeyList.Entries {
-		childOffset := entry.NKRef
-		nameLower := entry.NameLower
+	// Try to get NumericIndex for hash-based fast path
+	numIdx, isNumeric := ib.idx.(*index.NumericIndex)
 
-		// Index this child under its parent (use AddNKLower since subkeys.Read
-		// already returns lowercased names - avoids redundant strings.ToLower)
-		ib.idx.AddNKLower(nkOffset, nameLower, childOffset)
+	// Index and push each subkey
+	for _, subkeyEntry := range subkeyList.Entries {
+		childOffset := subkeyEntry.NKRef
+
+		// Use pre-computed FNV32 hash if available (avoids re-hashing)
+		if isNumeric && subkeyEntry.FNV32 != 0 {
+			// Zero-allocation path using pre-computed hash
+			numIdx.AddNKHash(nkOffset, subkeyEntry.FNV32, []byte(subkeyEntry.NameLower), childOffset)
+		} else {
+			// Fallback to string-based path (for UTF-16 names or non-numeric index)
+			ib.idx.AddNKLower(nkOffset, subkeyEntry.NameLower, childOffset)
+		}
 
 		// Push child onto stack if not visited
 		if !ib.visited.IsSet(childOffset) {
@@ -270,22 +306,26 @@ func (ib *IndexBuilder) indexValue(parentOffset, vkOffset uint32) error {
 
 	nameBytes := payload[20 : 20+nameLen]
 
-	// Decode and lowercase value name in one pass (fused operation)
-	// This avoids the separate strings.ToLower call in AddVK
-	var nameLower string
 	if flags&0x0001 != 0 {
-		// Compressed (ASCII) - fused decode+lowercase
-		nameLower = decodeASCIILower(nameBytes)
+		// Compressed (ASCII) - use zero-allocation hash-based path
+		// This avoids string allocation entirely in the common case
+		numIdx, ok := ib.idx.(*index.NumericIndex)
+		if ok {
+			hash := index.Fnv32LowerBytes(nameBytes)
+			numIdx.AddVKHash(parentOffset, hash, nameBytes, vkOffset)
+			return nil
+		}
+		// Fallback for non-numeric index
+		nameLower := decodeASCIILower(nameBytes)
+		ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
 	} else {
-		// Uncompressed (UTF-16LE) - fused decode+lowercase
+		// Uncompressed (UTF-16LE) - still need to decode to string
 		if nameLen%utf16BytesPerChar != 0 {
 			return fmt.Errorf("invalid UTF-16LE name at offset 0x%X: odd length %d", vkOffset, nameLen)
 		}
-		nameLower = decodeUTF16LELower(nameBytes)
+		nameLower := decodeUTF16LELower(nameBytes)
+		ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
 	}
-
-	// Index this value with pre-lowercased name (avoids redundant ToLower)
-	ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
 
 	return nil
 }

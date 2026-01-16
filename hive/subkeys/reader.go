@@ -265,17 +265,19 @@ func readNKEntry(h *hive.Hive, nkRef uint32) (Entry, error) {
 		return Entry{}, errors.New("NK cell has empty name")
 	}
 
-	// Decode, lowercase, AND compute hash in one pass (Tier 3 optimization)
-	// This fuses decode + lowercase + hash to eliminate redundant iteration
+	// Decode, lowercase, AND compute both hashes in one pass
+	// This fuses decode + lowercase + dual hash to eliminate redundant iteration
 	var nameLower string
-	var hash uint32
+	var regHash, fnvHash uint32
 	var decodeErr error
 	if nk.IsCompressedName() {
-		// ASCII (or Windows-1252) - decode + lowercase + hash in one pass
-		nameLower, hash, decodeErr = decodeCompressedNameLowerWithHash(nameBytes)
+		// ASCII (or Windows-1252) - decode + lowercase + dual hash in one pass
+		nameLower, regHash, fnvHash, decodeErr = decodeCompressedNameLowerWithHashes(nameBytes)
 	} else {
 		// UTF-16LE - decode + lowercase + hash in one pass with ASCII-16 fast path
-		nameLower, hash, decodeErr = decodeUTF16LENameLowerWithHash(nameBytes)
+		// Note: FNV32 not computed for UTF-16 (rare, fallback to string path)
+		nameLower, regHash, decodeErr = decodeUTF16LENameLowerWithHash(nameBytes)
+		fnvHash = 0 // Will use string-based path in index builder
 	}
 
 	if decodeErr != nil {
@@ -285,7 +287,8 @@ func readNKEntry(h *hive.Hive, nkRef uint32) (Entry, error) {
 	return Entry{
 		NameLower: nameLower,
 		NKRef:     nkRef,
-		Hash:      hash,
+		Hash:      regHash,
+		FNV32:     fnvHash,
 	}, nil
 }
 
@@ -327,13 +330,31 @@ func resolveCell(h *hive.Hive, ref uint32) ([]byte, error) {
 	return data[payloadOffset:payloadEnd], nil
 }
 
+// FNV-1a constants for 32-bit hash (duplicated from index package to avoid import cycle).
+const (
+	fnvBasis32 uint32 = 2166136261
+	fnvPrime32 uint32 = 16777619
+)
+
 // decodeCompressedNameLowerWithHash decodes an ASCII/Windows-1252 encoded name,
 // lowercases it, AND computes its Windows Registry hash in a single pass.
 // This fuses decode + lowercase + hash computation to eliminate redundant iteration.
 //
-// Returns: (lowercaseName, hash, error).
+// Returns: (lowercaseName, regHash, error).
+// Note: Also computes FNV32 hash available via decodeCompressedNameLowerWithHashes.
 func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
-	var hash uint32
+	name, regHash, _, err := decodeCompressedNameLowerWithHashes(data)
+	return name, regHash, err
+}
+
+// decodeCompressedNameLowerWithHashes decodes an ASCII/Windows-1252 encoded name,
+// lowercases it, AND computes both Windows Registry hash AND FNV-1a hash in a single pass.
+// This fuses decode + lowercase + dual hash computation to eliminate redundant iteration.
+//
+// Returns: (lowercaseName, regHash, fnvHash, error).
+func decodeCompressedNameLowerWithHashes(data []byte) (string, uint32, uint32, error) {
+	var regHash uint32
+	fnvHash := fnvBasis32
 
 	// Fast path: pure ASCII with inline lowercase + hash
 	ascii := true
@@ -349,20 +370,22 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 	}
 
 	if ascii {
-		// Compute hash on uppercase, return lowercase string
+		// Compute both hashes: regHash on uppercase, fnvHash on lowercase
 		if !hasUpper {
-			// Already lowercase - compute hash with uppercase
+			// Already lowercase - compute both hashes
 			for _, c := range data {
 				upper := c
 				if c >= 'a' && c <= 'z' {
 					upper = c - ('a' - 'A')
 				}
-				hash = hash*hashMultiplier + uint32(upper)
+				regHash = regHash*hashMultiplier + uint32(upper)
+				fnvHash ^= uint32(c)
+				fnvHash *= fnvPrime32
 			}
-			return string(data), hash, nil
+			return string(data), regHash, fnvHash, nil
 		}
 
-		// Has uppercase - lowercase while computing hash
+		// Has uppercase - lowercase while computing both hashes
 		bufPtr := byteBufferPool.Get().(*[]byte) //nolint:errcheck // pool contains only *[]byte
 		buf := *bufPtr
 		if cap(buf) < len(data) {
@@ -384,16 +407,18 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 				upper = c
 			}
 			buf[i] = lower
-			hash = hash*hashMultiplier + uint32(upper)
+			regHash = regHash*hashMultiplier + uint32(upper)
+			fnvHash ^= uint32(lower)
+			fnvHash *= fnvPrime32
 		}
 
 		result := string(buf)
 		*bufPtr = buf[:0]
 		byteBufferPool.Put(bufPtr)
-		return result, hash, nil
+		return result, regHash, fnvHash, nil
 	}
 
-	// Windows-1252 → UTF-8 with inline mapping table + hash computation
+	// Windows-1252 → UTF-8 with inline mapping table + dual hash computation
 	bufPtr := byteBufferPool.Get().(*[]byte) //nolint:errcheck // pool contains only *[]byte
 	buf := *bufPtr
 	need := len(data) * 2
@@ -403,10 +428,10 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 		buf = buf[:0]
 	}
 
-	// Encode into buf with ASCII-lowercase, compute hash with uppercase runes
+	// Encode into buf with ASCII-lowercase, compute both hashes
 	for _, c := range data {
 		if c <= 0x7F {
-			// ASCII: lowercase for string, uppercase for hash
+			// ASCII: lowercase for string and fnvHash, uppercase for regHash
 			var lower, upper byte
 			if c >= 'A' && c <= 'Z' {
 				lower = c + ('a' - 'A')
@@ -419,11 +444,13 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 				upper = c
 			}
 			buf = append(buf, lower)
-			hash = hash*hashMultiplier + uint32(upper)
+			regHash = regHash*hashMultiplier + uint32(upper)
+			fnvHash ^= uint32(lower)
+			fnvHash *= fnvPrime32
 			continue
 		}
 
-		// Non-ASCII: decode to rune, append UTF-8, hash uppercase rune
+		// Non-ASCII: decode to rune, append UTF-8, compute both hashes
 		var r rune
 		if c >= 0xA0 {
 			r = rune(c)
@@ -432,16 +459,19 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 		}
 		buf = appendRuneUTF8(buf, r)
 
-		// Hash uses uppercase version of the decoded rune
-		// Note: This is rare compared to ASCII hot path
+		// regHash uses uppercase version of the decoded rune
+		// fnvHash uses the raw byte (for consistency with Fnv32LowerBytes)
 		upperRune := unicode.ToUpper(r)
-		hash = hash*hashMultiplier + uint32(upperRune)
+		regHash = regHash*hashMultiplier + uint32(upperRune)
+		// For non-ASCII, we hash the original byte lowercased
+		fnvHash ^= uint32(c)
+		fnvHash *= fnvPrime32
 	}
 
 	result := string(buf)
 	*bufPtr = buf[:0]
 	byteBufferPool.Put(bufPtr)
-	return result, hash, nil
+	return result, regHash, fnvHash, nil
 }
 
 // decodeUTF16LENameLowerWithHash decodes a UTF-16LE encoded name, lowercases it,

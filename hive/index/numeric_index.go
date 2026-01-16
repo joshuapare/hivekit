@@ -87,6 +87,22 @@ func fnv32(s string) uint32 {
 	return h
 }
 
+// Fnv32LowerBytes computes FNV-1a hash of bytes with inline ASCII lowercase.
+// This avoids string allocation by hashing raw bytes directly.
+// Used by AddVKHash/AddNKHash for zero-allocation index building.
+func Fnv32LowerBytes(data []byte) uint32 {
+	h := fnvBasis32
+	for _, b := range data {
+		// Inline ASCII lowercase
+		if b >= 'A' && b <= 'Z' {
+			b += 'a' - 'A'
+		}
+		h ^= uint32(b)
+		h *= fnvPrime32
+	}
+	return h
+}
+
 // makeNumericKey creates the uint64 map key from parent offset and name hash.
 func makeNumericKey(parentOff uint32, nameHash uint32) uint64 {
 	return (uint64(parentOff) << 32) | uint64(nameHash)
@@ -182,6 +198,120 @@ func (n *NumericIndex) AddVKLower(parentOff uint32, valueNameLower string, offse
 	}
 
 	n.values[key] = offset
+}
+
+// AddVKHash adds a value using pre-computed hash and raw bytes.
+// This is the zero-allocation fast path for index building.
+// Only allocates string if collision map exists (rare ~0.001%).
+//
+// Parameters:
+//   - parentOff: offset of the parent NK cell
+//   - hash: pre-computed FNV-1a hash of the lowercase name (from Fnv32LowerBytes)
+//   - nameBytes: raw name bytes (used only for collision handling)
+//   - offset: VK cell offset to store
+func (n *NumericIndex) AddVKHash(parentOff uint32, hash uint32, nameBytes []byte, offset uint32) {
+	key := makeNumericKey(parentOff, hash)
+
+	// Fast path: key not in map (99.9% of cases)
+	if _, ok := n.values[key]; !ok {
+		n.values[key] = offset
+		return
+	}
+
+	// Key exists - handle updates and collisions
+	if n.valueCollisions == nil {
+		// No collision map yet - safe to overwrite
+		n.values[key] = offset
+		return
+	}
+
+	if entries, hasCollisions := n.valueCollisions[key]; hasCollisions {
+		// Collisions exist - need to allocate string and check by name
+		// This is rare (~0.001% of cases)
+		nameLower := toLowerASCII(nameBytes)
+		for i := range entries {
+			if entries[i].name == nameLower {
+				entries[i].offset = offset // Update existing collision entry
+				return
+			}
+		}
+		// New collision - add to list
+		n.valueCollisions[key] = append(entries, collisionEntry{name: nameLower, offset: offset})
+		return
+	}
+
+	// No collisions for this specific key - safe to overwrite
+	n.values[key] = offset
+}
+
+// AddNKHash adds an NK using pre-computed hash and raw bytes.
+// This is the zero-allocation fast path for index building.
+// Only allocates string if collision map exists (rare ~0.001%).
+//
+// Parameters:
+//   - parentOff: offset of the parent NK cell
+//   - hash: pre-computed FNV-1a hash of the lowercase name
+//   - nameBytes: raw name bytes (used only for collision handling)
+//   - offset: NK cell offset to store
+func (n *NumericIndex) AddNKHash(parentOff uint32, hash uint32, nameBytes []byte, offset uint32) {
+	key := makeNumericKey(parentOff, hash)
+
+	// Fast path: key not in map (99.9% of cases)
+	if _, ok := n.nodes[key]; !ok {
+		n.nodes[key] = offset
+		return
+	}
+
+	// Key exists - handle updates and collisions
+	if n.nodeCollisions == nil {
+		// No collision map yet - safe to overwrite
+		n.nodes[key] = offset
+		return
+	}
+
+	if entries, hasCollisions := n.nodeCollisions[key]; hasCollisions {
+		// Collisions exist - need to allocate string and check by name
+		nameLower := toLowerASCII(nameBytes)
+		for i := range entries {
+			if entries[i].name == nameLower {
+				entries[i].offset = offset // Update existing collision entry
+				return
+			}
+		}
+		// New collision - add to list
+		n.nodeCollisions[key] = append(entries, collisionEntry{name: nameLower, offset: offset})
+		return
+	}
+
+	// No collisions for this specific key - safe to overwrite
+	n.nodes[key] = offset
+}
+
+// toLowerASCII converts ASCII bytes to a lowercase string.
+// Used only in collision handling (rare path).
+func toLowerASCII(data []byte) string {
+	// Check if already lowercase (fast path)
+	needsLower := false
+	for _, b := range data {
+		if b >= 'A' && b <= 'Z' {
+			needsLower = true
+			break
+		}
+	}
+	if !needsLower {
+		return string(data)
+	}
+
+	// Need to lowercase
+	buf := make([]byte, len(data))
+	for i, b := range data {
+		if b >= 'A' && b <= 'Z' {
+			buf[i] = b + ('a' - 'A')
+		} else {
+			buf[i] = b
+		}
+	}
+	return string(buf)
 }
 
 // GetNK implements ReadOnlyIndex.

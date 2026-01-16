@@ -1,6 +1,7 @@
 package walker
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -86,6 +87,58 @@ func benchmarkNewWalker(b *testing.B, hivePath string) {
 		}
 
 		walker.Reset()
+	}
+}
+
+// Benchmark_Suite_IndexBuild_2003System benchmarks index building on Windows 2003 System.
+func Benchmark_Suite_IndexBuild_2003System(b *testing.B) {
+	benchmarkIndexBuild(b, suiteHives[0].path)
+}
+
+// Benchmark_Suite_IndexBuild_2003Software benchmarks index building on Windows 2003 Software.
+func Benchmark_Suite_IndexBuild_2003Software(b *testing.B) {
+	benchmarkIndexBuild(b, suiteHives[1].path)
+}
+
+// Benchmark_Suite_IndexBuild_2012System benchmarks index building on Windows 2012 System.
+func Benchmark_Suite_IndexBuild_2012System(b *testing.B) {
+	benchmarkIndexBuild(b, suiteHives[2].path)
+}
+
+// Benchmark_Suite_IndexBuild_2012Software benchmarks index building on Windows 2012 Software.
+func Benchmark_Suite_IndexBuild_2012Software(b *testing.B) {
+	benchmarkIndexBuild(b, suiteHives[3].path)
+}
+
+// Benchmark_Suite_IndexBuild_Win8System benchmarks index building on Windows 8 System.
+func Benchmark_Suite_IndexBuild_Win8System(b *testing.B) {
+	benchmarkIndexBuild(b, suiteHives[4].path)
+}
+
+// Benchmark_Suite_IndexBuild_Win8Software benchmarks index building on Windows 8 Software.
+func Benchmark_Suite_IndexBuild_Win8Software(b *testing.B) {
+	benchmarkIndexBuild(b, suiteHives[5].path)
+}
+
+// benchmarkIndexBuild benchmarks the index building process.
+func benchmarkIndexBuild(b *testing.B, hivePath string) {
+	h, err := openHive(hivePath)
+	if err != nil {
+		b.Skipf("Skipping: %v", err)
+		return
+	}
+	defer h.Close()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		// Use 0 to trigger auto-estimation from hive size
+		builder := NewIndexBuilder(h, 0, 0)
+		_, err := builder.Build(context.Background())
+		if err != nil {
+			b.Fatalf("Build failed: %v", err)
+		}
 	}
 }
 
