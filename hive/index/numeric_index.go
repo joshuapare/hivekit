@@ -103,6 +103,30 @@ func Fnv32LowerBytes(data []byte) uint32 {
 	return h
 }
 
+// Fnv32UTF16LELower computes FNV-1a hash of UTF-16LE bytes with inline lowercase.
+// This avoids string allocation by hashing raw UTF-16LE bytes directly.
+// Only lowercases ASCII range (0x0041-0x005A -> 0x0061-0x007A).
+//
+// UTF-16LE format: Each code point is 2 bytes, little-endian.
+// For ASCII characters (U+0000-U+007F), the high byte is always 0.
+func Fnv32UTF16LELower(data []byte) uint32 {
+	h := fnvBasis32
+	for i := 0; i+1 < len(data); i += 2 {
+		lo := data[i]
+		hi := data[i+1]
+		// Lowercase ASCII uppercase (high byte must be 0 for ASCII)
+		if hi == 0 && lo >= 'A' && lo <= 'Z' {
+			lo += 'a' - 'A'
+		}
+		// Hash both bytes of the UTF-16LE code unit
+		h ^= uint32(lo)
+		h *= fnvPrime32
+		h ^= uint32(hi)
+		h *= fnvPrime32
+	}
+	return h
+}
+
 // makeNumericKey creates the uint64 map key from parent offset and name hash.
 func makeNumericKey(parentOff uint32, nameHash uint32) uint64 {
 	return (uint64(parentOff) << 32) | uint64(nameHash)

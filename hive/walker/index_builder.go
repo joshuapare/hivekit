@@ -214,9 +214,15 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 				ib.idx.AddNKLower(parentOffset, nameLower, nkOffset)
 			}
 		} else {
-			// UTF-16LE name - need string conversion
-			nameLower := decodeUTF16LELower(nameBytes)
-			ib.idx.AddNKLower(parentOffset, nameLower, nkOffset)
+			// UTF-16LE name - use zero-allocation hash path
+			numIdx, ok := ib.idx.(*index.NumericIndex)
+			if ok {
+				hash := index.Fnv32UTF16LELower(nameBytes)
+				numIdx.AddNKHashFast(parentOffset, hash, nkOffset)
+			} else {
+				nameLower := decodeUTF16LELower(nameBytes)
+				ib.idx.AddNKLower(parentOffset, nameLower, nkOffset)
+			}
 		}
 	}
 
@@ -359,9 +365,15 @@ func (ib *IndexBuilder) indexValue(parentOffset, vkOffset uint32) error {
 		nameLower := decodeASCIILower(nameBytes)
 		ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
 	} else {
-		// Uncompressed (UTF-16LE) - still need to decode to string
+		// Uncompressed (UTF-16LE) - use zero-allocation hash path
 		if nameLen%utf16BytesPerChar != 0 {
 			return fmt.Errorf("invalid UTF-16LE name at offset 0x%X: odd length %d", vkOffset, nameLen)
+		}
+		numIdx, ok := ib.idx.(*index.NumericIndex)
+		if ok {
+			hash := index.Fnv32UTF16LELower(nameBytes)
+			numIdx.AddVKHashFast(parentOffset, hash, vkOffset)
+			return nil
 		}
 		nameLower := decodeUTF16LELower(nameBytes)
 		ib.idx.AddVKLower(parentOffset, nameLower, vkOffset)
