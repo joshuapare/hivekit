@@ -208,7 +208,7 @@ func (ib *IndexBuilder) processNK(nkOffset uint32) error {
 			numIdx, ok := ib.idx.(*index.NumericIndex)
 			if ok {
 				hash := index.Fnv32LowerBytes(nameBytes)
-				numIdx.AddNKHash(parentOffset, hash, nameBytes, nkOffset)
+				numIdx.AddNKHashFast(parentOffset, hash, nkOffset)
 			} else {
 				nameLower := decodeASCIILower(nameBytes)
 				ib.idx.AddNKLower(parentOffset, nameLower, nkOffset)
@@ -352,7 +352,7 @@ func (ib *IndexBuilder) indexValue(parentOffset, vkOffset uint32) error {
 		numIdx, ok := ib.idx.(*index.NumericIndex)
 		if ok {
 			hash := index.Fnv32LowerBytes(nameBytes)
-			numIdx.AddVKHash(parentOffset, hash, nameBytes, vkOffset)
+			numIdx.AddVKHashFast(parentOffset, hash, vkOffset)
 			return nil
 		}
 		// Fallback for non-numeric index

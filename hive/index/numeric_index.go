@@ -287,6 +287,32 @@ func (n *NumericIndex) AddNKHash(parentOff uint32, hash uint32, nameBytes []byte
 	n.nodes[key] = offset
 }
 
+// AddVKHashFast adds a value using direct map assignment.
+// Use ONLY during fresh index builds where duplicates are impossible.
+// This is faster than AddVKHash because it skips the existence check.
+//
+// Parameters:
+//   - parentOff: offset of the parent NK cell
+//   - hash: pre-computed FNV-1a hash of the lowercase name (from Fnv32LowerBytes)
+//   - offset: VK cell offset to store
+func (n *NumericIndex) AddVKHashFast(parentOff uint32, hash uint32, offset uint32) {
+	key := makeNumericKey(parentOff, hash)
+	n.values[key] = offset
+}
+
+// AddNKHashFast adds an NK using direct map assignment.
+// Use ONLY during fresh index builds where duplicates are impossible.
+// This is faster than AddNKHash because it skips the existence check.
+//
+// Parameters:
+//   - parentOff: offset of the parent NK cell
+//   - hash: pre-computed FNV-1a hash of the lowercase name
+//   - offset: NK cell offset to store
+func (n *NumericIndex) AddNKHashFast(parentOff uint32, hash uint32, offset uint32) {
+	key := makeNumericKey(parentOff, hash)
+	n.nodes[key] = offset
+}
+
 // toLowerASCII converts ASCII bytes to a lowercase string.
 // Used only in collision handling (rare path).
 func toLowerASCII(data []byte) string {
