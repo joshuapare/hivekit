@@ -640,3 +640,139 @@ func (s *Session) Close(ctx context.Context) error {
 	s.dt.Reset()
 	return nil
 }
+
+// NewSessionForPlan creates a session optimized for the given plan.
+//
+// Based on the plan size and Options.IndexMode, this selects between:
+//   - Single-pass walk-apply (no index build) for small plans
+//   - Full index build for large plans
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - h: The hive to operate on
+//   - plan: The plan to apply (used for size-based mode selection)
+//   - opt: Session options including IndexMode and IndexThreshold
+//
+// Returns a session optimized for the given plan characteristics.
+//
+// Example:
+//
+//	plan := merge.NewPlan()
+//	plan.AddSetValue([]string{"Software", "Test"}, "Version", 1, []byte("1.0\x00"))
+//	session, err := merge.NewSessionForPlan(ctx, h, plan, merge.DefaultOptions())
+//	if err != nil {
+//	    return err
+//	}
+//	defer session.Close(ctx)
+//	applied, err := session.ApplyPlanDirect(ctx, plan)
+func NewSessionForPlan(ctx context.Context, h *hive.Hive, plan *Plan, opt Options) (*Session, error) {
+	mode := opt.IndexMode
+	threshold := opt.IndexThreshold
+	if threshold == 0 {
+		threshold = DefaultIndexThreshold
+	}
+
+	// Auto mode: use single-pass for small plans
+	if mode == IndexModeAuto && plan != nil {
+		if len(plan.Ops) < threshold {
+			mode = IndexModeSinglePass
+		} else {
+			mode = IndexModeFull
+		}
+	}
+
+	switch mode {
+	case IndexModeSinglePass:
+		return newNoIndexSession(ctx, h, opt)
+	default:
+		return NewSession(ctx, h, opt) // builds full index
+	}
+}
+
+// newNoIndexSession creates a session without building a full index.
+// This is used for single-pass walk-apply mode where index build overhead
+// would dominate the operation time.
+//
+// The session has idx=nil, which indicates single-pass mode.
+// Use ApplyPlanDirect() to apply plans in this mode.
+func newNoIndexSession(ctx context.Context, h *hive.Hive, opt Options) (*Session, error) {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// Create dirty tracker
+	dt := dirty.NewTracker(h)
+
+	// Create allocator with dirty tracker
+	allocator, err := alloc.NewFast(h, dt, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create allocator: %w", err)
+	}
+
+	// Create transaction manager
+	txMgr := tx.NewManager(h, dt, opt.Flush)
+
+	return &Session{
+		h:        h,
+		opt:      opt,
+		txMgr:    txMgr,
+		dt:       dt,
+		idx:      nil, // No index in single-pass mode
+		alloc:    allocator,
+		strategy: nil, // Use ApplyPlanDirect instead of strategy
+	}, nil
+}
+
+// ApplyPlanDirect applies a plan using single-pass walk-apply.
+//
+// This method is optimal for small-medium plans where full index build
+// overhead would dominate. It sorts operations by path and applies them
+// during a single DFS traversal of the tree, with subtree pruning to
+// skip irrelevant branches.
+//
+// Use this method when the session was created with IndexModeSinglePass
+// or when you explicitly want single-pass behavior regardless of session mode.
+//
+// The operation is wrapped in a transaction (Begin/Commit/Rollback).
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - plan: The plan to apply
+//
+// Returns Applied statistics about what changed.
+//
+// Example:
+//
+//	session, _ := merge.NewSessionForPlan(ctx, h, plan, opts)
+//	defer session.Close(ctx)
+//	applied, err := session.ApplyPlanDirect(ctx, plan)
+func (s *Session) ApplyPlanDirect(ctx context.Context, plan *Plan) (Applied, error) {
+	// Begin transaction
+	if err := s.Begin(ctx); err != nil {
+		return Applied{}, fmt.Errorf("begin: %w", err)
+	}
+
+	// Create walk-apply session and apply
+	was := newWalkApplySession(s.h, s.alloc, s.dt)
+	result, err := was.ApplyPlan(ctx, plan)
+	if err != nil {
+		s.Rollback()
+		return result, fmt.Errorf("apply: %w", err)
+	}
+
+	// Commit
+	if commitErr := s.Commit(ctx); commitErr != nil {
+		return result, fmt.Errorf("commit: %w", commitErr)
+	}
+
+	return result, nil
+}
+
+// IsSinglePassMode returns true if this session is in single-pass mode.
+//
+// In single-pass mode, the session has no index and should use
+// ApplyPlanDirect() instead of Apply() or ApplyWithTx().
+func (s *Session) IsSinglePassMode() bool {
+	return s.idx == nil
+}

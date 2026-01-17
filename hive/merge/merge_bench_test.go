@@ -275,3 +275,6 @@ func Benchmark_Executor_MixedOperations(b *testing.B) {
 		}
 	}
 }
+
+// Note: IndexMode comparison benchmark moved to a separate package
+// to avoid import cycles with hive/builder.
