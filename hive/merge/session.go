@@ -44,14 +44,26 @@ type Session struct {
 
 // NewSession creates a merge session for the given hive with the specified options.
 //
-// This function builds an index from the existing hive structure using a walker.
-// For large hives, this may take some time (target: <100ms for 10K keys).
+// This function builds an index from the existing hive structure using a walker,
+// unless IndexMode is explicitly set to IndexModeSinglePass.
 //
-// The context can be used to cancel index building for large hives.
+// IndexMode behavior:
+//   - IndexModeSinglePass: Creates a no-index session for single-pass walk-apply
+//   - IndexModeFull: Always builds full index
+//   - IndexModeAuto: Builds full index (no plan available to determine size)
+//
+// For large hives, index building may take some time (target: <100ms for 10K keys).
+// The context can be used to cancel index building.
 //
 // If you already have an index built, use NewSessionWithIndex instead.
+// If you have a plan and want auto-selection, use NewSessionForPlan instead.
 func NewSession(ctx context.Context, h *hive.Hive, opt Options) (*Session, error) {
-	// Build index using walker with configurable index kind
+	// If explicitly single-pass mode, create no-index session
+	if opt.IndexMode == IndexModeSinglePass {
+		return newNoIndexSession(ctx, h, opt)
+	}
+
+	// Otherwise build full index (IndexModeFull or IndexModeAuto without plan)
 	builder := walker.NewIndexBuilderWithKind(h, defaultIndexCapacity, defaultIndexCapacity, opt.IndexKind)
 	idx, err := builder.Build(ctx)
 	if err != nil {
@@ -232,6 +244,9 @@ func (s *Session) applyOp(ctx context.Context, op *Op, result *Applied) error {
 // This is the recommended way to apply a plan if you don't need manual
 // transaction control. If Apply fails, Rollback is called automatically.
 //
+// If the session is in single-pass mode (IndexModeSinglePass), this method
+// automatically uses ApplyPlanDirect() for optimal performance.
+//
 // The context can be used to cancel the entire operation (begin, apply, commit).
 //
 // Example:
@@ -240,6 +255,11 @@ func (s *Session) applyOp(ctx context.Context, op *Op, result *Applied) error {
 //	plan.AddSetValue([]string{"Software", "Test"}, "Version", 1, []byte("1.0\x00"))
 //	applied, err := session.ApplyWithTx(ctx, plan)
 func (s *Session) ApplyWithTx(ctx context.Context, plan *Plan) (Applied, error) {
+	// Use single-pass mode if session is in that mode
+	if s.IsSinglePassMode() {
+		return s.ApplyPlanDirect(ctx, plan)
+	}
+
 	// Begin transaction
 	if err := s.Begin(ctx); err != nil {
 		return Applied{}, fmt.Errorf("begin: %w", err)

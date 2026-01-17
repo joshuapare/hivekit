@@ -68,6 +68,12 @@ func MergeRegTextWithPrefix(ctx context.Context, hivePath string, regText string
 		return Applied{}, err
 	}
 
+	// Use default options if nil
+	if opts == nil {
+		defaultOpts := DefaultOptions()
+		opts = &defaultOpts
+	}
+
 	// Open hive
 	h, err := hive.Open(hivePath)
 	if err != nil {
@@ -75,17 +81,14 @@ func MergeRegTextWithPrefix(ctx context.Context, hivePath string, regText string
 	}
 	defer h.Close()
 
-	// Create session with provided options
-	if opts == nil {
-		opts = &Options{}
-	}
-	sess, err := NewSession(ctx, h, *opts)
+	// Create plan-aware session (mode selected based on plan size and IndexMode)
+	sess, err := NewSessionForPlan(ctx, h, plan, *opts)
 	if err != nil {
 		return Applied{}, fmt.Errorf("create session: %w", err)
 	}
 	defer sess.Close(ctx)
 
-	// Apply plan
+	// Apply plan (ApplyWithTx auto-selects single-pass or full-index mode)
 	result, err := sess.ApplyWithTx(ctx, plan)
 	if err != nil {
 		return result, fmt.Errorf("apply operations: %w", err)
