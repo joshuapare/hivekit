@@ -3,6 +3,7 @@ package merge
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/index"
 	"github.com/joshuapare/hivekit/hive/walker"
 	"github.com/joshuapare/hivekit/internal/format"
 )
@@ -2000,7 +2002,235 @@ func Test_Session_ApplyRegText_RespectsIndexMode(t *testing.T) {
 	t.Log("Session.ApplyRegText works with IndexModeSinglePass")
 }
 
-// Test 46: MergeRegText uses single-pass mode for small regtext.
+// Test 46: HasKey and HasKeys work in single-pass mode.
+func Test_Session_HasKey_SinglePassMode(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "haskey-single-pass-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with explicit single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	session, err := NewSession(ctx, h, opts)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	defer session.Close(ctx)
+
+	// Verify single-pass mode is active (idx is nil)
+	if !session.IsSinglePassMode() {
+		t.Fatal("Session should be in single-pass mode")
+	}
+
+	// First, create a test key using single-pass apply
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_HasKeySinglePassTest", "SubKey"})
+	plan.AddSetValue([]string{"_HasKeySinglePassTest", "SubKey"}, "Val", format.REGDWORD, []byte{1, 0, 0, 0})
+
+	applied, err := session.ApplyWithTx(ctx, plan)
+	if err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+	t.Logf("Applied: %d keys created, %d values set", applied.KeysCreated, applied.ValuesSet)
+
+	// Test HasKey in single-pass mode (uses tree walking)
+	if !session.HasKey("_HasKeySinglePassTest") {
+		t.Error("HasKey should find _HasKeySinglePassTest in single-pass mode")
+	}
+	if !session.HasKey("_HasKeySinglePassTest\\SubKey") {
+		t.Error("HasKey should find _HasKeySinglePassTest\\SubKey in single-pass mode")
+	}
+	if session.HasKey("_HasKeySinglePassTest\\NonExistent") {
+		t.Error("HasKey should NOT find _HasKeySinglePassTest\\NonExistent")
+	}
+
+	// Test HasKeys in single-pass mode
+	result, err := session.HasKeys(ctx,
+		"_HasKeySinglePassTest",
+		"_HasKeySinglePassTest\\SubKey",
+		"_HasKeySinglePassTest\\NonExistent",
+	)
+	if err != nil {
+		t.Fatalf("HasKeys failed: %v", err)
+	}
+
+	if len(result.Present) != 2 {
+		t.Errorf("Expected 2 present keys, got %d: %v", len(result.Present), result.Present)
+	}
+	if len(result.Missing) != 1 {
+		t.Errorf("Expected 1 missing key, got %d: %v", len(result.Missing), result.Missing)
+	}
+	if result.AllPresent {
+		t.Error("AllPresent should be false")
+	}
+
+	t.Log("HasKey and HasKeys work correctly in single-pass mode")
+}
+
+// Test 47: All session methods work without panic in single-pass mode.
+func Test_Session_SinglePassMode_NoPanics(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "single-pass-no-panic-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with explicit single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	session, err := NewSession(ctx, h, opts)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	defer session.Close(ctx)
+
+	// Verify single-pass mode
+	if !session.IsSinglePassMode() {
+		t.Fatal("Session should be in single-pass mode")
+	}
+
+	// Test Index() - should return nil without panic
+	idx := session.Index()
+	if idx != nil {
+		t.Error("Index() should return nil in single-pass mode")
+	}
+
+	// Test HasKey() - should work without panic
+	exists := session.HasKey("ControlSet001")
+	t.Logf("HasKey('ControlSet001'): %v", exists)
+
+	// Test HasKeys() - should work without panic
+	result, err := session.HasKeys(ctx, "ControlSet001", "NonExistent")
+	if err != nil {
+		t.Errorf("HasKeys failed: %v", err)
+	}
+	t.Logf("HasKeys result: Present=%v, Missing=%v", result.Present, result.Missing)
+
+	// Test EnableDeferredMode() - should be no-op without panic
+	session.EnableDeferredMode()
+
+	// Test DisableDeferredMode() - should return nil without panic
+	if err := session.DisableDeferredMode(); err != nil {
+		t.Errorf("DisableDeferredMode failed: %v", err)
+	}
+
+	// Test FlushDeferredSubkeys() - should return (0, nil) without panic
+	count, err := session.FlushDeferredSubkeys()
+	if err != nil {
+		t.Errorf("FlushDeferredSubkeys failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("FlushDeferredSubkeys should return 0 in single-pass mode, got %d", count)
+	}
+
+	// Test GetStorageStats() - should work without panic
+	stats := session.GetStorageStats()
+	if stats.FileSize == 0 {
+		t.Error("GetStorageStats().FileSize should be non-zero")
+	}
+	t.Logf("StorageStats: FileSize=%d, UsedBytes=%d", stats.FileSize, stats.UsedBytes)
+
+	// Test GetEfficiencyStats() - should work without panic
+	effStats := session.GetEfficiencyStats()
+	t.Logf("EfficiencyStats: TotalCapacity=%d", effStats.TotalCapacity)
+
+	// Test GetHiveStats() - should work without panic
+	hiveStats := session.GetHiveStats()
+	t.Logf("HiveStats: FileSize=%d", hiveStats.Storage.FileSize)
+
+	// Test Apply() - should return error (not panic) in single-pass mode
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_TestKey"})
+	_, err = session.Apply(ctx, plan)
+	if err == nil {
+		t.Error("Apply() should return error in single-pass mode")
+	} else {
+		t.Logf("Apply() correctly returned error: %v", err)
+	}
+
+	// Test ApplyWithTx() - should work (uses ApplyPlanDirect internally)
+	plan2 := NewPlan()
+	plan2.AddEnsureKey([]string{"_NoPanicTest"})
+	plan2.AddSetValue([]string{"_NoPanicTest"}, "Val", format.REGDWORD, []byte{1, 0, 0, 0})
+	applied, err := session.ApplyWithTx(ctx, plan2)
+	if err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+	t.Logf("ApplyWithTx: KeysCreated=%d, ValuesSet=%d", applied.KeysCreated, applied.ValuesSet)
+
+	// Test ApplyPlanDirect() - should work without panic
+	plan3 := NewPlan()
+	plan3.AddEnsureKey([]string{"_NoPanicTest2"})
+	applied2, err := session.ApplyPlanDirect(ctx, plan3)
+	if err != nil {
+		t.Fatalf("ApplyPlanDirect failed: %v", err)
+	}
+	t.Logf("ApplyPlanDirect: KeysCreated=%d", applied2.KeysCreated)
+
+	// Test WalkKeys() - should work without panic
+	keyCount := 0
+	err = session.WalkKeys(ctx, func(info KeyInfo) error {
+		keyCount++
+		if keyCount > 10 {
+			return walker.ErrStopWalk
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("WalkKeys failed: %v", err)
+	}
+	t.Logf("WalkKeys: counted %d keys (stopped at 10)", keyCount)
+
+	t.Log("All session methods work without panic in single-pass mode")
+}
+
+// Test 48: MergeRegText uses single-pass mode for small regtext.
 func Test_MergeRegText_UsesSinglePassMode(t *testing.T) {
 	testHivePath := "../../testdata/suite/windows-2003-server-system"
 
@@ -2064,4 +2294,317 @@ func Test_MergeRegText_UsesSinglePassMode(t *testing.T) {
 	}
 
 	t.Log("MergeRegText successfully applied regtext (single-pass mode for small plans)")
+}
+
+// Test 49: Verify sibling values are not corrupted in single-pass mode.
+// This test specifically guards against the Go slice append bug where
+// append(currentPath, childName) can reuse the underlying array,
+// causing path corruption between sibling nodes during tree walking.
+func Test_SinglePassMode_SiblingValueCorrectness(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "sibling-correctness-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	// Create multiple sibling keys with distinct DWORD values.
+	// If slice corruption occurs, values will be written to wrong keys.
+	// Using explicit hex values that are easy to verify.
+	regText := `Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\_SiblingTest\Alpha]
+"Value"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\_SiblingTest\Beta]
+"Value"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\_SiblingTest\Gamma]
+"Value"=dword:00000003
+
+[HKEY_LOCAL_MACHINE\_SiblingTest\Delta]
+"Value"=dword:00000004
+
+[HKEY_LOCAL_MACHINE\_SiblingTest\Epsilon]
+"Value"=dword:00000005
+`
+
+	// Force single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	applied, err := MergeRegText(ctx, tempHivePath, regText, &opts)
+	if err != nil {
+		t.Fatalf("MergeRegText failed: %v", err)
+	}
+
+	// Verify 5 sibling keys created (plus parent), 5 values set
+	if applied.KeysCreated != 6 {
+		t.Errorf("Expected 6 keys created (parent + 5 siblings), got %d", applied.KeysCreated)
+	}
+	if applied.ValuesSet != 5 {
+		t.Errorf("Expected 5 values set, got %d", applied.ValuesSet)
+	}
+
+	// Re-open and verify each sibling has the correct value
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to reopen hive: %v", err)
+	}
+	defer h.Close()
+
+	// Build full index to read values (we're verifying correctness, not testing single-pass)
+	fullOpts := DefaultOptions()
+	fullOpts.IndexMode = IndexModeFull
+	sess, err := NewSession(ctx, h, fullOpts)
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer sess.Close(ctx)
+
+	// Expected values for each sibling
+	expectedValues := map[string]uint32{
+		"_SiblingTest\\Alpha":   1,
+		"_SiblingTest\\Beta":    2,
+		"_SiblingTest\\Gamma":   3,
+		"_SiblingTest\\Delta":   4,
+		"_SiblingTest\\Epsilon": 5,
+	}
+
+	rootOffset := h.RootCellOffset()
+	errCount := 0
+	for keyPath, expectedDword := range expectedValues {
+		// Get the key reference
+		keyParts := strings.Split(keyPath, "\\")
+		nkRef, exists := index.WalkPath(sess.idx, rootOffset, keyParts...)
+		if !exists {
+			t.Errorf("Key %s should exist but doesn't", keyPath)
+			errCount++
+			continue
+		}
+
+		// Read the value - GetVK returns (vkOffset, ok)
+		vkOff, found := sess.idx.GetVK(nkRef, "value") // lowercase for case-insensitive lookup
+		if !found {
+			t.Errorf("Value 'Value' not found at key %s", keyPath)
+			errCount++
+			continue
+		}
+
+		// Parse the VK cell to get the DWORD value
+		vkPayload, resolveErr := h.ResolveCellPayload(vkOff)
+		if resolveErr != nil {
+			t.Errorf("Failed to resolve VK payload for %s: %v", keyPath, resolveErr)
+			errCount++
+			continue
+		}
+
+		vk, parseErr := hive.ParseVK(vkPayload)
+		if parseErr != nil {
+			t.Errorf("Failed to parse VK for %s: %v", keyPath, parseErr)
+			errCount++
+			continue
+		}
+
+		data, dataErr := vk.Data(h.Bytes())
+		if dataErr != nil {
+			t.Errorf("Failed to read value data for %s: %v", keyPath, dataErr)
+			errCount++
+			continue
+		}
+
+		if len(data) < 4 {
+			t.Errorf("Value data too short for %s: got %d bytes", keyPath, len(data))
+			errCount++
+			continue
+		}
+
+		actualDword := binary.LittleEndian.Uint32(data[:4])
+		if actualDword != expectedDword {
+			t.Errorf("CRITICAL: Value mismatch at %s: expected %d, got %d (sibling corruption!)",
+				keyPath, expectedDword, actualDword)
+			errCount++
+		}
+	}
+
+	if errCount == 0 {
+		t.Log("All sibling values are correct - no slice corruption detected")
+	} else {
+		t.Fatalf("Detected %d value corruption errors - slice append bug may be present", errCount)
+	}
+}
+
+// Test 50: Verify nested sibling paths don't get corrupted across multiple levels.
+// This tests deeper nesting to catch potential corruption in multi-level recursion.
+func Test_SinglePassMode_NestedSiblingCorrectness(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "nested-sibling-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	// Create a tree with multiple levels, each with siblings.
+	// The path depth increases risk of slice capacity reuse.
+	regText := `Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level1\SubA]
+"ID"=dword:0000000A
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level1\SubB]
+"ID"=dword:0000000B
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level1\SubC]
+"ID"=dword:0000000C
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level2\SubA]
+"ID"=dword:0000001A
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level2\SubB]
+"ID"=dword:0000001B
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level2\SubC]
+"ID"=dword:0000001C
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level1\SubA\Deep1]
+"ID"=dword:000000D1
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level1\SubA\Deep2]
+"ID"=dword:000000D2
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level1\SubB\Deep1]
+"ID"=dword:000000E1
+
+[HKEY_LOCAL_MACHINE\_NestedTest\Level1\SubB\Deep2]
+"ID"=dword:000000E2
+`
+
+	// Force single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	applied, err := MergeRegText(ctx, tempHivePath, regText, &opts)
+	if err != nil {
+		t.Fatalf("MergeRegText failed: %v", err)
+	}
+
+	t.Logf("Applied: %d keys created, %d values set", applied.KeysCreated, applied.ValuesSet)
+
+	// Re-open and verify each key has the correct value
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to reopen hive: %v", err)
+	}
+	defer h.Close()
+
+	fullOpts := DefaultOptions()
+	fullOpts.IndexMode = IndexModeFull
+	sess, err := NewSession(ctx, h, fullOpts)
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer sess.Close(ctx)
+
+	// Expected values for each path
+	expectedValues := map[string]uint32{
+		"_NestedTest\\Level1\\SubA":        0x0A,
+		"_NestedTest\\Level1\\SubB":        0x0B,
+		"_NestedTest\\Level1\\SubC":        0x0C,
+		"_NestedTest\\Level2\\SubA":        0x1A,
+		"_NestedTest\\Level2\\SubB":        0x1B,
+		"_NestedTest\\Level2\\SubC":        0x1C,
+		"_NestedTest\\Level1\\SubA\\Deep1": 0xD1,
+		"_NestedTest\\Level1\\SubA\\Deep2": 0xD2,
+		"_NestedTest\\Level1\\SubB\\Deep1": 0xE1,
+		"_NestedTest\\Level1\\SubB\\Deep2": 0xE2,
+	}
+
+	rootOffset := h.RootCellOffset()
+	errCount := 0
+	for keyPath, expectedDword := range expectedValues {
+		keyParts := strings.Split(keyPath, "\\")
+		nkRef, exists := index.WalkPath(sess.idx, rootOffset, keyParts...)
+		if !exists {
+			t.Errorf("Key %s should exist but doesn't", keyPath)
+			errCount++
+			continue
+		}
+
+		// Read the value - GetVK returns (vkOffset, ok)
+		vkOff, found := sess.idx.GetVK(nkRef, "id") // lowercase for case-insensitive lookup
+		if !found {
+			t.Errorf("Value 'ID' not found at key %s", keyPath)
+			errCount++
+			continue
+		}
+
+		// Parse the VK cell to get the DWORD value
+		vkPayload, resolveErr := h.ResolveCellPayload(vkOff)
+		if resolveErr != nil {
+			t.Errorf("Failed to resolve VK payload for %s: %v", keyPath, resolveErr)
+			errCount++
+			continue
+		}
+
+		vk, parseErr := hive.ParseVK(vkPayload)
+		if parseErr != nil {
+			t.Errorf("Failed to parse VK for %s: %v", keyPath, parseErr)
+			errCount++
+			continue
+		}
+
+		data, dataErr := vk.Data(h.Bytes())
+		if dataErr != nil {
+			t.Errorf("Failed to read value data for %s: %v", keyPath, dataErr)
+			errCount++
+			continue
+		}
+
+		if len(data) < 4 {
+			t.Errorf("Value data too short for %s: got %d bytes", keyPath, len(data))
+			errCount++
+			continue
+		}
+
+		actualDword := binary.LittleEndian.Uint32(data[:4])
+		if actualDword != expectedDword {
+			t.Errorf("CRITICAL: Value mismatch at %s: expected 0x%X, got 0x%X (path corruption!)",
+				keyPath, expectedDword, actualDword)
+			errCount++
+		}
+	}
+
+	if errCount == 0 {
+		t.Log("All nested sibling values are correct - no path corruption detected")
+	} else {
+		t.Fatalf("Detected %d value corruption errors in nested siblings", errCount)
+	}
 }

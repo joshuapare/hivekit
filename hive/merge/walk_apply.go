@@ -149,7 +149,9 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, curren
 	// Walk children, but only those with pending ops (pruning)
 	return walker.WalkSubkeysCtx(ctx, wa.h, nkOffset, func(childNK hive.NK, childRef uint32) error {
 		childName := string(childNK.Name())
-		childPath := append(currentPath, childName)
+		// CRITICAL: Make a copy of the slice to avoid sharing underlying array
+		// between siblings. Using append with capacity limit forces allocation.
+		childPath := append(currentPath[:len(currentPath):len(currentPath)], childName)
 		childPathKey := normalizePath(childPath)
 
 		// PRUNING: Skip subtree if no ops target it or its descendants
@@ -468,7 +470,9 @@ func (was *walkApplySession) walkAndIndex(ctx context.Context, nkOffset uint32, 
 	if currentPath == nil {
 		thisPath = []string{name}
 	} else {
-		thisPath = append(currentPath, name)
+		// CRITICAL: Make a copy of the slice to avoid sharing underlying array
+		// between siblings. Using append with capacity limit forces allocation.
+		thisPath = append(currentPath[:len(currentPath):len(currentPath)], name)
 	}
 
 	pathKey := normalizePath(thisPath)

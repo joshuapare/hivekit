@@ -171,7 +171,15 @@ func (s *Session) Rollback() {
 // operations may have been applied.
 //
 // Returns Applied statistics (keys created, values set, etc.).
+//
+// Note: This method requires full-index mode. In single-pass mode, use
+// ApplyPlanDirect() or ApplyWithTx() which auto-selects the correct method.
 func (s *Session) Apply(ctx context.Context, plan *Plan) (Applied, error) {
+	// Guard against single-pass mode where strategy is nil
+	if s.IsSinglePassMode() {
+		return Applied{}, fmt.Errorf("Apply() requires full-index mode; use ApplyPlanDirect() or ApplyWithTx() for single-pass mode")
+	}
+
 	var result Applied
 
 	// Apply each operation in the plan
@@ -327,6 +335,9 @@ func (s *Session) ApplyRegText(ctx context.Context, regText string) (Applied, er
 //
 // You can use this to query keys/values that exist in the hive.
 // The index is kept up-to-date as operations are applied.
+//
+// Note: In single-pass mode (IndexModeSinglePass), this returns nil.
+// Use HasKey/HasKeys methods instead, which work in both modes.
 func (s *Session) Index() index.Index {
 	return s.idx
 }
@@ -335,7 +346,14 @@ func (s *Session) Index() index.Index {
 // This dramatically improves performance by eliminating expensive read-modify-write cycles.
 // Supported by InPlace and Append strategies (any strategy that embeds strategy.Base).
 // Must be followed by FlushDeferredSubkeys before committing.
+//
+// Note: This is a no-op in single-pass mode (no strategy available).
 func (s *Session) EnableDeferredMode() {
+	// Guard against single-pass mode where strategy is nil
+	if s.strategy == nil {
+		return // No-op in single-pass mode
+	}
+
 	// Type-assert to access Base methods
 	// Both InPlace and Append embed Base, so this works for both
 	if ip, ok := s.strategy.(*strategy.InPlace); ok {
@@ -348,7 +366,14 @@ func (s *Session) EnableDeferredMode() {
 
 // DisableDeferredMode disables deferred subkey list building.
 // Returns an error if there are pending deferred updates.
+//
+// Note: Returns nil in single-pass mode (no strategy available).
 func (s *Session) DisableDeferredMode() error {
+	// Guard against single-pass mode where strategy is nil
+	if s.strategy == nil {
+		return nil // No-op in single-pass mode
+	}
+
 	if ip, ok := s.strategy.(*strategy.InPlace); ok {
 		return ip.DisableDeferredMode()
 	} else if ap, ok := s.strategy.(*strategy.Append); ok {
@@ -359,7 +384,14 @@ func (s *Session) DisableDeferredMode() error {
 
 // FlushDeferredSubkeys writes all accumulated deferred children to disk.
 // Returns the number of parents flushed and any error encountered.
+//
+// Note: Returns (0, nil) in single-pass mode (no strategy available).
 func (s *Session) FlushDeferredSubkeys() (int, error) {
+	// Guard against single-pass mode where strategy is nil
+	if s.strategy == nil {
+		return 0, nil // No-op in single-pass mode
+	}
+
 	if ip, ok := s.strategy.(*strategy.InPlace); ok {
 		return ip.FlushDeferredSubkeys()
 	} else if ap, ok := s.strategy.(*strategy.Append); ok {
@@ -592,6 +624,10 @@ type KeyCheckResult struct {
 //	if !result.AllPresent {
 //	    fmt.Printf("Missing keys: %v\n", result.Missing)
 //	}
+//
+// This method works in both full-index and single-pass modes.
+// In full-index mode, uses O(1) index lookup.
+// In single-pass mode, walks the tree directly.
 func (s *Session) HasKeys(ctx context.Context, keyPaths ...string) (KeyCheckResult, error) {
 	// Check for cancellation before starting
 	if err := ctx.Err(); err != nil {
@@ -612,9 +648,17 @@ func (s *Session) HasKeys(ctx context.Context, keyPaths ...string) (KeyCheckResu
 			return result, err
 		}
 
-		// Split path and check via index
+		// Split path and check existence
 		parts := strings.Split(keyPath, "\\")
-		_, exists := index.WalkPath(s.idx, rootOffset, parts...)
+		var exists bool
+
+		if s.idx != nil {
+			// Full-index mode: use index for O(1) lookup
+			_, exists = index.WalkPath(s.idx, rootOffset, parts...)
+		} else {
+			// Single-pass mode: walk the tree directly
+			exists = s.walkPathExists(rootOffset, parts)
+		}
 
 		if exists {
 			result.Present = append(result.Present, keyPath)
@@ -632,11 +676,66 @@ func (s *Session) HasKeys(ctx context.Context, keyPaths ...string) (KeyCheckResu
 // The key path should be a backslash-separated string
 // (e.g., "Software\\Microsoft\\Windows").
 //
-// This method uses the index for O(1) lookup.
+// This method works in both full-index and single-pass modes.
+// In full-index mode, uses O(1) index lookup.
+// In single-pass mode, walks the tree directly.
 func (s *Session) HasKey(keyPath string) bool {
 	parts := strings.Split(keyPath, "\\")
-	_, exists := index.WalkPath(s.idx, s.h.RootCellOffset(), parts...)
-	return exists
+	rootOffset := s.h.RootCellOffset()
+
+	if s.idx != nil {
+		// Full-index mode: use index for O(1) lookup
+		_, exists := index.WalkPath(s.idx, rootOffset, parts...)
+		return exists
+	}
+
+	// Single-pass mode: walk the tree directly
+	return s.walkPathExists(rootOffset, parts)
+}
+
+// walkPathExists walks the tree directly to check if a path exists.
+// Used in single-pass mode when no index is available.
+func (s *Session) walkPathExists(nkOffset uint32, pathParts []string) bool {
+	if len(pathParts) == 0 {
+		return true // Empty path = root exists
+	}
+
+	current := nkOffset
+
+	for _, part := range pathParts {
+		// Get current NK
+		payload, err := s.h.ResolveCellPayload(current)
+		if err != nil {
+			return false
+		}
+
+		nk, err := hive.ParseNK(payload)
+		if err != nil {
+			return false
+		}
+
+		// Find matching subkey
+		found := false
+		if nk.SubkeyCount() > 0 {
+			err = walker.WalkSubkeysCtx(context.Background(), s.h, current, func(childNK hive.NK, childRef uint32) error {
+				if strings.EqualFold(string(childNK.Name()), part) {
+					current = childRef
+					found = true
+					return walker.ErrStopWalk
+				}
+				return nil
+			})
+			if err != nil && err != walker.ErrStopWalk {
+				return false
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Close cleans up resources used by the session.
