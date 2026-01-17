@@ -39,6 +39,35 @@ const (
 	StrategyHybrid
 )
 
+// IndexMode controls how path lookups are performed during merge operations.
+type IndexMode int
+
+const (
+	// IndexModeAuto selects single-pass or full index based on plan characteristics.
+	// For small plans (< IndexThreshold operations), uses single-pass walk-apply.
+	// For large plans, builds a full index upfront.
+	// Default mode, recommended for most use cases.
+	IndexModeAuto IndexMode = iota
+
+	// IndexModeFull always builds full index upfront (traditional behavior).
+	// Best for: Large plans with many operations, or when you need the index
+	// for post-merge queries (e.g., HasKey).
+	IndexModeFull
+
+	// IndexModeSinglePass uses single-pass walk-apply (no index build).
+	// Best for: Small plans where index build overhead dominates.
+	// Operations are sorted by path and applied during a single DFS traversal,
+	// with subtree pruning to skip irrelevant branches.
+	IndexModeSinglePass
+)
+
+const (
+	// DefaultIndexThreshold is the default ops threshold for Auto mode.
+	// Plans with fewer operations use single-pass walk-apply.
+	// Plans with more operations build a full index.
+	DefaultIndexThreshold = 100
+)
+
 const (
 	// defaultGrowChunkShift is the bit shift for default HBIN growth chunk (1 << 20 = 1MB).
 	defaultGrowChunkShift = 20
@@ -120,6 +149,18 @@ type Options struct {
 	// Default: index.IndexNumeric (zero-allocation, faster)
 	// Alternative: index.IndexString (traditional, useful for debugging)
 	IndexKind index.IndexKind
+
+	// IndexMode controls how path lookups are performed during merge operations.
+	// Default: IndexModeAuto (selects based on plan size)
+	// See IndexMode constants for details.
+	IndexMode IndexMode
+
+	// IndexThreshold is the ops threshold for Auto mode.
+	// Plans with fewer operations use single-pass walk-apply.
+	// Plans with more operations build a full index.
+	// Default: 100
+	// Only used when IndexMode is IndexModeAuto.
+	IndexThreshold int
 }
 
 // DefaultOptions returns production-ready defaults optimized for general use.
@@ -141,5 +182,7 @@ func DefaultOptions() Options {
 		HybridSlackPct:   defaultHybridSlackPct,
 		CompactThreshold: defaultCompactThreshold,
 		IndexKind:        index.IndexNumeric, // zero-allocation, faster
+		IndexMode:        IndexModeAuto,      // auto-select based on plan size
+		IndexThreshold:   DefaultIndexThreshold,
 	}
 }

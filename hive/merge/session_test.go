@@ -1595,3 +1595,473 @@ func Test_Session_ApplyRegTextWithPrefix_HKEYStripping(t *testing.T) {
 		t.Error("Key _HKEYTest\\TestKey should exist (HKLM\\ should be stripped)")
 	}
 }
+
+// Test 41: Single-pass mode works correctly.
+func Test_Session_SinglePassMode(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "single-pass-test-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	// Create a small plan (should trigger single-pass mode with IndexModeAuto)
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_SinglePassTest", "SubKey"})
+	plan.AddSetValue([]string{"_SinglePassTest", "SubKey"}, "TestValue", format.REGSZ, []byte("hello\x00"))
+
+	ctx := context.Background()
+
+	// Open hive
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session for plan with explicit single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	session, err := NewSessionForPlan(ctx, h, plan, opts)
+	if err != nil {
+		t.Fatalf("NewSessionForPlan failed: %v", err)
+	}
+	defer session.Close(ctx)
+
+	// Verify single-pass mode is active
+	if !session.IsSinglePassMode() {
+		t.Error("Session should be in single-pass mode")
+	}
+
+	// Apply plan using single-pass direct method
+	applied, err := session.ApplyPlanDirect(ctx, plan)
+	if err != nil {
+		t.Fatalf("ApplyPlanDirect failed: %v", err)
+	}
+
+	// Verify results
+	if applied.KeysCreated != 2 {
+		t.Errorf("Expected 2 keys created, got %d", applied.KeysCreated)
+	}
+	if applied.ValuesSet != 1 {
+		t.Errorf("Expected 1 value set, got %d", applied.ValuesSet)
+	}
+
+	// GetStorageStats should work in single-pass mode
+	stats := session.GetStorageStats()
+	if stats.FileSize == 0 {
+		t.Error("FileSize should be non-zero")
+	}
+	if stats.UsedBytes == 0 {
+		t.Error("UsedBytes should be non-zero")
+	}
+
+	t.Logf("Single-pass mode: Keys=%d, Values=%d, FileSize=%d, UsedBytes=%d",
+		applied.KeysCreated, applied.ValuesSet, stats.FileSize, stats.UsedBytes)
+}
+
+// Test 42: Auto index mode selects single-pass for small plans.
+func Test_Session_AutoIndexMode(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "auto-mode-test-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	// Open hive
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Small plan (< threshold) should use single-pass
+	smallPlan := NewPlan()
+	smallPlan.AddEnsureKey([]string{"_AutoTest"})
+	smallPlan.AddSetValue([]string{"_AutoTest"}, "Val", format.REGDWORD, []byte{1, 0, 0, 0})
+
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeAuto
+	opts.IndexThreshold = 10 // Threshold of 10 ops
+
+	session, err := NewSessionForPlan(ctx, h, smallPlan, opts)
+	if err != nil {
+		t.Fatalf("NewSessionForPlan failed: %v", err)
+	}
+	defer session.Close(ctx)
+
+	// Small plan should trigger single-pass mode
+	if !session.IsSinglePassMode() {
+		t.Error("Small plan should trigger single-pass mode in Auto mode")
+	}
+
+	t.Log("Auto mode correctly selected single-pass for small plan")
+}
+
+// Test 43: Explicit IndexMode overrides auto-selection.
+func Test_Session_ExplicitIndexModeOverride(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	t.Run("ForceFull_SmallPlan", func(t *testing.T) {
+		// Copy to temp directory
+		tempHivePath := filepath.Join(t.TempDir(), "force-full-hive")
+		src, err := os.Open(testHivePath)
+		if err != nil {
+			t.Skipf("Test hive not found: %v", err)
+		}
+		defer src.Close()
+
+		dst, err := os.Create(tempHivePath)
+		if err != nil {
+			t.Fatalf("Failed to create temp hive: %v", err)
+		}
+		if _, copyErr := io.Copy(dst, src); copyErr != nil {
+			t.Fatalf("Failed to copy hive: %v", copyErr)
+		}
+		dst.Close()
+
+		ctx := context.Background()
+
+		h, err := hive.Open(tempHivePath)
+		if err != nil {
+			t.Fatalf("Failed to open hive: %v", err)
+		}
+		defer h.Close()
+
+		// Small plan that would normally use single-pass
+		smallPlan := NewPlan()
+		smallPlan.AddEnsureKey([]string{"_ForceFullTest"})
+
+		// Force full index mode explicitly
+		opts := DefaultOptions()
+		opts.IndexMode = IndexModeFull
+
+		session, err := NewSessionForPlan(ctx, h, smallPlan, opts)
+		if err != nil {
+			t.Fatalf("NewSessionForPlan failed: %v", err)
+		}
+		defer session.Close(ctx)
+
+		// Should NOT be single-pass mode because we forced full
+		if session.IsSinglePassMode() {
+			t.Error("Session should NOT be in single-pass mode when IndexModeFull is explicit")
+		}
+
+		t.Log("IndexModeFull correctly overrides auto-selection for small plan")
+	})
+
+	t.Run("ForceSinglePass_LargePlan", func(t *testing.T) {
+		// Copy to temp directory
+		tempHivePath := filepath.Join(t.TempDir(), "force-single-hive")
+		src, err := os.Open(testHivePath)
+		if err != nil {
+			t.Skipf("Test hive not found: %v", err)
+		}
+		defer src.Close()
+
+		dst, err := os.Create(tempHivePath)
+		if err != nil {
+			t.Fatalf("Failed to create temp hive: %v", err)
+		}
+		if _, copyErr := io.Copy(dst, src); copyErr != nil {
+			t.Fatalf("Failed to copy hive: %v", copyErr)
+		}
+		dst.Close()
+
+		ctx := context.Background()
+
+		h, err := hive.Open(tempHivePath)
+		if err != nil {
+			t.Fatalf("Failed to open hive: %v", err)
+		}
+		defer h.Close()
+
+		// Large plan that would normally use full index
+		largePlan := NewPlan()
+		for i := 0; i < 200; i++ { // > default threshold of 100
+			largePlan.AddEnsureKey([]string{"_ForceSingleTest", string(rune('A' + (i % 26)))})
+		}
+
+		// Force single-pass mode explicitly
+		opts := DefaultOptions()
+		opts.IndexMode = IndexModeSinglePass
+
+		session, err := NewSessionForPlan(ctx, h, largePlan, opts)
+		if err != nil {
+			t.Fatalf("NewSessionForPlan failed: %v", err)
+		}
+		defer session.Close(ctx)
+
+		// Should be single-pass mode because we forced it
+		if !session.IsSinglePassMode() {
+			t.Error("Session SHOULD be in single-pass mode when IndexModeSinglePass is explicit")
+		}
+
+		t.Log("IndexModeSinglePass correctly overrides auto-selection for large plan")
+	})
+}
+
+// Test 44: NewSession respects IndexModeSinglePass.
+func Test_NewSession_RespectsIndexMode(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	t.Run("SinglePassMode", func(t *testing.T) {
+		// Copy to temp directory
+		tempHivePath := filepath.Join(t.TempDir(), "newsession-single-pass-hive")
+		src, err := os.Open(testHivePath)
+		if err != nil {
+			t.Skipf("Test hive not found: %v", err)
+		}
+		defer src.Close()
+
+		dst, err := os.Create(tempHivePath)
+		if err != nil {
+			t.Fatalf("Failed to create temp hive: %v", err)
+		}
+		if _, copyErr := io.Copy(dst, src); copyErr != nil {
+			t.Fatalf("Failed to copy hive: %v", copyErr)
+		}
+		dst.Close()
+
+		ctx := context.Background()
+
+		h, err := hive.Open(tempHivePath)
+		if err != nil {
+			t.Fatalf("Failed to open hive: %v", err)
+		}
+		defer h.Close()
+
+		// Create session with explicit single-pass mode
+		opts := DefaultOptions()
+		opts.IndexMode = IndexModeSinglePass
+
+		session, err := NewSession(ctx, h, opts)
+		if err != nil {
+			t.Fatalf("NewSession failed: %v", err)
+		}
+		defer session.Close(ctx)
+
+		// Session should be in single-pass mode
+		if !session.IsSinglePassMode() {
+			t.Error("NewSession with IndexModeSinglePass should create single-pass session")
+		}
+
+		// ApplyWithTx should work in single-pass mode
+		plan := NewPlan()
+		plan.AddEnsureKey([]string{"_NewSessionSinglePassTest"})
+		plan.AddSetValue([]string{"_NewSessionSinglePassTest"}, "Val", format.REGDWORD, []byte{1, 0, 0, 0})
+
+		applied, err := session.ApplyWithTx(ctx, plan)
+		if err != nil {
+			t.Fatalf("ApplyWithTx failed: %v", err)
+		}
+
+		if applied.KeysCreated != 1 {
+			t.Errorf("Expected 1 key created, got %d", applied.KeysCreated)
+		}
+		if applied.ValuesSet != 1 {
+			t.Errorf("Expected 1 value set, got %d", applied.ValuesSet)
+		}
+
+		t.Log("NewSession respects IndexModeSinglePass")
+	})
+
+	t.Run("FullMode", func(t *testing.T) {
+		// Copy to temp directory
+		tempHivePath := filepath.Join(t.TempDir(), "newsession-full-hive")
+		src, err := os.Open(testHivePath)
+		if err != nil {
+			t.Skipf("Test hive not found: %v", err)
+		}
+		defer src.Close()
+
+		dst, err := os.Create(tempHivePath)
+		if err != nil {
+			t.Fatalf("Failed to create temp hive: %v", err)
+		}
+		if _, copyErr := io.Copy(dst, src); copyErr != nil {
+			t.Fatalf("Failed to copy hive: %v", copyErr)
+		}
+		dst.Close()
+
+		ctx := context.Background()
+
+		h, err := hive.Open(tempHivePath)
+		if err != nil {
+			t.Fatalf("Failed to open hive: %v", err)
+		}
+		defer h.Close()
+
+		// Create session with explicit full mode
+		opts := DefaultOptions()
+		opts.IndexMode = IndexModeFull
+
+		session, err := NewSession(ctx, h, opts)
+		if err != nil {
+			t.Fatalf("NewSession failed: %v", err)
+		}
+		defer session.Close(ctx)
+
+		// Session should NOT be in single-pass mode
+		if session.IsSinglePassMode() {
+			t.Error("NewSession with IndexModeFull should NOT create single-pass session")
+		}
+
+		t.Log("NewSession respects IndexModeFull")
+	})
+}
+
+// Test 45: Session.ApplyRegText respects IndexMode.
+func Test_Session_ApplyRegText_RespectsIndexMode(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "applyregtext-single-pass-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	session, err := NewSession(ctx, h, opts)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	defer session.Close(ctx)
+
+	// ApplyRegText should work in single-pass mode
+	regText := `Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\_ApplyRegTextSinglePass]
+"TestValue"="works"
+`
+
+	applied, err := session.ApplyRegText(ctx, regText)
+	if err != nil {
+		t.Fatalf("ApplyRegText failed: %v", err)
+	}
+
+	if applied.KeysCreated != 1 {
+		t.Errorf("Expected 1 key created, got %d", applied.KeysCreated)
+	}
+	if applied.ValuesSet != 1 {
+		t.Errorf("Expected 1 value set, got %d", applied.ValuesSet)
+	}
+
+	t.Log("Session.ApplyRegText works with IndexModeSinglePass")
+}
+
+// Test 46: MergeRegText uses single-pass mode for small regtext.
+func Test_MergeRegText_UsesSinglePassMode(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "regtext-single-pass-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	// Small regtext (should trigger single-pass mode with default IndexModeAuto)
+	regText := `Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\_RegTextSinglePass]
+"TestValue"="hello"
+"DwordValue"=dword:00000042
+`
+
+	// Use default options (IndexModeAuto with threshold 100)
+	applied, err := MergeRegText(ctx, tempHivePath, regText, nil)
+	if err != nil {
+		t.Fatalf("MergeRegText failed: %v", err)
+	}
+
+	// Verify operations succeeded
+	if applied.KeysCreated != 1 {
+		t.Errorf("Expected 1 key created, got %d", applied.KeysCreated)
+	}
+	if applied.ValuesSet != 2 {
+		t.Errorf("Expected 2 values set, got %d", applied.ValuesSet)
+	}
+
+	// Verify by reopening and checking the key exists
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to reopen hive: %v", err)
+	}
+	defer h.Close()
+
+	// Build index to verify key exists
+	sess, err := NewSession(ctx, h, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer sess.Close(ctx)
+
+	if !sess.HasKey("_RegTextSinglePass") {
+		t.Error("Key _RegTextSinglePass should exist after MergeRegText")
+	}
+
+	t.Log("MergeRegText successfully applied regtext (single-pass mode for small plans)")
+}

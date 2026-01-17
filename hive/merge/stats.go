@@ -63,9 +63,11 @@ func StatHive(hivePath string) (StorageStats, error) {
 	stats.FileSize = h.Size()
 
 	// Create a temporary session to access the allocator
-	// This builds the allocator which scans the hive and tracks free space
+	// Use single-pass mode to skip index building - we only need the allocator for stats
 	ctx := context.Background()
-	sess, err := NewSession(ctx, h, Options{})
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+	sess, err := NewSession(ctx, h, opts)
 	if err != nil {
 		return stats, err
 	}

@@ -300,9 +300,18 @@ func stripHiveRootAndSplit(path string) []string {
 //
 // This is a convenience wrapper that:
 //  1. Opens the hive file
-//  2. Creates a merge session with specified options
+//  2. Creates a merge session with specified options (plan-aware mode selection)
 //  3. Applies the plan in a transaction
 //  4. Cleans up resources
+//
+// The session mode is selected based on Options.IndexMode:
+//   - IndexModeAuto (default): Uses single-pass for small plans (< IndexThreshold ops),
+//     full index for large plans
+//   - IndexModeFull: Always builds full index upfront
+//   - IndexModeSinglePass: Always uses single-pass walk-apply
+//
+// Single-pass mode provides significant speedup for small plans by avoiding
+// full index build overhead. For a single-key operation, expect ~150x speedup.
 //
 // All operations in the plan are applied atomically - if any operation fails,
 // the entire transaction is rolled back.
@@ -325,7 +334,7 @@ func stripHiveRootAndSplit(path string) []string {
 //	}
 //	fmt.Printf("Created %d keys, set %d values\n", applied.KeysCreated, applied.ValuesSet)
 //
-// Options can be nil to use defaults (StrategyHybrid with FlushAuto).
+// Options can be nil to use defaults (StrategyHybrid with FlushAuto, IndexModeAuto).
 //
 // Returns Applied statistics about what changed, or an error if the operation failed.
 func MergePlan(ctx context.Context, hivePath string, plan *Plan, opts *Options) (Applied, error) {
@@ -341,14 +350,24 @@ func MergePlan(ctx context.Context, hivePath string, plan *Plan, opts *Options) 
 	}
 	defer h.Close()
 
-	// Create session (builds index automatically)
-	session, err := NewSession(ctx, h, *opts)
+	// Create plan-aware session (mode selected based on plan size)
+	session, err := NewSessionForPlan(ctx, h, plan, *opts)
 	if err != nil {
 		return Applied{}, fmt.Errorf("create session: %w", err)
 	}
 	defer session.Close(ctx)
 
-	// Apply plan in transaction
+	// Apply based on mode
+	if session.IsSinglePassMode() {
+		// Single-pass mode: use direct walk-apply
+		applied, applyErr := session.ApplyPlanDirect(ctx, plan)
+		if applyErr != nil {
+			return Applied{}, fmt.Errorf("apply plan (single-pass): %w", applyErr)
+		}
+		return applied, nil
+	}
+
+	// Full index mode: use existing behavior
 	applied, err := session.ApplyWithTx(ctx, plan)
 	if err != nil {
 		return Applied{}, fmt.Errorf("apply plan: %w", err)
