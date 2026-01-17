@@ -102,8 +102,15 @@ func (wa *walkApplier) Apply(ctx context.Context) (Applied, error) {
 		return wa.result, err
 	}
 
+	// Capture keys visited in Phase 1 - these had their ops already applied.
+	// We need this snapshot because Phase 2 modifies `visited` as it creates new keys.
+	phase1Visited := make(map[string]struct{}, len(wa.visited))
+	for k := range wa.visited {
+		phase1Visited[k] = struct{}{}
+	}
+
 	// Phase 2: Create missing keys and apply remaining ops
-	if err := wa.createMissingKeysAndApply(ctx); err != nil {
+	if err := wa.createMissingKeysAndApply(ctx, phase1Visited); err != nil {
 		return wa.result, err
 	}
 
@@ -202,7 +209,8 @@ func (wa *walkApplier) applyOpAtNode(ctx context.Context, nkOffset uint32, op *O
 
 // createMissingKeysAndApply creates keys that don't exist and applies ops to them.
 // This handles the case where EnsureKey or SetValue targets a non-existent path.
-func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
+// phase1Visited contains keys that were visited in Phase 1 (and had their ops applied).
+func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context, phase1Visited map[string]struct{}) error {
 	for _, op := range wa.ops {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -215,7 +223,10 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 
 		pathKey := normalizePath(op.KeyPath)
 
-		// Check if key was already visited (exists)
+		// Check if key was visited in Phase 1 (ops already applied)
+		_, visitedInPhase1 := phase1Visited[pathKey]
+
+		// Check if key was already visited (exists or was created earlier in this loop)
 		nkRef, keyExists := wa.visited[pathKey]
 
 		// If key doesn't exist, create it
@@ -266,7 +277,11 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 		}
 
 		// Now apply the op if it's SetValue (EnsureKey is done)
-		if op.Type == OpSetValue {
+		// IMPORTANT: Only apply SetValue here if the key was NOT visited in Phase 1.
+		// If the key was visited in Phase 1, all SetValue ops for it were already applied
+		// during walkAndApply. Re-applying would cause earlier ops to overwrite later ops
+		// for the same value, resulting in incorrect values.
+		if op.Type == OpSetValue && !visitedInPhase1 {
 			if nkRef == 0 {
 				// Should not happen, but get it from index as fallback
 				if ref, ok := index.WalkPath(wa.idx, wa.rootRef, op.KeyPath...); ok {

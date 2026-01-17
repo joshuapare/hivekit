@@ -2608,3 +2608,297 @@ func Test_SinglePassMode_NestedSiblingCorrectness(t *testing.T) {
 		t.Fatalf("Detected %d value corruption errors in nested siblings", errCount)
 	}
 }
+
+// Test 51: Verify that multiple SetValue operations for the same key/value result in the LAST value.
+// This tests the value mismatch bug where Phase 2 re-applies ops that were already applied in Phase 1,
+// causing the first delta's value to overwrite the second delta's value.
+func Test_SinglePassMode_MultipleSetValueLastWins(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "setvalue-order-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	// Open hive
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	session, err := NewSession(ctx, h, opts)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	defer session.Close(ctx)
+
+	// Create a plan with MULTIPLE SetValue ops for the same value.
+	// This simulates applying two deltas where both touch the same value.
+	// The LAST value (0x62961562) should win.
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_ValueOrderTest"})
+
+	// First SetValue - value from "first delta"
+	firstValue := []byte{0x95, 0xf8, 0x95, 0x62} // 0x6295f895 - the WRONG value
+	plan.AddSetValue([]string{"_ValueOrderTest"}, "TestDword", format.REGDWORD, firstValue)
+
+	// Second SetValue - value from "second delta" (should win)
+	secondValue := []byte{0x62, 0x15, 0x96, 0x62} // 0x62961562 - the CORRECT value
+	plan.AddSetValue([]string{"_ValueOrderTest"}, "TestDword", format.REGDWORD, secondValue)
+
+	// Also test REG_SZ with different string values
+	firstString := []byte("1653919924\x00")     // First delta string (WRONG)
+	secondString := []byte("1653997021\x00")    // Second delta string (CORRECT - should win)
+	plan.AddSetValue([]string{"_ValueOrderTest"}, "TestString", format.REGSZ, firstString)
+	plan.AddSetValue([]string{"_ValueOrderTest"}, "TestString", format.REGSZ, secondString)
+
+	// Apply with transaction
+	result, err := session.ApplyWithTx(ctx, plan)
+	if err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+
+	t.Logf("Applied: %d keys created, %d values set", result.KeysCreated, result.ValuesSet)
+
+	// Re-open hive to verify the actual persisted values
+	h.Close()
+
+	h2, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to reopen hive: %v", err)
+	}
+	defer h2.Close()
+
+	// Build full index to read values
+	fullOpts := DefaultOptions()
+	fullOpts.IndexMode = IndexModeFull
+	readSession, err := NewSession(ctx, h2, fullOpts)
+	if err != nil {
+		t.Fatalf("Failed to create read session: %v", err)
+	}
+	defer readSession.Close(ctx)
+
+	// Find the key
+	rootOffset := h2.RootCellOffset()
+	nkRef, exists := index.WalkPath(readSession.idx, rootOffset, "_ValueOrderTest")
+	if !exists {
+		t.Fatal("_ValueOrderTest key should exist")
+	}
+
+	// Test DWORD value - should be the SECOND value (0x62961562)
+	vkOff, found := readSession.idx.GetVK(nkRef, "testdword")
+	if !found {
+		t.Fatal("TestDword value should exist")
+	}
+
+	vkPayload, err := h2.ResolveCellPayload(vkOff)
+	if err != nil {
+		t.Fatalf("Failed to resolve VK payload: %v", err)
+	}
+
+	vk, err := hive.ParseVK(vkPayload)
+	if err != nil {
+		t.Fatalf("Failed to parse VK: %v", err)
+	}
+
+	data, err := vk.Data(h2.Bytes())
+	if err != nil {
+		t.Fatalf("Failed to read value data: %v", err)
+	}
+
+	if len(data) < 4 {
+		t.Fatalf("DWORD data too short: got %d bytes", len(data))
+	}
+
+	actualDword := binary.LittleEndian.Uint32(data[:4])
+	expectedDword := uint32(0x62961562) // The SECOND (correct) value
+
+	if actualDword != expectedDword {
+		t.Errorf("DWORD value mismatch: expected dword:0x%08x, got dword:0x%08x (first delta's value overwrote second!)",
+			expectedDword, actualDword)
+	} else {
+		t.Logf("DWORD value correct: 0x%08x", actualDword)
+	}
+
+	// Test REG_SZ value - should be the SECOND string
+	vkOffStr, found := readSession.idx.GetVK(nkRef, "teststring")
+	if !found {
+		t.Fatal("TestString value should exist")
+	}
+
+	vkPayloadStr, err := h2.ResolveCellPayload(vkOffStr)
+	if err != nil {
+		t.Fatalf("Failed to resolve VK payload for string: %v", err)
+	}
+
+	vkStr, err := hive.ParseVK(vkPayloadStr)
+	if err != nil {
+		t.Fatalf("Failed to parse VK for string: %v", err)
+	}
+
+	dataStr, err := vkStr.Data(h2.Bytes())
+	if err != nil {
+		t.Fatalf("Failed to read string value data: %v", err)
+	}
+
+	// Convert to string (remove null terminator if present)
+	actualStr := string(bytes.TrimRight(dataStr, "\x00"))
+	expectedStr := "1653997021" // The SECOND (correct) string
+
+	if actualStr != expectedStr {
+		t.Errorf("STRING value mismatch: expected \"%s\", got \"%s\" (first delta's value overwrote second!)",
+			expectedStr, actualStr)
+	} else {
+		t.Logf("STRING value correct: %q", actualStr)
+	}
+}
+
+// Test 52: Verify sequential plan applications where second plan updates existing value.
+// This tests the scenario where a value is set in one plan, then updated in a second plan.
+func Test_SinglePassMode_SequentialPlanUpdatesValue(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "sequential-plans-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	// ===== First Plan: Create key and set initial value =====
+	h1, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive for first plan: %v", err)
+	}
+
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	session1, err := NewSession(ctx, h1, opts)
+	if err != nil {
+		h1.Close()
+		t.Fatalf("NewSession failed for first plan: %v", err)
+	}
+
+	plan1 := NewPlan()
+	plan1.AddEnsureKey([]string{"_SequentialTest"})
+	plan1.AddSetValue([]string{"_SequentialTest"}, "Counter", format.REGDWORD, []byte{0x01, 0x00, 0x00, 0x00}) // 1
+
+	result1, err := session1.ApplyWithTx(ctx, plan1)
+	if err != nil {
+		session1.Close(ctx)
+		h1.Close()
+		t.Fatalf("First ApplyWithTx failed: %v", err)
+	}
+	t.Logf("First plan: %d keys created, %d values set", result1.KeysCreated, result1.ValuesSet)
+
+	session1.Close(ctx)
+	h1.Close()
+
+	// ===== Second Plan: Update existing value =====
+	h2, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive for second plan: %v", err)
+	}
+
+	session2, err := NewSession(ctx, h2, opts)
+	if err != nil {
+		h2.Close()
+		t.Fatalf("NewSession failed for second plan: %v", err)
+	}
+
+	plan2 := NewPlan()
+	plan2.AddSetValue([]string{"_SequentialTest"}, "Counter", format.REGDWORD, []byte{0x02, 0x00, 0x00, 0x00}) // 2
+
+	result2, err := session2.ApplyWithTx(ctx, plan2)
+	if err != nil {
+		session2.Close(ctx)
+		h2.Close()
+		t.Fatalf("Second ApplyWithTx failed: %v", err)
+	}
+	t.Logf("Second plan: %d keys created, %d values set", result2.KeysCreated, result2.ValuesSet)
+
+	session2.Close(ctx)
+	h2.Close()
+
+	// ===== Verify: Value should be 2 (from second plan) =====
+	h3, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive for verification: %v", err)
+	}
+	defer h3.Close()
+
+	fullOpts := DefaultOptions()
+	fullOpts.IndexMode = IndexModeFull
+	readSession, err := NewSession(ctx, h3, fullOpts)
+	if err != nil {
+		t.Fatalf("Failed to create read session: %v", err)
+	}
+	defer readSession.Close(ctx)
+
+	rootOffset := h3.RootCellOffset()
+	nkRef, exists := index.WalkPath(readSession.idx, rootOffset, "_SequentialTest")
+	if !exists {
+		t.Fatal("_SequentialTest key should exist")
+	}
+
+	vkOff, found := readSession.idx.GetVK(nkRef, "counter")
+	if !found {
+		t.Fatal("Counter value should exist")
+	}
+
+	vkPayload, err := h3.ResolveCellPayload(vkOff)
+	if err != nil {
+		t.Fatalf("Failed to resolve VK payload: %v", err)
+	}
+
+	vk, err := hive.ParseVK(vkPayload)
+	if err != nil {
+		t.Fatalf("Failed to parse VK: %v", err)
+	}
+
+	data, err := vk.Data(h3.Bytes())
+	if err != nil {
+		t.Fatalf("Failed to read value data: %v", err)
+	}
+
+	actualValue := binary.LittleEndian.Uint32(data[:4])
+	expectedValue := uint32(2) // Should be 2 from second plan
+
+	if actualValue != expectedValue {
+		t.Errorf("Sequential plan value mismatch: expected %d, got %d", expectedValue, actualValue)
+	} else {
+		t.Logf("Sequential plan value correct: %d", actualValue)
+	}
+}
