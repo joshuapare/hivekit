@@ -2000,7 +2000,235 @@ func Test_Session_ApplyRegText_RespectsIndexMode(t *testing.T) {
 	t.Log("Session.ApplyRegText works with IndexModeSinglePass")
 }
 
-// Test 46: MergeRegText uses single-pass mode for small regtext.
+// Test 46: HasKey and HasKeys work in single-pass mode.
+func Test_Session_HasKey_SinglePassMode(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "haskey-single-pass-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with explicit single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	session, err := NewSession(ctx, h, opts)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	defer session.Close(ctx)
+
+	// Verify single-pass mode is active (idx is nil)
+	if !session.IsSinglePassMode() {
+		t.Fatal("Session should be in single-pass mode")
+	}
+
+	// First, create a test key using single-pass apply
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_HasKeySinglePassTest", "SubKey"})
+	plan.AddSetValue([]string{"_HasKeySinglePassTest", "SubKey"}, "Val", format.REGDWORD, []byte{1, 0, 0, 0})
+
+	applied, err := session.ApplyWithTx(ctx, plan)
+	if err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+	t.Logf("Applied: %d keys created, %d values set", applied.KeysCreated, applied.ValuesSet)
+
+	// Test HasKey in single-pass mode (uses tree walking)
+	if !session.HasKey("_HasKeySinglePassTest") {
+		t.Error("HasKey should find _HasKeySinglePassTest in single-pass mode")
+	}
+	if !session.HasKey("_HasKeySinglePassTest\\SubKey") {
+		t.Error("HasKey should find _HasKeySinglePassTest\\SubKey in single-pass mode")
+	}
+	if session.HasKey("_HasKeySinglePassTest\\NonExistent") {
+		t.Error("HasKey should NOT find _HasKeySinglePassTest\\NonExistent")
+	}
+
+	// Test HasKeys in single-pass mode
+	result, err := session.HasKeys(ctx,
+		"_HasKeySinglePassTest",
+		"_HasKeySinglePassTest\\SubKey",
+		"_HasKeySinglePassTest\\NonExistent",
+	)
+	if err != nil {
+		t.Fatalf("HasKeys failed: %v", err)
+	}
+
+	if len(result.Present) != 2 {
+		t.Errorf("Expected 2 present keys, got %d: %v", len(result.Present), result.Present)
+	}
+	if len(result.Missing) != 1 {
+		t.Errorf("Expected 1 missing key, got %d: %v", len(result.Missing), result.Missing)
+	}
+	if result.AllPresent {
+		t.Error("AllPresent should be false")
+	}
+
+	t.Log("HasKey and HasKeys work correctly in single-pass mode")
+}
+
+// Test 47: All session methods work without panic in single-pass mode.
+func Test_Session_SinglePassMode_NoPanics(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "single-pass-no-panic-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	ctx := context.Background()
+
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with explicit single-pass mode
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	session, err := NewSession(ctx, h, opts)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	defer session.Close(ctx)
+
+	// Verify single-pass mode
+	if !session.IsSinglePassMode() {
+		t.Fatal("Session should be in single-pass mode")
+	}
+
+	// Test Index() - should return nil without panic
+	idx := session.Index()
+	if idx != nil {
+		t.Error("Index() should return nil in single-pass mode")
+	}
+
+	// Test HasKey() - should work without panic
+	exists := session.HasKey("ControlSet001")
+	t.Logf("HasKey('ControlSet001'): %v", exists)
+
+	// Test HasKeys() - should work without panic
+	result, err := session.HasKeys(ctx, "ControlSet001", "NonExistent")
+	if err != nil {
+		t.Errorf("HasKeys failed: %v", err)
+	}
+	t.Logf("HasKeys result: Present=%v, Missing=%v", result.Present, result.Missing)
+
+	// Test EnableDeferredMode() - should be no-op without panic
+	session.EnableDeferredMode()
+
+	// Test DisableDeferredMode() - should return nil without panic
+	if err := session.DisableDeferredMode(); err != nil {
+		t.Errorf("DisableDeferredMode failed: %v", err)
+	}
+
+	// Test FlushDeferredSubkeys() - should return (0, nil) without panic
+	count, err := session.FlushDeferredSubkeys()
+	if err != nil {
+		t.Errorf("FlushDeferredSubkeys failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("FlushDeferredSubkeys should return 0 in single-pass mode, got %d", count)
+	}
+
+	// Test GetStorageStats() - should work without panic
+	stats := session.GetStorageStats()
+	if stats.FileSize == 0 {
+		t.Error("GetStorageStats().FileSize should be non-zero")
+	}
+	t.Logf("StorageStats: FileSize=%d, UsedBytes=%d", stats.FileSize, stats.UsedBytes)
+
+	// Test GetEfficiencyStats() - should work without panic
+	effStats := session.GetEfficiencyStats()
+	t.Logf("EfficiencyStats: TotalCapacity=%d", effStats.TotalCapacity)
+
+	// Test GetHiveStats() - should work without panic
+	hiveStats := session.GetHiveStats()
+	t.Logf("HiveStats: FileSize=%d", hiveStats.Storage.FileSize)
+
+	// Test Apply() - should return error (not panic) in single-pass mode
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_TestKey"})
+	_, err = session.Apply(ctx, plan)
+	if err == nil {
+		t.Error("Apply() should return error in single-pass mode")
+	} else {
+		t.Logf("Apply() correctly returned error: %v", err)
+	}
+
+	// Test ApplyWithTx() - should work (uses ApplyPlanDirect internally)
+	plan2 := NewPlan()
+	plan2.AddEnsureKey([]string{"_NoPanicTest"})
+	plan2.AddSetValue([]string{"_NoPanicTest"}, "Val", format.REGDWORD, []byte{1, 0, 0, 0})
+	applied, err := session.ApplyWithTx(ctx, plan2)
+	if err != nil {
+		t.Fatalf("ApplyWithTx failed: %v", err)
+	}
+	t.Logf("ApplyWithTx: KeysCreated=%d, ValuesSet=%d", applied.KeysCreated, applied.ValuesSet)
+
+	// Test ApplyPlanDirect() - should work without panic
+	plan3 := NewPlan()
+	plan3.AddEnsureKey([]string{"_NoPanicTest2"})
+	applied2, err := session.ApplyPlanDirect(ctx, plan3)
+	if err != nil {
+		t.Fatalf("ApplyPlanDirect failed: %v", err)
+	}
+	t.Logf("ApplyPlanDirect: KeysCreated=%d", applied2.KeysCreated)
+
+	// Test WalkKeys() - should work without panic
+	keyCount := 0
+	err = session.WalkKeys(ctx, func(info KeyInfo) error {
+		keyCount++
+		if keyCount > 10 {
+			return walker.ErrStopWalk
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("WalkKeys failed: %v", err)
+	}
+	t.Logf("WalkKeys: counted %d keys (stopped at 10)", keyCount)
+
+	t.Log("All session methods work without panic in single-pass mode")
+}
+
+// Test 48: MergeRegText uses single-pass mode for small regtext.
 func Test_MergeRegText_UsesSinglePassMode(t *testing.T) {
 	testHivePath := "../../testdata/suite/windows-2003-server-system"
 
