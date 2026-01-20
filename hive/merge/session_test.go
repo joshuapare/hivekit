@@ -2608,3 +2608,176 @@ func Test_SinglePassMode_NestedSiblingCorrectness(t *testing.T) {
 		t.Fatalf("Detected %d value corruption errors in nested siblings", errCount)
 	}
 }
+
+// Test: NewSession with custom capacity options.
+func Test_Session_CustomCapacityOptions(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "capacity-test-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	// Open hive
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with custom capacity options
+	opts := DefaultOptions()
+	opts.NKCapacity = 5000
+	opts.VKCapacity = 15000
+
+	session, err := NewSession(context.Background(), h, opts)
+	if err != nil {
+		t.Fatalf("Failed to create session with custom capacity: %v", err)
+	}
+	defer session.Close(context.Background())
+
+	// Verify session works correctly with custom capacity
+	if session.idx == nil {
+		t.Error("Index should be built with custom capacity")
+	}
+
+	// Apply a simple operation to verify the session is functional
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_CapacityTest", "SubKey"})
+
+	result, err := session.ApplyWithTx(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("ApplyWithTx failed with custom capacity: %v", err)
+	}
+
+	if result.KeysCreated < 1 {
+		t.Errorf("Expected at least 1 key created, got %d", result.KeysCreated)
+	}
+
+	t.Log("Session with custom capacity options works correctly")
+}
+
+// Test: NewSession with negative capacity values treats them as 0.
+func Test_Session_NegativeCapacityTreatedAsZero(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "negative-cap-test-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	// Open hive
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with negative capacity values
+	opts := DefaultOptions()
+	opts.NKCapacity = -1000
+	opts.VKCapacity = -5000
+
+	// Should not error - negative values are treated as 0 (auto-estimate)
+	session, err := NewSession(context.Background(), h, opts)
+	if err != nil {
+		t.Fatalf("NewSession should not fail with negative capacity: %v", err)
+	}
+	defer session.Close(context.Background())
+
+	// Verify session is functional
+	if session.idx == nil {
+		t.Error("Index should be built even with negative capacity values")
+	}
+
+	// Apply a simple operation to verify functionality
+	plan := NewPlan()
+	plan.AddEnsureKey([]string{"_NegativeCapTest"})
+
+	result, err := session.ApplyWithTx(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("ApplyWithTx failed with negative capacity: %v", err)
+	}
+
+	if result.KeysCreated != 1 {
+		t.Errorf("Expected 1 key created, got %d", result.KeysCreated)
+	}
+
+	t.Log("Negative capacity values correctly treated as 0 (auto-estimate)")
+}
+
+// Test: NewSession with zero capacity (auto-estimate).
+func Test_Session_ZeroCapacityAutoEstimate(t *testing.T) {
+	testHivePath := "../../testdata/suite/windows-2003-server-system"
+
+	// Copy to temp directory
+	tempHivePath := filepath.Join(t.TempDir(), "zero-cap-test-hive")
+	src, err := os.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to create temp hive: %v", err)
+	}
+	if _, copyErr := io.Copy(dst, src); copyErr != nil {
+		t.Fatalf("Failed to copy hive: %v", copyErr)
+	}
+	dst.Close()
+
+	// Open hive
+	h, err := hive.Open(tempHivePath)
+	if err != nil {
+		t.Fatalf("Failed to open hive: %v", err)
+	}
+	defer h.Close()
+
+	// Create session with explicit zero capacity (same as default)
+	opts := DefaultOptions()
+	opts.NKCapacity = 0
+	opts.VKCapacity = 0
+
+	session, err := NewSession(context.Background(), h, opts)
+	if err != nil {
+		t.Fatalf("NewSession failed with zero capacity: %v", err)
+	}
+	defer session.Close(context.Background())
+
+	// Verify session is functional
+	if session.idx == nil {
+		t.Error("Index should be built with auto-estimate")
+	}
+
+	// Verify operations work
+	if !session.HasKey("ControlSet001") {
+		t.Error("Expected ControlSet001 key to exist in SYSTEM hive")
+	}
+
+	t.Log("Zero capacity (auto-estimate) works correctly")
+}

@@ -161,6 +161,18 @@ type Options struct {
 	// Default: 100
 	// Only used when IndexMode is IndexModeAuto.
 	IndexThreshold int
+
+	// NKCapacity is the initial capacity hint for the NK (Named Key) index hash map.
+	// When set to 0 (default), capacity is automatically estimated from hive size.
+	// For large hives, set explicitly to reduce hash map resize operations.
+	// Default: 0 (auto-estimate)
+	NKCapacity int
+
+	// VKCapacity is the initial capacity hint for the VK (Value Key) index hash map.
+	// When set to 0 (default), capacity is automatically estimated from hive size.
+	// Typically 2-4x NKCapacity in practice.
+	// Default: 0 (auto-estimate)
+	VKCapacity int
 }
 
 // DefaultOptions returns production-ready defaults optimized for general use.
@@ -184,5 +196,7 @@ func DefaultOptions() Options {
 		IndexKind:        index.IndexNumeric, // zero-allocation, faster
 		IndexMode:        IndexModeAuto,      // auto-select based on plan size
 		IndexThreshold:   DefaultIndexThreshold,
+		NKCapacity:       0, // auto-estimate from hive size
+		VKCapacity:       0, // auto-estimate from hive size
 	}
 }

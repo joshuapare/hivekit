@@ -51,6 +51,16 @@ func Test_Options_Defaults(t *testing.T) {
 		t.Errorf("Default CompactThreshold: got %d, want 30", opt.CompactThreshold)
 	}
 
+	// Verify NKCapacity (auto-estimate)
+	if opt.NKCapacity != 0 {
+		t.Errorf("Default NKCapacity: got %d, want 0 (auto-estimate)", opt.NKCapacity)
+	}
+
+	// Verify VKCapacity (auto-estimate)
+	if opt.VKCapacity != 0 {
+		t.Errorf("Default VKCapacity: got %d, want 0 (auto-estimate)", opt.VKCapacity)
+	}
+
 	t.Log("All default values are correct")
 }
 
@@ -96,6 +106,8 @@ func Test_Options_CustomValues(t *testing.T) {
 		WillNeedHint:     true,
 		HybridSlackPct:   20,
 		CompactThreshold: 50,
+		NKCapacity:       50000,
+		VKCapacity:       150000,
 	}
 
 	// Verify all custom values
@@ -129,6 +141,14 @@ func Test_Options_CustomValues(t *testing.T) {
 
 	if opt.CompactThreshold != 50 {
 		t.Errorf("Custom CompactThreshold: got %d, want 50", opt.CompactThreshold)
+	}
+
+	if opt.NKCapacity != 50000 {
+		t.Errorf("Custom NKCapacity: got %d, want 50000", opt.NKCapacity)
+	}
+
+	if opt.VKCapacity != 150000 {
+		t.Errorf("Custom VKCapacity: got %d, want 150000", opt.VKCapacity)
 	}
 
 	t.Log("All custom values set correctly")
