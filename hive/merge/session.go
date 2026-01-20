@@ -19,11 +19,31 @@ import (
 	"github.com/joshuapare/hivekit/hive/walker"
 )
 
-const (
-	// defaultIndexCapacity is the default capacity hint for index building.
-	// Used for both NK (node key) and VK (value key) capacity.
-	defaultIndexCapacity = 10000
-)
+
+// indexCapacityEstimate holds estimated NK and VK capacities.
+type indexCapacityEstimate struct {
+	NK int
+	VK int
+}
+
+// estimateIndexCapacity estimates NK/VK counts from hive size.
+// Based on empirical analysis: ~1 NK per 300 bytes, ~3 VKs per NK.
+// This helps pre-size maps to reduce rehashing overhead.
+func estimateIndexCapacity(hiveSize int64) indexCapacityEstimate {
+	// Conservative estimate: 1 NK per 300 bytes
+	nkCap := int(hiveSize / 300)
+	vkCap := nkCap * 3
+
+	// Ensure minimums for small hives
+	if nkCap < 1024 {
+		nkCap = 1024
+	}
+	if vkCap < 4096 {
+		vkCap = 4096
+	}
+
+	return indexCapacityEstimate{NK: nkCap, VK: vkCap}
+}
 
 // Session provides a high-level API for merge operations with tx/dirty integration.
 //
@@ -64,7 +84,26 @@ func NewSession(ctx context.Context, h *hive.Hive, opt Options) (*Session, error
 	}
 
 	// Otherwise build full index (IndexModeFull or IndexModeAuto without plan)
-	builder := walker.NewIndexBuilderWithKind(h, defaultIndexCapacity, defaultIndexCapacity, opt.IndexKind)
+	nkCap := opt.NKCapacity
+	vkCap := opt.VKCapacity
+	if nkCap < 0 {
+		nkCap = 0
+	}
+	if vkCap < 0 {
+		vkCap = 0
+	}
+	// If capacity is 0 (auto-estimate), estimate from hive size
+	// This matches the behavior of walker.NewIndexBuilder
+	if nkCap == 0 || vkCap == 0 {
+		estimated := estimateIndexCapacity(h.Size())
+		if nkCap == 0 {
+			nkCap = estimated.NK
+		}
+		if vkCap == 0 {
+			vkCap = estimated.VK
+		}
+	}
+	builder := walker.NewIndexBuilderWithKind(h, nkCap, vkCap, opt.IndexKind)
 	idx, err := builder.Build(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("build index: %w", err)
