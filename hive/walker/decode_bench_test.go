@@ -194,6 +194,34 @@ func BenchmarkAddNKHash_VsAddNKLower(b *testing.B) {
 	})
 }
 
+// Benchmark_DecodeASCIILower_Repeated decodes the same common names 1000x
+// to show per-call allocation cost. Cross-hive optimization should make
+// repeated decodes zero-alloc via interning.
+func Benchmark_DecodeASCIILower_Repeated(b *testing.B) {
+	commonNames := [][]byte{
+		[]byte("Software"),
+		[]byte("Microsoft"),
+		[]byte("Windows"),
+		[]byte("CurrentVersion"),
+		[]byte("ControlSet001"),
+		[]byte("Services"),
+		[]byte("Control"),
+		[]byte("Parameters"),
+		[]byte("Explorer"),
+		[]byte("Run"),
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		for range 100 {
+			for _, name := range commonNames {
+				_ = decodeASCIILower(name)
+			}
+		}
+	}
+}
+
 // BenchmarkIndexCapacityEstimation benchmarks the capacity estimation function.
 func BenchmarkIndexCapacityEstimation(b *testing.B) {
 	sizes := []int64{

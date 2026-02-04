@@ -1,8 +1,9 @@
 package subkeys
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/alloc"
@@ -41,9 +42,13 @@ func Write(h *hive.Hive, allocator alloc.Allocator, entries []Entry) (uint32, er
 	// Sort entries by lowercase name for consistent ordering
 	sortedEntries := make([]Entry, len(entries))
 	copy(sortedEntries, entries)
-	sort.Slice(sortedEntries, func(i, j int) bool {
-		return sortedEntries[i].NameLower < sortedEntries[j].NameLower
-	})
+	if !slices.IsSortedFunc(sortedEntries, func(a, b Entry) int {
+		return cmp.Compare(a.NameLower, b.NameLower)
+	}) {
+		slices.SortFunc(sortedEntries, func(a, b Entry) int {
+			return cmp.Compare(a.NameLower, b.NameLower)
+		})
+	}
 
 	// For very large lists (>RIThreshold), use RI (indirect) lists
 	// Split into chunks of 512 entries each
@@ -57,6 +62,29 @@ func Write(h *hive.Hive, allocator alloc.Allocator, entries []Entry) (uint32, er
 	}
 
 	return writeLHList(h, allocator, sortedEntries)
+}
+
+// WritePresorted writes a subkey list that is already sorted by NameLower.
+// This skips the copy and sort that Write() performs, avoiding O(n) allocation
+// and O(n log n) sorting overhead for callers that guarantee sorted input.
+//
+// Callers MUST ensure entries are sorted by NameLower ascending.
+// Used by FlushDeferredSubkeys (sorts before calling) and insertImmediateChild
+// (List.Insert maintains sorted order).
+func WritePresorted(h *hive.Hive, allocator alloc.Allocator, entries []Entry) (uint32, error) {
+	if len(entries) == 0 {
+		return format.InvalidOffset, nil
+	}
+
+	if len(entries) > RIThreshold {
+		return writeRIList(h, allocator, entries)
+	}
+
+	if len(entries) <= LFThreshold {
+		return writeLFList(h, allocator, entries)
+	}
+
+	return writeLHList(h, allocator, entries)
 }
 
 // writeHashLeafList is a common helper for writing LF and LH lists.
@@ -248,11 +276,11 @@ func (l *List) Find(nameLower string) (Entry, bool) {
 	}
 
 	// Binary search since entries are sorted
-	idx := sort.Search(len(l.Entries), func(i int) bool {
-		return l.Entries[i].NameLower >= nameLower
+	idx, found := slices.BinarySearchFunc(l.Entries, nameLower, func(e Entry, target string) int {
+		return cmp.Compare(e.NameLower, target)
 	})
 
-	if idx < len(l.Entries) && l.Entries[idx].NameLower == nameLower {
+	if found {
 		return l.Entries[idx], true
 	}
 

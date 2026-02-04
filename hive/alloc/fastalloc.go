@@ -480,15 +480,13 @@ func (fa *FastAllocator) Alloc(need int32, cls Class) (CellRef, []byte, error) {
 	// Track bytes allocated
 	fa.stats.BytesAllocated += int64(need)
 
-	// Track which HBIN this allocation came from
-	for _, bin := range fa.bins {
-		if off >= bin.start && off < bin.end {
-			if stats, ok := fa.hbinTracking[bin.start]; ok {
-				stats.allocCount++
-				stats.bytesAllocated += need
-				fa.lastAllocHBIN = bin.start
-			}
-			break
+	// Track which HBIN this allocation came from (O(log B) binary search)
+	if hbinStart, _, found := fa.findHBINBounds(int(off)); found {
+		start := int32(hbinStart)
+		if stats, ok := fa.hbinTracking[start]; ok {
+			stats.allocCount++
+			stats.bytesAllocated += need
+			fa.lastAllocHBIN = start
 		}
 	}
 
@@ -1022,35 +1020,42 @@ func (fa *FastAllocator) initializeFreeLists() error {
 	return nil
 }
 
-// allocFromSizeClass allocates from a size class heap using perfect best-fit.
+// allocFromSizeClass allocates from a size class heap using best-fit.
 // Returns the smallest cell >= need, or nil if no suitable cell exists.
-// O(log n) operation via min-heap.
+//
+// Fast path (O(log n)): The min-heap guarantees heap[0] is the smallest cell.
+// If heap[0].size >= need, it is the best fit — return immediately.
+//
+// Slow path (O(n)): If heap[0] is too small but the size class range includes
+// larger cells, scan all cells to find the smallest one that fits.
 func (fa *FastAllocator) allocFromSizeClass(sc int, need int32) *freeCell {
 	list := &fa.freeLists[sc]
 	if list.heap.Len() == 0 {
 		return nil
 	}
 
-	// Size classes can have a RANGE of sizes (e.g., [5832, 8160]).
-	// The heap is ordered smallest-first, but we need the SMALLEST cell >= need.
-	// We can't just check heap[0] because it might be too small even though
-	// larger cells in the same size class would fit.
+	var bestIdx int
 
-	// Find the SMALLEST cell >= need in this heap (best-fit)
-	// We must check ALL cells because the heap is only partially ordered
-	bestIdx := -1
-	var bestSize int32 = 1<<31 - 1 // MaxInt32
-	for i := range list.heap.Len() {
-		cellSize := list.heap[i].size
-		if cellSize >= need && cellSize < bestSize {
-			bestIdx = i
-			bestSize = cellSize
+	// Fast path: heap[0] is the smallest cell in this class.
+	// If it fits, it's the best fit by definition — no smaller cell can exist.
+	if list.heap[0].size >= need {
+		bestIdx = 0
+	} else {
+		// Slow path: heap[0] is too small, but larger cells in this size class
+		// may fit. Scan all cells since the heap is only partially ordered.
+		bestIdx = -1
+		var bestSize int32 = 1<<31 - 1 // MaxInt32
+		for i := 1; i < list.heap.Len(); i++ {
+			cellSize := list.heap[i].size
+			if cellSize >= need && cellSize < bestSize {
+				bestIdx = i
+				bestSize = cellSize
+			}
 		}
-	}
 
-	if bestIdx == -1 {
-		// No cell in this size class is large enough
-		return nil
+		if bestIdx == -1 {
+			return nil
+		}
 	}
 
 	// Remove the cell from the heap (O(log n))

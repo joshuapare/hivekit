@@ -487,6 +487,20 @@ func (n *NumericIndex) RemoveVK(parentOff uint32, valueName string) {
 	}
 }
 
+// Reset clears all entries while retaining allocated map capacity.
+// This allows the index to be reused (e.g., via sync.Pool) without
+// reallocating the underlying maps.
+func (n *NumericIndex) Reset() {
+	clear(n.nodes)
+	clear(n.values)
+	if n.nodeCollisions != nil {
+		clear(n.nodeCollisions)
+	}
+	if n.valueCollisions != nil {
+		clear(n.valueCollisions)
+	}
+}
+
 // Stats implements ReadOnlyIndex.
 func (n *NumericIndex) Stats() Stats {
 	nkCount := len(n.nodes)

@@ -132,3 +132,18 @@ func (hy *Hybrid) DeleteValue(ctx context.Context, path []string, name string) e
 func (hy *Hybrid) DeleteKey(ctx context.Context, path []string, recursive bool) error {
 	return hy.inplace.DeleteKey(ctx, path, recursive)
 }
+
+// EnableDeferredMode enables deferred subkey list building on the InPlace delegate.
+func (hy *Hybrid) EnableDeferredMode() {
+	hy.inplace.EnableDeferredMode()
+}
+
+// DisableDeferredMode disables deferred subkey list building on the InPlace delegate.
+func (hy *Hybrid) DisableDeferredMode() error {
+	return hy.inplace.DisableDeferredMode()
+}
+
+// FlushDeferredSubkeys flushes accumulated deferred children from the InPlace delegate.
+func (hy *Hybrid) FlushDeferredSubkeys() (int, error) {
+	return hy.inplace.FlushDeferredSubkeys()
+}

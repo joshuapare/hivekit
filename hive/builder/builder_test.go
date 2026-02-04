@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/merge"
 	"github.com/joshuapare/hivekit/hive/walker"
 )
 
@@ -373,4 +374,88 @@ func TestBuilder_ClosedBuilder(t *testing.T) {
 	// Try to use closed builder
 	err = b.SetString([]string{"Test"}, "Value", "Test")
 	require.Error(t, err, "should error on closed builder")
+}
+
+func TestBuilder_DefaultIndexModeIsFull(t *testing.T) {
+	opts := DefaultOptions()
+	require.Equal(t, IndexModeFull, opts.IndexMode, "default IndexMode should be IndexModeFull")
+}
+
+func TestBuilder_IndexModeFullCreatesFullIndex(t *testing.T) {
+	dir := t.TempDir()
+	hivePath := filepath.Join(dir, "test.hive")
+
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeFull
+
+	b, err := New(hivePath, opts)
+	require.NoError(t, err)
+	defer b.Close()
+
+	// Full index mode should NOT be single-pass
+	require.False(t, b.session.IsSinglePassMode(), "IndexModeFull should create a full-index session")
+
+	err = b.SetString([]string{"Software", "Test"}, "Key", "Value")
+	require.NoError(t, err)
+
+	err = b.Commit()
+	require.NoError(t, err)
+
+	// Verify the value was written correctly
+	h, err := hive.Open(hivePath)
+	require.NoError(t, err)
+	defer h.Close()
+
+	builder := walker.NewIndexBuilder(h, 1000, 1000)
+	idx, err := builder.Build(context.Background())
+	require.NoError(t, err)
+
+	rootNK := h.RootCellOffset()
+	softwareNK, found := idx.GetNK(rootNK, "Software")
+	require.True(t, found, "Software key should exist")
+
+	testNK, found := idx.GetNK(softwareNK, "Test")
+	require.True(t, found, "Test key should exist")
+
+	_, found = idx.GetVK(testNK, "Key")
+	require.True(t, found, "Key value should exist")
+}
+
+func TestBuilder_IndexModeSinglePassCreatesSinglePassSession(t *testing.T) {
+	dir := t.TempDir()
+	hivePath := filepath.Join(dir, "test.hive")
+
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeSinglePass
+
+	b, err := New(hivePath, opts)
+	require.NoError(t, err)
+	defer b.Close()
+
+	require.True(t, b.session.IsSinglePassMode(), "IndexModeSinglePass should create a single-pass session")
+}
+
+func TestBuilder_IndexModeAutoCreatesAutoSession(t *testing.T) {
+	dir := t.TempDir()
+	hivePath := filepath.Join(dir, "test.hive")
+
+	opts := DefaultOptions()
+	opts.IndexMode = IndexModeAuto
+
+	b, err := New(hivePath, opts)
+	require.NoError(t, err)
+	defer b.Close()
+
+	// NewSession with IndexModeAuto and no plan builds full index
+	require.False(t, b.session.IsSinglePassMode(), "IndexModeAuto with no plan should build full index")
+}
+
+func TestBuilder_IndexModeToMergeIndexMode(t *testing.T) {
+	require.Equal(t, merge.IndexModeAuto, IndexModeAuto.toMergeIndexMode())
+	require.Equal(t, merge.IndexModeFull, IndexModeFull.toMergeIndexMode())
+	require.Equal(t, merge.IndexModeSinglePass, IndexModeSinglePass.toMergeIndexMode())
+
+	// Unknown value defaults to full
+	unknown := IndexMode(99)
+	require.Equal(t, merge.IndexModeFull, unknown.toMergeIndexMode())
 }

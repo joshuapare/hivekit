@@ -382,8 +382,8 @@ func (ke *keyEditor) insertImmediateChild(parentRef NKRef, parentNK hive.NK, ent
 	// Insert new entry (maintains sorted order)
 	newList := existingList.Insert(entry)
 
-	// Write updated subkey list
-	newListRef, err := subkeys.Write(ke.h, ke.alloc, newList.Entries)
+	// Write updated subkey list (List.Insert maintains sorted order)
+	newListRef, err := subkeys.WritePresorted(ke.h, ke.alloc, newList.Entries)
 	if err != nil {
 		return fmt.Errorf("write subkey list: %w", err)
 	}
@@ -406,6 +406,44 @@ func (ke *keyEditor) insertImmediateChild(parentRef NKRef, parentNK hive.NK, ent
 	return nil
 }
 
+// flushDeferredParent writes a single parent's accumulated deferred children to disk.
+// After flushing, the parent's on-disk subkey list and count are up-to-date,
+// and the deferred entry is removed from the map.
+// Returns nil if the parent has no deferred entry.
+func (ke *keyEditor) flushDeferredParent(parentRef uint32) error {
+	dp, exists := ke.deferredParents[parentRef]
+	if !exists {
+		return nil // No deferred children for this parent
+	}
+
+	// Sort children by name (lowercase) for consistent ordering
+	sortEntries(dp.children)
+
+	// Write the complete subkey list (already sorted above)
+	newListRef, err := subkeys.WritePresorted(ke.h, ke.alloc, dp.children)
+	if err != nil {
+		return fmt.Errorf("write subkey list for parent 0x%X: %w", parentRef, err)
+	}
+
+	// Update parent NK cell
+	if err := ke.updateParentNK(parentRef, uint32(len(dp.children)), newListRef); err != nil {
+		return fmt.Errorf("update parent NK 0x%X: %w", parentRef, err)
+	}
+
+	// Free old subkey list if it existed
+	if dp.oldListRef != format.InvalidOffset {
+		if err := ke.freeSubkeyList(dp.oldListRef); err != nil {
+			// Log but don't fail - the new list is already written
+			_ = err
+		}
+	}
+
+	// Remove from deferred parents map
+	delete(ke.deferredParents, parentRef)
+
+	return nil
+}
+
 // FlushDeferredSubkeys writes all accumulated deferred children to disk.
 // This must be called before disabling deferred mode.
 // Returns the number of parents flushed.
@@ -418,38 +456,19 @@ func (ke *keyEditor) FlushDeferredSubkeys() (int, error) {
 		return 0, nil // No pending children
 	}
 
-	flushedCount := 0
-
-	// Flush each parent's children
-	for parentRef, dp := range ke.deferredParents {
-		// Sort children by name (lowercase) for consistent ordering
-		// This matches the behavior of List.Insert
-		sortEntries(dp.children)
-
-		// Write the complete subkey list
-		newListRef, err := subkeys.Write(ke.h, ke.alloc, dp.children)
-		if err != nil {
-			return flushedCount, fmt.Errorf("write subkey list for parent 0x%X: %w", parentRef, err)
-		}
-
-		// Update parent NK cell
-		if err := ke.updateParentNK(parentRef, uint32(len(dp.children)), newListRef); err != nil {
-			return flushedCount, fmt.Errorf("update parent NK 0x%X: %w", parentRef, err)
-		}
-
-		// Free old subkey list if it existed
-		if dp.oldListRef != format.InvalidOffset {
-			if err := ke.freeSubkeyList(dp.oldListRef); err != nil {
-				// Log but don't fail - the new list is already written
-				_ = err
-			}
-		}
-
-		flushedCount++
+	// Collect keys first since flushDeferredParent deletes from the map
+	parents := make([]uint32, 0, len(ke.deferredParents))
+	for ref := range ke.deferredParents {
+		parents = append(parents, ref)
 	}
 
-	// Clear the deferred parents map
-	ke.deferredParents = make(map[uint32]*deferredParent)
+	flushedCount := 0
+	for _, parentRef := range parents {
+		if err := ke.flushDeferredParent(parentRef); err != nil {
+			return flushedCount, err
+		}
+		flushedCount++
+	}
 
 	return flushedCount, nil
 }
@@ -589,7 +608,28 @@ func (ke *keyEditor) DeleteKey(nk NKRef, recursive bool) error {
 
 	parentRef := nkCell.ParentOffsetRel()
 
-	// Check recursive constraint
+	// If deferred mode is active, flush this key's deferred children to disk
+	// so that deleteSubkeys can find them, and flush the parent so that
+	// removeFromParentSubkeyList reads the current on-disk subkey list.
+	if ke.deferredMode {
+		if err := ke.flushDeferredParent(nk); err != nil {
+			return fmt.Errorf("flush deferred children before delete: %w", err)
+		}
+		if err := ke.flushDeferredParent(parentRef); err != nil {
+			return fmt.Errorf("flush deferred parent before delete: %w", err)
+		}
+		// Re-resolve NK after flush may have caused allocations/hive growth
+		nkPayload, err = ke.resolveCell(nk)
+		if err != nil {
+			return fmt.Errorf("re-resolve NK after deferred flush: %w", err)
+		}
+		nkCell, err = hive.ParseNK(nkPayload)
+		if err != nil {
+			return fmt.Errorf("re-parse NK after deferred flush: %w", err)
+		}
+	}
+
+	// Check recursive constraint (re-read subkeyCount after potential flush)
 	subkeyCount := nkCell.SubkeyCount()
 	if !recursive && subkeyCount > 0 {
 		return ErrKeyHasSubkeys
@@ -805,17 +845,18 @@ func (ke *keyEditor) removeFromParentSubkeyList(parentRef NKRef, nk hive.NK) err
 	updatedList := parentSubkeyList.Remove(nameLower)
 
 	// Write updated subkey list (or set to 0xFFFFFFFF if empty)
+	// Remove() preserves sorted order, so use WritePresorted.
 	var newListRef uint32 = 0xFFFFFFFF
 	if len(updatedList.Entries) > 0 {
 		var writeErr error
-		newListRef, writeErr = subkeys.Write(ke.h, ke.alloc, updatedList.Entries)
+		newListRef, writeErr = subkeys.WritePresorted(ke.h, ke.alloc, updatedList.Entries)
 		if writeErr != nil {
 			return fmt.Errorf("write updated subkey list: %w", writeErr)
 		}
 	}
 
 	// Update parent NK's subkey count and list reference FIRST
-	// CRITICAL: Re-resolve parent after subkeys.Write() which may have grown the hive
+	// CRITICAL: Re-resolve parent after subkeys.WritePresorted() which may have grown the hive
 	parentPayload, resolveErr := ke.resolveCell(parentRef)
 	if resolveErr != nil {
 		return fmt.Errorf("re-resolve parent: %w", resolveErr)

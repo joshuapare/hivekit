@@ -30,6 +30,36 @@ const (
 	StrategyHybrid
 )
 
+// IndexMode controls how path lookups are performed during merge operations.
+// This mirrors merge.IndexMode for the builder API.
+type IndexMode int
+
+const (
+	// IndexModeAuto selects single-pass or full index based on plan characteristics.
+	IndexModeAuto IndexMode = iota
+
+	// IndexModeFull always builds full index upfront (traditional behavior).
+	// Recommended for builder's progressive flush pattern with deferred subkeys.
+	IndexModeFull
+
+	// IndexModeSinglePass uses single-pass walk-apply (no index build).
+	IndexModeSinglePass
+)
+
+// toMergeIndexMode converts IndexMode to merge.IndexMode.
+func (m IndexMode) toMergeIndexMode() merge.IndexMode {
+	switch m {
+	case IndexModeAuto:
+		return merge.IndexModeAuto
+	case IndexModeFull:
+		return merge.IndexModeFull
+	case IndexModeSinglePass:
+		return merge.IndexModeSinglePass
+	default:
+		return merge.IndexModeFull
+	}
+}
+
 // toMergeStrategy converts StrategyType to merge.StrategyKind.
 func (s StrategyType) toMergeStrategy() merge.StrategyKind {
 	switch s {
@@ -66,6 +96,10 @@ type Options struct {
 	// Strategy determines how cells are allocated and reused.
 	// Default: StrategyHybrid
 	Strategy StrategyType
+
+	// IndexMode controls how path lookups are performed during merge operations.
+	// Default: IndexModeFull (recommended for builder's progressive flush pattern)
+	IndexMode IndexMode
 
 	// PreallocPages pre-allocates this many 4KB pages to avoid repeated
 	// mremap() calls during building. Set to 0 to grow dynamically.
@@ -120,6 +154,7 @@ type Options struct {
 func DefaultOptions() *Options {
 	return &Options{
 		Strategy:              StrategyHybrid,
+		IndexMode:             IndexModeFull,
 		PreallocPages:         0,
 		AutoFlushThreshold:    1000,
 		CreateIfNotExists:     true,

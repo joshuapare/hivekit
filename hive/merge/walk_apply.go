@@ -5,9 +5,10 @@
 package merge
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -21,7 +22,7 @@ import (
 )
 
 // walkApplier applies a sorted plan in a single tree traversal.
-// It uses subtree pruning to skip branches with no pending operations.
+// It indexes nodes, applies operations, and prunes branches using childrenByParent.
 type walkApplier struct {
 	h     *hive.Hive
 	alloc alloc.Allocator
@@ -32,16 +33,24 @@ type walkApplier struct {
 	valEditor edit.ValueEditor
 
 	// Sorted ops and path lookup structures
-	ops       []Op                 // sorted by normalized path
-	opsByPath map[string][]int     // normalized path -> indices into ops
-	prefixSet map[string]struct{}  // all path prefixes for pruning
-	visited   map[string]uint32    // normalized path -> nkOffset (for key creation)
+	ops       []Op             // sorted by normalized path
+	opsByPath map[string][]int // normalized path -> indices into ops
+
+	// childrenByParent maps each normalized parent path to the set of
+	// lowercase child names needed at that level. Replaces prefix scanning
+	// with O(1) lookups per parent.
+	childrenByParent map[string]map[string]struct{}
+
+	visited map[string]uint32 // normalized path -> nkOffset (for key creation)
 
 	// Index for lookup (used for key creation and deletion)
 	idx index.Index
 
 	// Root cell offset
 	rootRef uint32
+
+	// Reusable buffer for ReadOffsetsInto
+	offsetBuf []uint32
 
 	// Results
 	result Applied
@@ -56,15 +65,15 @@ func newWalkApplier(
 	plan *Plan,
 ) *walkApplier {
 	wa := &walkApplier{
-		h:         h,
-		alloc:     a,
-		dt:        dt,
-		idx:       idx,
-		ops:       make([]Op, len(plan.Ops)),
-		opsByPath: make(map[string][]int),
-		prefixSet: make(map[string]struct{}),
-		visited:   make(map[string]uint32),
-		rootRef:   h.RootCellOffset(),
+		h:                h,
+		alloc:            a,
+		dt:               dt,
+		idx:              idx,
+		ops:              make([]Op, len(plan.Ops)),
+		opsByPath:        make(map[string][]int),
+		childrenByParent: make(map[string]map[string]struct{}),
+		visited:          make(map[string]uint32),
+		rootRef:          h.RootCellOffset(),
 	}
 
 	// Copy and normalize ops
@@ -72,19 +81,26 @@ func newWalkApplier(
 
 	// Sort by path for efficient matching
 	// Use stable sort to preserve original order for same-path ops
-	sort.SliceStable(wa.ops, func(i, j int) bool {
-		return pathLess(wa.ops[i].KeyPath, wa.ops[j].KeyPath)
+	slices.SortStableFunc(wa.ops, func(a, b Op) int {
+		return cmp.Compare(normalizePath(a.KeyPath), normalizePath(b.KeyPath))
 	})
 
-	// Build path index and prefix set
+	// Build path index and childrenByParent map
 	for i, op := range wa.ops {
 		pathKey := normalizePath(op.KeyPath)
 		wa.opsByPath[pathKey] = append(wa.opsByPath[pathKey], i)
 
-		// Add all prefixes for pruning
-		for j := 1; j <= len(op.KeyPath); j++ {
-			prefix := normalizePath(op.KeyPath[:j])
-			wa.prefixSet[prefix] = struct{}{}
+		// For each path segment, record the parent->child relationship
+		for j := 0; j < len(op.KeyPath); j++ {
+			parentKey := normalizePath(op.KeyPath[:j])
+			childName := toLowerASCII(op.KeyPath[j])
+
+			children := wa.childrenByParent[parentKey]
+			if children == nil {
+				children = make(map[string]struct{})
+				wa.childrenByParent[parentKey] = children
+			}
+			children[childName] = struct{}{}
 		}
 	}
 
@@ -95,10 +111,10 @@ func newWalkApplier(
 	return wa
 }
 
-// Apply executes all ops in a single tree walk.
+// Apply executes all ops in a single tree walk that indexes, applies, and prunes.
 func (wa *walkApplier) Apply(ctx context.Context) (Applied, error) {
-	// Phase 1: Walk existing tree and apply ops to existing nodes
-	if err := wa.walkAndApply(ctx, wa.rootRef, nil); err != nil {
+	// Single pass: walk, index, and apply ops to existing nodes
+	if err := wa.walkAndApply(ctx, wa.rootRef, 0, nil); err != nil {
 		return wa.result, err
 	}
 
@@ -110,14 +126,37 @@ func (wa *walkApplier) Apply(ctx context.Context) (Applied, error) {
 	return wa.result, nil
 }
 
-// walkAndApply recursively walks the tree and applies matching ops.
-func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, currentPath []string) error {
+// walkAndApply recursively walks the tree, indexes nodes, and applies matching ops.
+// It uses childrenByParent for O(1) pruning and ReadOffsetsInto + MatchNKsFromOffsets
+// for targeted child selection (avoids decoding all sibling names).
+func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parentRef uint32, currentPath []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	// Record this node as visited
 	pathKey := normalizePath(currentPath)
+
+	// Parse NK (needed for value indexing and subkey access)
+	payload, err := wa.h.ResolveCellPayload(nkOffset)
+	if err != nil {
+		return nil // Can't resolve, skip
+	}
+
+	nk, err := hive.ParseNK(payload)
+	if err != nil {
+		return nil // Can't parse, skip
+	}
+
+	// Index this node (root is already seeded in newWalkApplySession)
+	if len(currentPath) > 0 {
+		name := currentPath[len(currentPath)-1]
+		wa.idx.AddNK(parentRef, toLowerASCII(name), nkOffset)
+	}
+
+	// Index values before applying ops (editors need value index)
+	wa.indexValues(nkOffset, nk)
+
+	// Record this node as visited
 	wa.visited[pathKey] = nkOffset
 
 	// Apply all ops that target this exact path
@@ -130,36 +169,52 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, curren
 		}
 	}
 
-	// Check if this node has subkeys before trying to walk them
-	payload, err := wa.h.ResolveCellPayload(nkOffset)
-	if err != nil {
-		return nil // Can't resolve, skip walking children
-	}
-
-	nk, err := hive.ParseNK(payload)
-	if err != nil {
-		return nil // Can't parse, skip walking children
-	}
-
-	// If no subkeys, nothing to walk
-	if nk.SubkeyCount() == 0 {
+	// Check if any children are needed at this level
+	neededChildren, hasNeeded := wa.childrenByParent[pathKey]
+	if !hasNeeded || nk.SubkeyCount() == 0 {
 		return nil
 	}
 
-	// Walk children, but only those with pending ops (pruning)
-	return walker.WalkSubkeysCtx(ctx, wa.h, nkOffset, func(childNK hive.NK, childRef uint32) error {
-		childName := string(childNK.Name())
+	subkeyListRef := nk.SubkeyListOffsetRel()
+	if subkeyListRef == format.InvalidOffset {
+		return nil
+	}
+
+	// Read child offsets into reusable buffer
+	wa.offsetBuf, err = subkeys.ReadOffsetsInto(wa.h, subkeyListRef, wa.offsetBuf)
+	if err != nil {
+		return nil
+	}
+
+	// Match only needed children using cheap name comparison
+	matched, err := subkeys.MatchNKsFromOffsets(wa.h, wa.offsetBuf, neededChildren)
+	if err != nil {
+		return nil
+	}
+
+	// Recurse into matched children
+	for _, entry := range matched {
 		// CRITICAL: Make a copy of the slice to avoid sharing underlying array
 		// between siblings. Using append with capacity limit forces allocation.
-		childPath := append(currentPath[:len(currentPath):len(currentPath)], childName)
-		childPathKey := normalizePath(childPath)
-
-		// PRUNING: Skip subtree if no ops target it or its descendants
-		if _, hasOps := wa.prefixSet[childPathKey]; !hasOps {
-			return nil // Skip entire subtree
+		childPath := append(currentPath[:len(currentPath):len(currentPath)], entry.NameLower)
+		if err := wa.walkAndApply(ctx, entry.NKRef, nkOffset, childPath); err != nil {
+			return err
 		}
+	}
 
-		return wa.walkAndApply(ctx, childRef, childPath)
+	return nil
+}
+
+// indexValues indexes values for a key so editors can find them.
+func (wa *walkApplier) indexValues(nkOffset uint32, nk hive.NK) {
+	if nk.ValueCount() == 0 {
+		return
+	}
+
+	_ = walker.WalkValues(wa.h, nkOffset, func(vk hive.VK, vkRef uint32) error {
+		name := strings.ToLower(string(vk.Name()))
+		wa.idx.AddVKLower(nkOffset, name, vkRef)
+		return nil
 	})
 }
 
@@ -287,100 +342,61 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 }
 
 // normalizePath converts a path slice to a lowercase string key for map lookups.
+// Fuses join + lowercase in a single pass with one allocation.
 func normalizePath(path []string) string {
 	if len(path) == 0 {
 		return ""
 	}
-	return strings.ToLower(strings.Join(path, "\\"))
-}
-
-// pathLess compares two paths lexicographically (case-insensitive).
-func pathLess(a, b []string) bool {
-	return normalizePath(a) < normalizePath(b)
-}
-
-// noIndexKeyEditor wraps KeyEditor to work without full index during walk-apply.
-// It creates keys by walking the tree directly rather than using index lookups.
-type noIndexKeyEditor struct {
-	h     *hive.Hive
-	alloc alloc.Allocator
-	dt    *dirty.Tracker
-	idx   index.Index
-	inner edit.KeyEditor
-}
-
-// newNoIndexKeyEditor creates a key editor that uses an in-memory index.
-func newNoIndexKeyEditor(h *hive.Hive, a alloc.Allocator, dt *dirty.Tracker) *noIndexKeyEditor {
-	// Create a minimal in-memory index for tracking created keys
-	idx := index.NewIndex(index.IndexNumeric, 100, 100)
-
-	return &noIndexKeyEditor{
-		h:     h,
-		alloc: a,
-		dt:    dt,
-		idx:   idx,
-		inner: edit.NewKeyEditor(h, a, idx, dt),
+	if len(path) == 1 {
+		return toLowerASCII(path[0])
 	}
-}
 
-// EnsureKeyPath creates intermediate keys as needed.
-func (nke *noIndexKeyEditor) EnsureKeyPath(root edit.NKRef, segments []string) (edit.NKRef, int, error) {
-	return nke.inner.EnsureKeyPath(root, segments)
-}
-
-// DeleteKey removes a key and optionally its subkeys.
-func (nke *noIndexKeyEditor) DeleteKey(nk edit.NKRef, recursive bool) error {
-	return nke.inner.DeleteKey(nk, recursive)
-}
-
-// EnableDeferredMode enables deferred subkey list building.
-func (nke *noIndexKeyEditor) EnableDeferredMode() {
-	nke.inner.EnableDeferredMode()
-}
-
-// DisableDeferredMode disables deferred subkey list building.
-func (nke *noIndexKeyEditor) DisableDeferredMode() error {
-	return nke.inner.DisableDeferredMode()
-}
-
-// FlushDeferredSubkeys writes all accumulated deferred children to disk.
-func (nke *noIndexKeyEditor) FlushDeferredSubkeys() (int, error) {
-	return nke.inner.FlushDeferredSubkeys()
-}
-
-// Index returns the internal index used by this editor.
-func (nke *noIndexKeyEditor) Index() index.Index {
-	return nke.idx
-}
-
-// noIndexValueEditor wraps ValueEditor to work without full index during walk-apply.
-type noIndexValueEditor struct {
-	h     *hive.Hive
-	alloc alloc.Allocator
-	dt    *dirty.Tracker
-	idx   index.Index
-	inner edit.ValueEditor
-}
-
-// newNoIndexValueEditor creates a value editor that uses an in-memory index.
-func newNoIndexValueEditor(h *hive.Hive, a alloc.Allocator, dt *dirty.Tracker, idx index.Index) *noIndexValueEditor {
-	return &noIndexValueEditor{
-		h:     h,
-		alloc: a,
-		dt:    dt,
-		idx:   idx,
-		inner: edit.NewValueEditor(h, a, idx, dt),
+	// Pre-compute total length: sum of segments + (len-1) separators
+	n := len(path) - 1 // separators
+	for _, s := range path {
+		n += len(s)
 	}
+
+	var b strings.Builder
+	b.Grow(n)
+	for i, s := range path {
+		if i > 0 {
+			b.WriteByte('\\')
+		}
+		for j := 0; j < len(s); j++ {
+			c := s[j]
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
-// UpsertValue creates or updates a value under the given NK.
-func (nve *noIndexValueEditor) UpsertValue(nk edit.NKRef, name string, typ edit.ValueType, data []byte) error {
-	return nve.inner.UpsertValue(nk, name, typ, data)
-}
+// toLowerASCII lowercases an ASCII string in a single allocation.
+func toLowerASCII(s string) string {
+	// Fast check: if already lowercase, return as-is (zero alloc).
+	hasUpper := false
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			hasUpper = true
+			break
+		}
+	}
+	if !hasUpper {
+		return s
+	}
 
-// DeleteValue removes a value by name.
-func (nve *noIndexValueEditor) DeleteValue(nk edit.NKRef, name string) error {
-	return nve.inner.DeleteValue(nk, name)
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
 }
 
 // walkApplySession provides session-level operations for single-pass mode.
@@ -394,8 +410,8 @@ type walkApplySession struct {
 
 // newWalkApplySession creates a session for single-pass walk-apply operations.
 func newWalkApplySession(h *hive.Hive, a alloc.Allocator, dt *dirty.Tracker) *walkApplySession {
-	// Create a minimal in-memory index for tracking created keys
-	idx := index.NewIndex(index.IndexNumeric, 1000, 1000)
+	// Create a minimal in-memory index for tracking created keys (pooled)
+	idx := index.AcquireNumericIndex(1000, 1000)
 
 	// Seed the index with root key
 	rootRef := h.RootCellOffset()
@@ -417,148 +433,8 @@ func newWalkApplySession(h *hive.Hive, a alloc.Allocator, dt *dirty.Tracker) *wa
 }
 
 // ApplyPlan applies a plan using single-pass walk-apply.
+// The walk indexes nodes, applies ops, and prunes in a single traversal.
 func (was *walkApplySession) ApplyPlan(ctx context.Context, plan *Plan) (Applied, error) {
-	// Build index for paths that need it
-	// For single-pass, we build a minimal index as we walk
-	if err := was.buildMinimalIndex(ctx, plan); err != nil {
-		return Applied{}, fmt.Errorf("build minimal index: %w", err)
-	}
-
-	// Create walk applier and apply
 	wa := newWalkApplier(was.h, was.alloc, was.dt, was.idx, plan)
 	return wa.Apply(ctx)
-}
-
-// buildMinimalIndex builds an index containing only the paths needed by the plan.
-func (was *walkApplySession) buildMinimalIndex(ctx context.Context, plan *Plan) error {
-	// Collect unique paths we need to index
-	pathsToIndex := make(map[string]struct{})
-	for _, op := range plan.Ops {
-		pathKey := normalizePath(op.KeyPath)
-		pathsToIndex[pathKey] = struct{}{}
-
-		// Also add all ancestors
-		for i := 1; i < len(op.KeyPath); i++ {
-			ancestorKey := normalizePath(op.KeyPath[:i])
-			pathsToIndex[ancestorKey] = struct{}{}
-		}
-	}
-
-	// Walk the tree and build index for paths we need
-	return was.walkAndIndex(ctx, was.rootRef, nil, pathsToIndex)
-}
-
-// walkAndIndex walks the tree and indexes nodes that match needed paths.
-func (was *walkApplySession) walkAndIndex(ctx context.Context, nkOffset uint32, currentPath []string, neededPaths map[string]struct{}) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	// Get NK name
-	payload, err := was.h.ResolveCellPayload(nkOffset)
-	if err != nil {
-		return nil // Skip invalid nodes
-	}
-
-	nk, err := hive.ParseNK(payload)
-	if err != nil {
-		return nil // Skip invalid nodes
-	}
-
-	name := string(nk.Name())
-	var thisPath []string
-	if currentPath == nil {
-		thisPath = []string{name}
-	} else {
-		// CRITICAL: Make a copy of the slice to avoid sharing underlying array
-		// between siblings. Using append with capacity limit forces allocation.
-		thisPath = append(currentPath[:len(currentPath):len(currentPath)], name)
-	}
-
-	pathKey := normalizePath(thisPath)
-
-	// Check if this path or any descendant is needed
-	isNeeded := false
-	if _, ok := neededPaths[pathKey]; ok {
-		isNeeded = true
-	} else {
-		// Check if any needed path has this as prefix
-		for neededPath := range neededPaths {
-			if strings.HasPrefix(neededPath, pathKey+"\\") || neededPath == pathKey {
-				isNeeded = true
-				break
-			}
-		}
-	}
-
-	if !isNeeded {
-		return nil // Prune this subtree
-	}
-
-	// Add to index
-	var parentRef uint32
-	if len(currentPath) > 0 {
-		// Find parent in index by walking up
-		parentRef = was.findParentRef(currentPath)
-	}
-	was.idx.AddNK(parentRef, strings.ToLower(name), nkOffset)
-
-	// Also index values for this key if we have ops targeting them
-	if err := was.indexValues(nkOffset, nk); err != nil {
-		// Non-fatal, continue
-	}
-
-	// Walk subkeys only if this key has any
-	if nk.SubkeyCount() == 0 {
-		return nil
-	}
-
-	subkeyListRef := nk.SubkeyListOffsetRel()
-	if subkeyListRef == format.InvalidOffset {
-		return nil
-	}
-
-	// Read subkey list
-	subkeyList, err := subkeys.Read(was.h, subkeyListRef)
-	if err != nil {
-		return nil
-	}
-
-	for _, entry := range subkeyList.Entries {
-		if err := was.walkAndIndex(ctx, entry.NKRef, thisPath, neededPaths); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// findParentRef finds the parent NK ref for a path by walking up the path.
-func (was *walkApplySession) findParentRef(path []string) uint32 {
-	if len(path) == 0 {
-		return 0
-	}
-
-	current := was.rootRef
-	for i := 0; i < len(path); i++ {
-		next, ok := was.idx.GetNK(current, strings.ToLower(path[i]))
-		if !ok {
-			return current
-		}
-		current = next
-	}
-	return current
-}
-
-// indexValues indexes values for a key.
-func (was *walkApplySession) indexValues(nkOffset uint32, nk hive.NK) error {
-	if nk.ValueCount() == 0 {
-		return nil
-	}
-
-	return walker.WalkValues(was.h, nkOffset, func(vk hive.VK, vkRef uint32) error {
-		name := string(vk.Name())
-		was.idx.AddVK(nkOffset, strings.ToLower(name), vkRef)
-		return nil
-	})
 }
