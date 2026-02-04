@@ -243,3 +243,97 @@ func Test_readDirectList_MockData(t *testing.T) {
 	// Skip for now - will be tested in integration
 	t.Skip("Requires hive instance - will be tested in integration")
 }
+
+// Test_compressedNameEqualsLower tests targeted name matching for ASCII/Win1252 names.
+func Test_compressedNameEqualsLower(t *testing.T) {
+	tests := []struct {
+		name        string
+		nameBytes   []byte
+		targetLower string
+		want        bool
+	}{
+		{"exact lowercase match", []byte("software"), "software", true},
+		{"case insensitive match", []byte("Software"), "software", true},
+		{"all upper match", []byte("SOFTWARE"), "software", true},
+		{"mixed case match", []byte("SoFtWaRe"), "software", true},
+		{"mismatch same length", []byte("hardware"), "software", false},
+		{"mismatch different length", []byte("soft"), "software", false},
+		{"target longer", []byte("sw"), "software", false},
+		{"empty both", []byte{}, "", true},
+		{"empty name", []byte{}, "software", false},
+		{"empty target", []byte("software"), "", false},
+		{"single char match", []byte("A"), "a", true},
+		{"single char mismatch", []byte("A"), "b", false},
+		{"numbers match", []byte("key123"), "key123", true},
+		{"numbers mismatch", []byte("key123"), "key456", false},
+		{"special chars", []byte("my-key_v2"), "my-key_v2", true},
+		{"with space", []byte("My Key"), "my key", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := compressedNameEqualsLower(tt.nameBytes, tt.targetLower)
+			if got != tt.want {
+				t.Errorf("compressedNameEqualsLower(%q, %q) = %v, want %v",
+					tt.nameBytes, tt.targetLower, got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_utf16NameEqualsLower tests targeted name matching for UTF-16LE names.
+func Test_utf16NameEqualsLower(t *testing.T) {
+	tests := []struct {
+		name        string
+		nameBytes   []byte
+		targetLower string
+		want        bool
+	}{
+		{
+			"ASCII match",
+			[]byte{'S', 0, 'o', 0, 'f', 0, 't', 0, 'w', 0, 'a', 0, 'r', 0, 'e', 0},
+			"software",
+			true,
+		},
+		{
+			"ASCII mismatch",
+			[]byte{'S', 0, 'o', 0, 'f', 0, 't', 0, 'w', 0, 'a', 0, 'r', 0, 'e', 0},
+			"hardware",
+			false,
+		},
+		{
+			"length mismatch",
+			[]byte{'S', 0, 'W', 0},
+			"software",
+			false,
+		},
+		{
+			"empty both",
+			[]byte{},
+			"",
+			true,
+		},
+		{
+			"odd length invalid",
+			[]byte{'S', 0, 'W'},
+			"sw",
+			false,
+		},
+		{
+			"case insensitive",
+			[]byte{'T', 0, 'E', 0, 'S', 0, 'T', 0},
+			"test",
+			true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := utf16NameEqualsLower(tt.nameBytes, tt.targetLower)
+			if got != tt.want {
+				t.Errorf("utf16NameEqualsLower(%v, %q) = %v, want %v",
+					tt.nameBytes, tt.targetLower, got, tt.want)
+			}
+		})
+	}
+}

@@ -162,3 +162,81 @@ func Benchmark_decodeUTF16LEName(b *testing.B) {
 		_, _ = decodeUTF16LEName(nameBytes)
 	}
 }
+
+// Benchmark_decodeCompressedNameLowerWithHashes benchmarks the fused decode+lowercase+hash.
+func Benchmark_decodeCompressedNameLowerWithHashes(b *testing.B) {
+	nameBytes := []byte("SoftwareMicrosoftWindowsCurrentVersion")
+
+	b.ReportAllocs()
+
+	for range b.N {
+		_, _, _, _ = decodeCompressedNameLowerWithHashes(nameBytes)
+	}
+}
+
+// Benchmark_compressedNameEqualsLower_Match benchmarks targeted name matching (hit).
+func Benchmark_compressedNameEqualsLower_Match(b *testing.B) {
+	nameBytes := []byte("CurrentVersion")
+	target := "currentversion"
+
+	b.ReportAllocs()
+
+	for range b.N {
+		_ = compressedNameEqualsLower(nameBytes, target)
+	}
+}
+
+// Benchmark_compressedNameEqualsLower_Mismatch benchmarks targeted name matching (miss).
+func Benchmark_compressedNameEqualsLower_Mismatch(b *testing.B) {
+	nameBytes := []byte("CurrentVersion")
+	target := "othervalue"
+
+	b.ReportAllocs()
+
+	for range b.N {
+		_ = compressedNameEqualsLower(nameBytes, target)
+	}
+}
+
+// Benchmark_compressedNameEqualsLower_LengthMismatch benchmarks early length rejection.
+func Benchmark_compressedNameEqualsLower_LengthMismatch(b *testing.B) {
+	nameBytes := []byte("CurrentVersion")
+	target := "cv"
+
+	b.ReportAllocs()
+
+	for range b.N {
+		_ = compressedNameEqualsLower(nameBytes, target)
+	}
+}
+
+// Benchmark_utf16NameEqualsLower_Match benchmarks UTF-16 targeted matching (hit).
+func Benchmark_utf16NameEqualsLower_Match(b *testing.B) {
+	// "Software" in UTF-16LE
+	nameBytes := []byte{
+		'S', 0, 'o', 0, 'f', 0, 't', 0, 'w', 0, 'a', 0, 'r', 0, 'e', 0,
+	}
+	target := "software"
+
+	b.ReportAllocs()
+
+	for range b.N {
+		_ = utf16NameEqualsLower(nameBytes, target)
+	}
+}
+
+// Benchmark_utf16NameEqualsLower_Mismatch benchmarks UTF-16 targeted matching (miss).
+func Benchmark_utf16NameEqualsLower_Mismatch(b *testing.B) {
+	// "Software" in UTF-16LE
+	nameBytes := []byte{
+		'S', 0, 'o', 0, 'f', 0, 't', 0, 'w', 0, 'a', 0, 'r', 0, 'e', 0,
+	}
+	target := "hardware"
+
+	b.ReportAllocs()
+
+	for range b.N {
+		_ = utf16NameEqualsLower(nameBytes, target)
+	}
+}
+

@@ -5,9 +5,10 @@
 package merge
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -72,8 +73,8 @@ func newWalkApplier(
 
 	// Sort by path for efficient matching
 	// Use stable sort to preserve original order for same-path ops
-	sort.SliceStable(wa.ops, func(i, j int) bool {
-		return pathLess(wa.ops[i].KeyPath, wa.ops[j].KeyPath)
+	slices.SortStableFunc(wa.ops, func(a, b Op) int {
+		return cmp.Compare(normalizePath(a.KeyPath), normalizePath(b.KeyPath))
 	})
 
 	// Build path index and prefix set
@@ -287,11 +288,61 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 }
 
 // normalizePath converts a path slice to a lowercase string key for map lookups.
+// Fuses join + lowercase in a single pass with one allocation.
 func normalizePath(path []string) string {
 	if len(path) == 0 {
 		return ""
 	}
-	return strings.ToLower(strings.Join(path, "\\"))
+	if len(path) == 1 {
+		return toLowerASCII(path[0])
+	}
+
+	// Pre-compute total length: sum of segments + (len-1) separators
+	n := len(path) - 1 // separators
+	for _, s := range path {
+		n += len(s)
+	}
+
+	var b strings.Builder
+	b.Grow(n)
+	for i, s := range path {
+		if i > 0 {
+			b.WriteByte('\\')
+		}
+		for j := 0; j < len(s); j++ {
+			c := s[j]
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// toLowerASCII lowercases an ASCII string in a single allocation.
+func toLowerASCII(s string) string {
+	// Fast check: if already lowercase, return as-is (zero alloc).
+	hasUpper := false
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			hasUpper = true
+			break
+		}
+	}
+	if !hasUpper {
+		return s
+	}
+
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
 }
 
 // pathLess compares two paths lexicographically (case-insensitive).

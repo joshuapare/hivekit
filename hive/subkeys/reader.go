@@ -526,6 +526,166 @@ func readNKEntry(h *hive.Hive, nkRef uint32) (Entry, error) {
 	}, nil
 }
 
+// compressedNameEqualsLower checks if an ASCII/Windows-1252 encoded NK name
+// equals the given lowercase target string, without allocating or fully decoding.
+//
+// Fast path: pure ASCII byte-by-byte case-insensitive comparison (zero allocation).
+// Falls back to full decode only for rare non-ASCII bytes (Windows-1252 range 0x80-0xFF).
+func compressedNameEqualsLower(nameBytes []byte, targetLower string) bool {
+	// Fast path: same byte length means we can try direct ASCII comparison.
+	// For pure ASCII names, byte length == rune length.
+	if len(nameBytes) == len(targetLower) {
+		for i, b := range nameBytes {
+			if b > asciiMax {
+				// Non-ASCII byte encountered; fall through to slow path.
+				return compressedNameEqualsLowerSlow(nameBytes, targetLower)
+			}
+			lower := b
+			if b >= 'A' && b <= 'Z' {
+				lower = b + ('a' - 'A')
+			}
+			if lower != targetLower[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Different lengths. For pure ASCII names this is an immediate rejection.
+	// Only Windows-1252 names (with bytes 0x80-0xFF that expand to multi-byte
+	// UTF-8) can have nameBytes shorter than the UTF-8 target.
+	for _, b := range nameBytes {
+		if b > asciiMax {
+			return compressedNameEqualsLowerSlow(nameBytes, targetLower)
+		}
+	}
+	return false
+}
+
+// compressedNameEqualsLowerSlow is the fallback for names containing
+// non-ASCII Windows-1252 bytes. It performs a full decode and compares.
+func compressedNameEqualsLowerSlow(nameBytes []byte, targetLower string) bool {
+	decoded, _, _, err := decodeCompressedNameLowerWithHashes(nameBytes)
+	if err != nil {
+		return false
+	}
+	return decoded == targetLower
+}
+
+// utf16NameEqualsLower checks if a UTF-16LE encoded NK name equals the given
+// lowercase target string, without allocating when possible.
+//
+// For pure ASCII-in-UTF-16 names (high byte zero, low byte <= 0x7F), performs
+// an inline comparison. Falls back to full decode for non-ASCII characters.
+func utf16NameEqualsLower(nameBytes []byte, targetLower string) bool {
+	if len(nameBytes)%utf16BytesPerChar != 0 {
+		return false
+	}
+
+	charCount := len(nameBytes) / utf16BytesPerChar
+
+	// Quick check: if target is pure ASCII and same char count, try fast path
+	if charCount == len(targetLower) {
+		allASCII16 := true
+		for i := 0; i < len(nameBytes); i += 2 {
+			if nameBytes[i+1] != 0 || nameBytes[i] > asciiMax {
+				allASCII16 = false
+				break
+			}
+		}
+		if allASCII16 {
+			for i, j := 0, 0; i < len(nameBytes); i, j = i+2, j+1 {
+				b := nameBytes[i]
+				lower := b
+				if b >= 'A' && b <= 'Z' {
+					lower = b + ('a' - 'A')
+				}
+				if lower != targetLower[j] {
+					return false
+				}
+			}
+			return true
+		}
+	}
+
+	// Slow path: full decode
+	decoded, _, err := decodeUTF16LENameLowerWithHash(nameBytes)
+	if err != nil {
+		return false
+	}
+	return decoded == targetLower
+}
+
+// MatchNKsFromOffsets resolves NK cells from offsets and returns entries only
+// for those whose names match a target in targetNames (all lowercase).
+//
+// This is dramatically faster than Read() when only a small fraction of siblings
+// are needed, because it skips the full name decode + hash computation for
+// non-matching entries. Only matching entries get the full readNKEntry treatment
+// (needed for Hash/FNV32 fields used by index insertion).
+func MatchNKsFromOffsets(h *hive.Hive, offsets []uint32, targetNames map[string]struct{}) ([]Entry, error) {
+	if len(targetNames) == 0 {
+		return nil, nil
+	}
+
+	// Pre-allocate for expected matches (at most len(targetNames))
+	entries := make([]Entry, 0, len(targetNames))
+
+	for _, nkRef := range offsets {
+		payload, err := resolveCell(h, nkRef)
+		if err != nil {
+			continue // Skip invalid cells
+		}
+
+		nk, err := hive.ParseNK(payload)
+		if err != nil {
+			continue // Skip invalid NK cells
+		}
+
+		nameBytes := nk.Name()
+		if len(nameBytes) == 0 {
+			continue
+		}
+
+		// Check if this name matches any target using cheap comparison
+		matched := false
+		if nk.IsCompressedName() {
+			for target := range targetNames {
+				if compressedNameEqualsLower(nameBytes, target) {
+					matched = true
+					break
+				}
+			}
+		} else {
+			for target := range targetNames {
+				if utf16NameEqualsLower(nameBytes, target) {
+					matched = true
+					break
+				}
+			}
+		}
+
+		if !matched {
+			continue
+		}
+
+		// Full decode only for matches (need Hash/FNV32 for index insertion)
+		entry, err := readNKEntry(h, nkRef)
+		if err != nil {
+			continue
+		}
+
+		entries = append(entries, entry)
+
+		// If we've found all targets, stop early
+		if len(entries) == len(targetNames) {
+			break
+		}
+	}
+
+	return entries, nil
+}
+
 // resolveCell resolves a cell reference to its payload.
 func resolveCell(h *hive.Hive, ref uint32) ([]byte, error) {
 	data := h.Bytes()
