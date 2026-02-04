@@ -74,7 +74,11 @@ func NewBitmap(hiveDataSize uint32) *Bitmap {
 // The pool converges to the largest-seen bitmap size over time.
 func acquireBitmap(hiveDataSize uint32) *Bitmap {
 	if v := bitmapPool.Get(); v != nil {
-		bm := v.(*Bitmap)
+		bm, ok := v.(*Bitmap)
+		if !ok {
+			// Pool returned unexpected type — discard and allocate new
+			return NewBitmap(hiveDataSize)
+		}
 		if bm.size >= hiveDataSize {
 			for i := range bm.bits {
 				bm.bits[i] = 0

@@ -218,7 +218,16 @@ func (ke *keyEditor) allocateNK(parentRef NKRef, name string) (NKRef, error) {
 	payloadSize := format.NKFixedHeaderSize + nameLen
 	totalSize := int32(payloadSize + format.CellHeaderSize)
 
-	// Allocate cell
+	// Get or create the SK cell BEFORE allocating the NK cell. createSKCell
+	// calls alloc.Alloc which can trigger hive growth, invalidating any buf
+	// returned by a prior Alloc call.
+	secDesc := DefaultSecurityDescriptor()
+	skOffset, skErr := ke.getOrCreateSKCell(secDesc)
+	if skErr != nil {
+		return 0, fmt.Errorf("get/create SK cell: %w", skErr)
+	}
+
+	// Allocate cell (safe now — no further Alloc calls before we finish writing buf)
 	ref, buf, err := ke.alloc.Alloc(totalSize, alloc.ClassNK)
 	if err != nil {
 		return 0, fmt.Errorf("alloc cell: %w", err)
@@ -257,12 +266,7 @@ func (ke *keyEditor) allocateNK(parentRef NKRef, name string) (NKRef, error) {
 	// Value list offset: InvalidOffset (none)
 	format.PutU32(buf, format.NKValueListOffset, format.InvalidOffset)
 
-	// Security offset: Use default security descriptor with deduplication
-	secDesc := DefaultSecurityDescriptor()
-	skOffset, skErr := ke.getOrCreateSKCell(secDesc)
-	if skErr != nil {
-		return 0, fmt.Errorf("get/create SK cell: %w", skErr)
-	}
+	// Security offset (computed before Alloc to avoid stale buf)
 	format.PutU32(buf, format.NKSecurityOffset, skOffset)
 
 	// Class name offset: InvalidOffset (none)
@@ -671,14 +675,16 @@ func (ke *keyEditor) DeleteKey(nk NKRef, recursive bool) error {
 		return fmt.Errorf("re-parse NK after deleteAllValues: %w", parseErr)
 	}
 
+	// Extract the key name BEFORE removeFromParentSubkeyList, which can trigger
+	// alloc.Alloc → hive growth → invalidating the nkCell byte slice.
+	nkName := decodeName(nkCell.Name(), nkCell.IsCompressedName())
+
 	// Phase 3: Remove from parent's subkey list
 	if removeErr := ke.removeFromParentSubkeyList(parentRef, nkCell); removeErr != nil {
 		return fmt.Errorf("remove from parent: %w", removeErr)
 	}
 
 	// Phase 4: Remove from index and free the NK cell itself
-	// Extract the key name before freeing
-	nkName := decodeName(nkCell.Name(), nkCell.IsCompressedName())
 
 	// Remove from index to maintain consistency
 	ke.index.RemoveNK(parentRef, nkName)

@@ -579,3 +579,40 @@ func Test_FastAlloc_BoundaryCheck(t *testing.T) {
 		}
 	}
 }
+
+// TestGetFreeCell_NoPanic verifies that getFreeCell does not panic
+// when the freeCellPool returns an unexpected type.
+//
+// Bug: getFreeCell used `panic("freeCellPool returned unexpected type")` which
+// would crash production if the pool ever returned a non-*freeCell value.
+func TestGetFreeCell_NoPanic(t *testing.T) {
+	dir := t.TempDir()
+	hivePath := filepath.Join(dir, "test.hiv")
+	createHiveWithFreeCells(t, hivePath, []int{128})
+
+	h, err := hive.Open(hivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+
+	fa, err := NewFast(h, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pollute the pool with a wrong type
+	fa.freeCellPool.Put("not a *freeCell")
+
+	// getFreeCell should NOT panic — it should fall back to a fresh allocation
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("getFreeCell panicked: %v", r)
+		}
+	}()
+
+	cell := fa.getFreeCell()
+	if cell == nil {
+		t.Fatal("getFreeCell returned nil")
+	}
+}
