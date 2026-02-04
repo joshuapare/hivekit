@@ -64,6 +64,29 @@ func Write(h *hive.Hive, allocator alloc.Allocator, entries []Entry) (uint32, er
 	return writeLHList(h, allocator, sortedEntries)
 }
 
+// WritePresorted writes a subkey list that is already sorted by NameLower.
+// This skips the copy and sort that Write() performs, avoiding O(n) allocation
+// and O(n log n) sorting overhead for callers that guarantee sorted input.
+//
+// Callers MUST ensure entries are sorted by NameLower ascending.
+// Used by FlushDeferredSubkeys (sorts before calling) and insertImmediateChild
+// (List.Insert maintains sorted order).
+func WritePresorted(h *hive.Hive, allocator alloc.Allocator, entries []Entry) (uint32, error) {
+	if len(entries) == 0 {
+		return format.InvalidOffset, nil
+	}
+
+	if len(entries) > RIThreshold {
+		return writeRIList(h, allocator, entries)
+	}
+
+	if len(entries) <= LFThreshold {
+		return writeLFList(h, allocator, entries)
+	}
+
+	return writeLHList(h, allocator, entries)
+}
+
 // writeHashLeafList is a common helper for writing LF and LH lists.
 // Both formats are identical: signature (2) + count (2) + [offset (4) + hash (4)] * count.
 func writeHashLeafList(

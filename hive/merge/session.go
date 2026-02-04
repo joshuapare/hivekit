@@ -219,6 +219,12 @@ func (s *Session) Apply(ctx context.Context, plan *Plan) (Applied, error) {
 		return Applied{}, fmt.Errorf("Apply() requires full-index mode; use ApplyPlanDirect() or ApplyWithTx() for single-pass mode")
 	}
 
+	// Enable deferred mode for batch subkey list building.
+	// Instead of K read-modify-write cycles for K keys under the same parent,
+	// deferred mode reads existing children once, accumulates new children in
+	// memory, and writes once per parent during FlushDeferredSubkeys().
+	s.EnableDeferredMode()
+
 	var result Applied
 
 	// Apply each operation in the plan
@@ -231,6 +237,16 @@ func (s *Session) Apply(ctx context.Context, plan *Plan) (Applied, error) {
 		if err := s.applyOp(ctx, &op, &result); err != nil {
 			return result, fmt.Errorf("operation %d (%s): %w", i, op.Type, err)
 		}
+	}
+
+	// Flush all remaining accumulated subkey lists to disk
+	if _, err := s.FlushDeferredSubkeys(); err != nil {
+		return result, fmt.Errorf("flush deferred subkeys: %w", err)
+	}
+
+	// Disable deferred mode (no pending children after flush)
+	if err := s.DisableDeferredMode(); err != nil {
+		return result, fmt.Errorf("disable deferred mode: %w", err)
 	}
 
 	return result, nil
@@ -394,11 +410,13 @@ func (s *Session) EnableDeferredMode() {
 	}
 
 	// Type-assert to access Base methods
-	// Both InPlace and Append embed Base, so this works for both
+	// InPlace, Append, and Hybrid all support deferred mode
 	if ip, ok := s.strategy.(*strategy.InPlace); ok {
 		ip.EnableDeferredMode()
 	} else if ap, ok := s.strategy.(*strategy.Append); ok {
 		ap.EnableDeferredMode()
+	} else if hy, ok := s.strategy.(*strategy.Hybrid); ok {
+		hy.EnableDeferredMode()
 	}
 	// If strategy doesn't support deferred mode, this is a no-op
 }
@@ -417,6 +435,8 @@ func (s *Session) DisableDeferredMode() error {
 		return ip.DisableDeferredMode()
 	} else if ap, ok := s.strategy.(*strategy.Append); ok {
 		return ap.DisableDeferredMode()
+	} else if hy, ok := s.strategy.(*strategy.Hybrid); ok {
+		return hy.DisableDeferredMode()
 	}
 	return nil // Strategy doesn't support deferred mode
 }
@@ -435,6 +455,8 @@ func (s *Session) FlushDeferredSubkeys() (int, error) {
 		return ip.FlushDeferredSubkeys()
 	} else if ap, ok := s.strategy.(*strategy.Append); ok {
 		return ap.FlushDeferredSubkeys()
+	} else if hy, ok := s.strategy.(*strategy.Hybrid); ok {
+		return hy.FlushDeferredSubkeys()
 	}
 	return 0, nil // Strategy doesn't support deferred mode
 }
