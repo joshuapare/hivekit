@@ -97,8 +97,11 @@ func convertRegValue(value *RegValue) (types.RegType, []byte, error) {
 	case ValueTypeString:
 		// Remove surrounding quotes and unescape
 		data := value.Data
-		if len(data) >= 2 && data[0] == '"' && data[len(data)-1] == '"' {
-			data = data[1 : len(data)-1]
+		if len(data) >= 2 && data[0] == '"' {
+			end := findClosingQuote(data)
+			if end > 0 {
+				data = data[1:end]
+			}
 		}
 		data = unescapeRegString(data)
 		// Convert to UTF-16LE with null terminator

@@ -29,10 +29,23 @@ func ParseReg(data []byte, opts types.RegParseOptions) ([]types.EditOp, error) {
 	var ops []types.EditOp
 	seenKeys := make(map[string]bool)
 	var current string
+	var pendingLine []byte
 
 	for scanner.Scan() {
 		line := scanner.Bytes() // Use Bytes() instead of Text() - no allocation
 		line = bytes.TrimRight(line, "\r")
+
+		// Handle line continuation (hex values spanning multiple lines)
+		if len(line) > 0 && line[len(line)-1] == '\\' {
+			pendingLine = append(pendingLine, line[:len(line)-1]...)
+			continue
+		}
+		if len(pendingLine) > 0 {
+			pendingLine = append(pendingLine, bytes.TrimLeft(line, " \t")...)
+			line = pendingLine
+			pendingLine = pendingLine[:0]
+		}
+
 		trim := bytes.TrimSpace(line)
 		if len(trim) == 0 || bytes.HasPrefix(trim, []byte(CommentPrefix)) {
 			continue
@@ -111,10 +124,11 @@ func parseValueBytes(path, name string, payload []byte) (types.EditOp, error) {
 		return types.OpDeleteValue{Path: path, Name: name}, nil
 	}
 	if bytes.HasPrefix(payload, []byte(Quote)) {
-		if !bytes.HasSuffix(payload, []byte(Quote)) {
+		end := findClosingQuoteBytes(payload)
+		if end < 0 {
 			return nil, fmt.Errorf("regtext: unterminated string %q", payload)
 		}
-		value := unescapeRegStringBytes(payload[1 : len(payload)-1])
+		value := unescapeRegStringBytes(payload[1:end])
 		return types.OpSetValue{
 			Path: path,
 			Name: name,

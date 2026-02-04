@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/joshuapare/hivekit/pkg/types"
 )
@@ -409,4 +410,294 @@ func TestParseReg_MissingHeader_DeleteOperations(t *testing.T) {
 	if !hasDeleteValue {
 		t.Error("Expected OpDeleteValue in result")
 	}
+}
+
+// =============================================================================
+// ParseReg String Value Quote Handling Tests (parser.go path)
+// =============================================================================
+
+func TestParseReg_StringValueQuoteHandling(t *testing.T) {
+	tests := []struct {
+		name        string
+		line        string // value line within a reg file
+		wantValue   string // expected unescaped value
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:      "simple string value",
+			line:      `"Name"="hello"`,
+			wantValue: "hello",
+		},
+		{
+			name:      "string value ending with escaped backslash",
+			line:      `"Name"="C:\\"`,
+			wantValue: `C:\`,
+		},
+		{
+			name:      "string value ending with escaped quote",
+			line:      `"Name"="test\""`,
+			wantValue: `test"`,
+		},
+		{
+			name:      "string value with escaped backslash+quote sequence",
+			line:      `"Name"="test\\\""`,
+			wantValue: `test\"`,
+		},
+		{
+			name:        "genuinely unterminated string",
+			line:        `"Name"="test\"`,
+			wantErr:     true,
+			errContains: "unterminated string",
+		},
+		{
+			name:      "string value with escaped chars in middle",
+			line:      `"Name"="a\\b\"c"`,
+			wantValue: `a\b"c`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			regText := "Windows Registry Editor Version 5.00\r\n\r\n[TestKey]\r\n" + tt.line + "\r\n"
+			ops, err := ParseReg([]byte(regText), types.RegParseOptions{})
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("expected error containing %q, got: %v", tt.errContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			// Find the SetValue op
+			var found bool
+			for _, op := range ops {
+				if sv, ok := op.(types.OpSetValue); ok {
+					found = true
+					// Decode the UTF-16LE data back to string for comparison
+					gotValue := decodeUTF16LEString(sv.Data)
+					if gotValue != tt.wantValue {
+						t.Errorf("value mismatch: got %q, want %q", gotValue, tt.wantValue)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("no OpSetValue found in ops")
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Codec convertRegValue String Quote Handling Tests (codec.go path)
+// =============================================================================
+
+func TestConvertRegValue_StringQuoteHandling(t *testing.T) {
+	tests := []struct {
+		name      string
+		data      string // raw Data field in RegValue (includes surrounding quotes)
+		wantValue string
+	}{
+		{
+			name:      "simple string value",
+			data:      `"hello"`,
+			wantValue: "hello",
+		},
+		{
+			name:      "string ending with escaped backslash",
+			data:      `"C:\\"`,
+			wantValue: `C:\`,
+		},
+		{
+			name:      "string ending with escaped quote",
+			data:      `"test\""`,
+			wantValue: `test"`,
+		},
+		{
+			name:      "string with escaped backslash+quote sequence",
+			data:      `"test\\\""`,
+			wantValue: `test\"`,
+		},
+		{
+			name:      "string with escaped chars in middle",
+			data:      `"a\\b\"c"`,
+			wantValue: `a\b"c`,
+		},
+		{
+			name:      "genuinely unterminated string should not corrupt data",
+			data:      `"test\"`,
+			wantValue: `"test"`, // no valid closing quote found; data kept as-is, then unescapeRegString runs
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value := &RegValue{
+				Name: "Test",
+				Type: ValueTypeString,
+				Data: tt.data,
+			}
+			regType, data, err := convertRegValue(value)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if regType != types.REG_SZ {
+				t.Errorf("expected REG_SZ, got %v", regType)
+			}
+			gotValue := decodeUTF16LEString(data)
+			if gotValue != tt.wantValue {
+				t.Errorf("value mismatch: got %q, want %q", gotValue, tt.wantValue)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Round-trip Tests (escape → parse → compare)
+// =============================================================================
+
+func TestRoundTrip_EscapeAndParse(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"trailing backslash", `C:\`},
+		{"trailing quote", `test"`},
+		{"trailing backslash-quote", `test\"`},
+		{"middle escapes", `a\b"c`},
+		{"double backslash", `\\`},
+		{"no escapes", "hello"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			escaped := escapeString(tt.input)
+			regLine := `"Name"="` + escaped + `"`
+
+			regText := "Windows Registry Editor Version 5.00\r\n\r\n[TestKey]\r\n" + regLine + "\r\n"
+			ops, err := ParseReg([]byte(regText), types.RegParseOptions{})
+			if err != nil {
+				t.Fatalf("ParseReg failed: %v", err)
+			}
+			for _, op := range ops {
+				if sv, ok := op.(types.OpSetValue); ok {
+					gotValue := decodeUTF16LEString(sv.Data)
+					if gotValue != tt.input {
+						t.Errorf("round-trip mismatch: input=%q escaped=%q got=%q", tt.input, escaped, gotValue)
+					}
+					return
+				}
+			}
+			t.Fatal("no OpSetValue found in ops")
+		})
+	}
+}
+
+// =============================================================================
+// ParseReg Line Continuation Tests
+// =============================================================================
+
+func TestParseReg_LineContinuation(t *testing.T) {
+	t.Run("single continuation", func(t *testing.T) {
+		regText := "Windows Registry Editor Version 5.00\r\n\r\n[TestKey]\r\n" +
+			"\"LongValue\"=hex(1):41,00,42,00,43,00,\\\r\n" +
+			"  44,00,45,00,46,00\r\n"
+		ops, err := ParseReg([]byte(regText), types.RegParseOptions{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var found bool
+		for _, op := range ops {
+			if sv, ok := op.(types.OpSetValue); ok {
+				found = true
+				if sv.Type != types.REG_SZ {
+					t.Errorf("expected REG_SZ, got %v", sv.Type)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no OpSetValue found")
+		}
+	})
+
+	t.Run("multiple continuations", func(t *testing.T) {
+		regText := "Windows Registry Editor Version 5.00\r\n\r\n[TestKey]\r\n" +
+			"\"LongValue\"=hex(7):41,00,42,00,\\\r\n" +
+			"  43,00,44,00,\\\r\n" +
+			"  00,00,00,00\r\n"
+		ops, err := ParseReg([]byte(regText), types.RegParseOptions{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var found bool
+		for _, op := range ops {
+			if sv, ok := op.(types.OpSetValue); ok {
+				found = true
+				if sv.Type != types.REG_MULTI_SZ {
+					t.Errorf("expected REG_MULTI_SZ, got %v", sv.Type)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no OpSetValue found")
+		}
+	})
+
+	t.Run("no continuation", func(t *testing.T) {
+		regText := "Windows Registry Editor Version 5.00\r\n\r\n[TestKey]\r\n" +
+			"\"Short\"=hex:01,02,03\r\n"
+		ops, err := ParseReg([]byte(regText), types.RegParseOptions{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var found bool
+		for _, op := range ops {
+			if _, ok := op.(types.OpSetValue); ok {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("no OpSetValue found")
+		}
+	})
+
+	t.Run("continuation does not affect string values", func(t *testing.T) {
+		// A string value ending with \\ should NOT be treated as continuation
+		regText := "Windows Registry Editor Version 5.00\r\n\r\n[TestKey]\r\n" +
+			`"Path"="C:\\"` + "\r\n" +
+			`"Next"="value"` + "\r\n"
+		ops, err := ParseReg([]byte(regText), types.RegParseOptions{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var setValues int
+		for _, op := range ops {
+			if _, ok := op.(types.OpSetValue); ok {
+				setValues++
+			}
+		}
+		if setValues != 2 {
+			t.Errorf("expected 2 SetValue ops, got %d", setValues)
+		}
+	})
+}
+
+// decodeUTF16LEString decodes UTF-16LE bytes (with null terminator) to a Go string.
+func decodeUTF16LEString(data []byte) string {
+	// Remove null terminator if present
+	if len(data) >= 2 && data[len(data)-1] == 0 && data[len(data)-2] == 0 {
+		data = data[:len(data)-2]
+	}
+	if len(data) == 0 {
+		return ""
+	}
+	u16 := make([]uint16, len(data)/2)
+	for i := range u16 {
+		u16[i] = uint16(data[i*2]) | uint16(data[i*2+1])<<8
+	}
+	return string(utf16.Decode(u16))
 }
