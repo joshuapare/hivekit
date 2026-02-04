@@ -115,6 +115,12 @@ func newWalkApplier(
 
 // Apply executes all ops in a single tree walk that indexes, applies, and prunes.
 func (wa *walkApplier) Apply(ctx context.Context) (Applied, error) {
+	// Defer subkey list writes: Phase 1 only reads subkey lists, never inserts
+	// new children. Phase 2 creates keys via EnsureKeyPath which uses the index,
+	// not on-disk subkey lists. Flushing once at the end eliminates expensive
+	// read-modify-write cycles during bulk inserts.
+	wa.keyEditor.EnableDeferredMode()
+
 	// Single pass: walk, index, and apply ops to existing nodes
 	if err := wa.walkAndApply(ctx, wa.rootRef, 0, nil); err != nil {
 		return wa.result, err
@@ -123,6 +129,11 @@ func (wa *walkApplier) Apply(ctx context.Context) (Applied, error) {
 	// Phase 2: Create missing keys and apply remaining ops
 	if err := wa.createMissingKeysAndApply(ctx); err != nil {
 		return wa.result, err
+	}
+
+	// Flush accumulated subkey lists to disk
+	if _, err := wa.keyEditor.FlushDeferredSubkeys(); err != nil {
+		return wa.result, fmt.Errorf("flush deferred subkeys: %w", err)
 	}
 
 	return wa.result, nil

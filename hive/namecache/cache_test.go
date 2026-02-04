@@ -47,87 +47,84 @@ func TestStore_UpdateExisting(t *testing.T) {
 		t.Fatalf("got (%q, %d, %d), want (\"key_updated\", 3, 4)", name, regHash, fnvHash)
 	}
 
-	// Should still be one entry
+	// Should still be one entry (in the shard that owns this key)
 	if Len() != 1 {
 		t.Fatalf("Len() = %d, want 1", Len())
 	}
 }
 
+// TestLRU_Eviction tests eviction on a single shard to verify LRU ordering.
 func TestLRU_Eviction(t *testing.T) {
-	SetCapacity(3)
-	defer SetCapacity(defaultCapacity)
-	Reset()
+	c := newCache(3)
 
-	Store([]byte("a"), "a", 1, 1)
-	Store([]byte("b"), "b", 2, 2)
-	Store([]byte("c"), "c", 3, 3)
+	c.store([]byte("a"), "a", 1, 1)
+	c.store([]byte("b"), "b", 2, 2)
+	c.store([]byte("c"), "c", 3, 3)
 
-	if Len() != 3 {
-		t.Fatalf("Len() = %d, want 3", Len())
+	if c.len() != 3 {
+		t.Fatalf("len() = %d, want 3", c.len())
 	}
 
 	// Adding a 4th should evict "a" (LRU)
-	Store([]byte("d"), "d", 4, 4)
-	if Len() != 3 {
-		t.Fatalf("Len() = %d, want 3 after eviction", Len())
+	c.store([]byte("d"), "d", 4, 4)
+	if c.len() != 3 {
+		t.Fatalf("len() = %d, want 3 after eviction", c.len())
 	}
 
-	_, _, _, ok := Lookup([]byte("a"))
+	_, _, _, ok := c.lookup([]byte("a"))
 	if ok {
 		t.Fatal("expected 'a' to be evicted")
 	}
 
 	// b, c, d should still be present
 	for _, key := range []string{"b", "c", "d"} {
-		_, _, _, ok := Lookup([]byte(key))
+		_, _, _, ok := c.lookup([]byte(key))
 		if !ok {
 			t.Fatalf("expected %q to be present", key)
 		}
 	}
 }
 
+// TestLRU_AccessPromotes tests that accessing an entry promotes it in LRU order.
 func TestLRU_AccessPromotes(t *testing.T) {
-	SetCapacity(3)
-	defer SetCapacity(defaultCapacity)
-	Reset()
+	c := newCache(3)
 
-	Store([]byte("a"), "a", 1, 1)
-	Store([]byte("b"), "b", 2, 2)
-	Store([]byte("c"), "c", 3, 3)
+	c.store([]byte("a"), "a", 1, 1)
+	c.store([]byte("b"), "b", 2, 2)
+	c.store([]byte("c"), "c", 3, 3)
 
 	// Access "a" to promote it (move to front)
-	Lookup([]byte("a"))
+	c.lookup([]byte("a"))
 
 	// Now add "d" — should evict "b" (now LRU), not "a"
-	Store([]byte("d"), "d", 4, 4)
+	c.store([]byte("d"), "d", 4, 4)
 
-	_, _, _, ok := Lookup([]byte("b"))
+	_, _, _, ok := c.lookup([]byte("b"))
 	if ok {
 		t.Fatal("expected 'b' to be evicted (LRU after 'a' was promoted)")
 	}
 
-	_, _, _, ok = Lookup([]byte("a"))
+	_, _, _, ok = c.lookup([]byte("a"))
 	if !ok {
 		t.Fatal("expected 'a' to survive (was promoted by access)")
 	}
 }
 
+// TestSetCapacity_Shrink tests that shrinking capacity evicts excess entries.
 func TestSetCapacity_Shrink(t *testing.T) {
-	SetCapacity(10)
-	defer SetCapacity(defaultCapacity)
-	Reset()
+	c := newCache(10)
 
 	for i := range 10 {
-		Store([]byte{byte(i)}, "x", uint32(i), 0)
+		c.store([]byte{byte(i)}, "x", uint32(i), 0)
 	}
-	if Len() != 10 {
-		t.Fatalf("Len() = %d, want 10", Len())
+	if c.len() != 10 {
+		t.Fatalf("len() = %d, want 10", c.len())
 	}
 
 	// Shrink to 3 — should evict 7 entries
-	SetCapacity(3)
-	if Len() != 3 {
-		t.Fatalf("Len() = %d, want 3 after shrink", Len())
+	c.setCapacity(3)
+	if c.len() != 3 {
+		t.Fatalf("len() = %d, want 3 after shrink", c.len())
 	}
 }
 
@@ -195,6 +192,32 @@ func TestConcurrent_Access(t *testing.T) {
 	// Just verify no panics occurred and cache is non-empty
 	if Len() == 0 {
 		t.Fatal("expected non-empty cache after concurrent access")
+	}
+}
+
+// TestShardedCache_Distribution verifies entries distribute across shards.
+func TestShardedCache_Distribution(t *testing.T) {
+	SetCapacity(defaultCapacity)
+	defer SetCapacity(defaultCapacity)
+	Reset()
+
+	// Store many entries — they should spread across shards
+	for i := range 100 {
+		key := []byte{byte(i), byte(i >> 8)}
+		Store(key, "val", uint32(i), 0)
+	}
+
+	if Len() != 100 {
+		t.Fatalf("Len() = %d, want 100", Len())
+	}
+
+	// Verify all entries are retrievable
+	for i := range 100 {
+		key := []byte{byte(i), byte(i >> 8)}
+		_, _, _, ok := Lookup(key)
+		if !ok {
+			t.Fatalf("expected entry %d to be present", i)
+		}
 	}
 }
 

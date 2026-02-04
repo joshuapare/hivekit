@@ -64,7 +64,8 @@ type FastAllocator struct {
 	bins []hbinRange
 
 	// Max free span tracking (0 = not tracking, set via option)
-	maxFree int32
+	maxFree       int32
+	secondMaxFree int32 // second-largest free cell for O(1) maxFree update on allocation
 
 	// Statistics for testing and instrumentation
 	stats allocatorStats
@@ -1024,7 +1025,7 @@ func (fa *FastAllocator) initializeFreeLists() error {
 // Returns the smallest cell >= need, or nil if no suitable cell exists.
 //
 // Fast path (O(log n)): The min-heap guarantees heap[0] is the smallest cell.
-// If heap[0].size >= need, it is the best fit — return immediately.
+// If heap[0].size >= need, it is the best fit — pop and return immediately.
 //
 // Slow path (O(n)): If heap[0] is too small but the size class range includes
 // larger cells, scan all cells to find the smallest one that fits.
@@ -1034,28 +1035,58 @@ func (fa *FastAllocator) allocFromSizeClass(sc int, need int32) *freeCell {
 		return nil
 	}
 
-	var bestIdx int
-
 	// Fast path: heap[0] is the smallest cell in this class.
 	// If it fits, it's the best fit by definition — no smaller cell can exist.
 	if list.heap[0].size >= need {
-		bestIdx = 0
-	} else {
-		// Slow path: heap[0] is too small, but larger cells in this size class
-		// may fit. Scan all cells since the heap is only partially ordered.
-		bestIdx = -1
-		var bestSize int32 = 1<<31 - 1 // MaxInt32
-		for i := 1; i < list.heap.Len(); i++ {
-			cellSize := list.heap[i].size
-			if cellSize >= need && cellSize < bestSize {
-				bestIdx = i
-				bestSize = cellSize
+		// O(log n) heap pop
+		fa.stats.HeapRemoves++
+		cell := heap.Pop(&list.heap).(*freeCell) //nolint:errcheck // heap contains only *freeCell
+		list.count--
+
+		// Remove from byOff map
+		delete(fa.byOff, cell.off)
+
+		// Remove from coalesce indexes
+		if fa.startIdx != nil {
+			delete(fa.startIdx, cell.off)
+		}
+		if fa.endIdx != nil {
+			end := cell.off + format.Align8I32(cell.size)
+			delete(fa.endIdx, end)
+		}
+
+		// O(1) maxFree update via top-2 tracking
+		if cell.size == fa.maxFree {
+			oldMax := fa.maxFree
+			fa.maxFree = fa.secondMaxFree
+			fa.secondMaxFree = 0
+			if logAlloc && fa.maxFree != oldMax {
+				fmt.Fprintf(
+					os.Stderr,
+					"[ALLOC] 🔄 maxFree demoted: %d → %d (top-2 tracking)\n",
+					oldMax,
+					fa.maxFree,
+				)
 			}
 		}
 
-		if bestIdx == -1 {
-			return nil
+		return cell
+	}
+
+	// Slow path: heap[0] is too small, but larger cells in this size class
+	// may fit. Scan all cells since the heap is only partially ordered.
+	bestIdx := -1
+	var bestSize int32 = 1<<31 - 1 // MaxInt32
+	for i := 1; i < list.heap.Len(); i++ {
+		cellSize := list.heap[i].size
+		if cellSize >= need && cellSize < bestSize {
+			bestIdx = i
+			bestSize = cellSize
 		}
+	}
+
+	if bestIdx == -1 {
+		return nil
 	}
 
 	// Remove the cell from the heap (O(log n))
@@ -1075,15 +1106,17 @@ func (fa *FastAllocator) allocFromSizeClass(sc int, need int32) *freeCell {
 		delete(fa.endIdx, end)
 	}
 
-	// CRITICAL FIX: If we just allocated the largest free cell, maxFree is now stale.
-	// We must recompute it to prevent unnecessary Grow() calls.
+	// O(1) maxFree update: if we just consumed the largest cell, demote to second-largest.
+	// secondMaxFree is maintained by insertFreeCell. This replaces an O(N) recomputeMaxFree scan.
 	if cell.size == fa.maxFree {
-		fa.recomputeMaxFree()
-		if logAlloc && fa.maxFree != cell.size {
+		oldMax := fa.maxFree
+		fa.maxFree = fa.secondMaxFree
+		fa.secondMaxFree = 0
+		if logAlloc && fa.maxFree != oldMax {
 			fmt.Fprintf(
 				os.Stderr,
-				"[ALLOC] 🔄 Recomputed maxFree: %d → %d (allocated largest cell)\n",
-				cell.size,
+				"[ALLOC] 🔄 maxFree demoted: %d → %d (top-2 tracking)\n",
+				oldMax,
 				fa.maxFree,
 			)
 		}
@@ -1114,15 +1147,16 @@ func (fa *FastAllocator) allocFromLarge(need int32) *freeCell {
 			cell.off = curr.off
 			cell.size = curr.size
 
-			// CRITICAL FIX: If we just allocated the largest free cell, maxFree is now stale.
-			// We must recompute it to prevent unnecessary Grow() calls.
+			// O(1) maxFree update via top-2 tracking
 			if cell.size == fa.maxFree {
-				fa.recomputeMaxFree()
-				if logAlloc && fa.maxFree != cell.size {
+				oldMax := fa.maxFree
+				fa.maxFree = fa.secondMaxFree
+				fa.secondMaxFree = 0
+				if logAlloc && fa.maxFree != oldMax {
 					fmt.Fprintf(
 						os.Stderr,
-						"[ALLOC] 🔄 Recomputed maxFree: %d → %d (allocated largest cell)\n",
-						cell.size,
+						"[ALLOC] 🔄 maxFree demoted: %d → %d (top-2 tracking)\n",
+						oldMax,
 						fa.maxFree,
 					)
 				}
@@ -1182,9 +1216,12 @@ func (fa *FastAllocator) insertFreeCell(off, size int32) {
 		fa.endIdx[off+size] = off
 	}
 
-	// Update maxFree tracking
+	// Update maxFree tracking (top-2)
 	if size > fa.maxFree {
+		fa.secondMaxFree = fa.maxFree
 		fa.maxFree = size
+	} else if size > fa.secondMaxFree {
+		fa.secondMaxFree = size
 	}
 }
 

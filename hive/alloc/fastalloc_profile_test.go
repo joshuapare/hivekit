@@ -12,9 +12,9 @@ func Benchmark_FastAlloc_MediumCells_NoGrowth(b *testing.B) {
 	dir := b.TempDir()
 	hivePath := filepath.Join(dir, "bench.hiv")
 
-	// Pre-allocate enough space for 1 million medium cells
-	// 1M cells * 512 bytes = 512MB
-	createHiveWithFreeCells(b, hivePath, []int{0x20000000}) // 512MB free
+	// Pre-allocate enough space for ~16K medium cells (256-512 bytes each)
+	// 8MB keeps the benchmark tractable while still exercising cell splitting.
+	createHiveWithFreeCells(b, hivePath, []int{0x800000}) // 8MB free
 
 	h, err := hive.Open(hivePath)
 	if err != nil {
