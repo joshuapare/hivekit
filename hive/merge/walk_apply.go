@@ -42,6 +42,7 @@ type walkApplier struct {
 	childrenByParent map[string]map[string]struct{}
 
 	visited map[string]uint32 // normalized path -> nkOffset (for key creation)
+	deleted map[string]struct{} // normalized paths deleted during walk (skip in Phase 2)
 
 	// Index for lookup (used for key creation and deletion)
 	idx index.Index
@@ -73,6 +74,7 @@ func newWalkApplier(
 		opsByPath:        make(map[string][]int),
 		childrenByParent: make(map[string]map[string]struct{}),
 		visited:          make(map[string]uint32),
+		deleted:          make(map[string]struct{}),
 		rootRef:          h.RootCellOffset(),
 	}
 
@@ -160,13 +162,36 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 	wa.visited[pathKey] = nkOffset
 
 	// Apply all ops that target this exact path
+	keyDeleted := false
 	if indices, ok := wa.opsByPath[pathKey]; ok {
 		for _, idx := range indices {
 			op := &wa.ops[idx]
 			if err := wa.applyOpAtNode(ctx, nkOffset, op); err != nil {
 				return err
 			}
+			if op.Type == OpDeleteKey {
+				keyDeleted = true
+			}
 		}
+	}
+
+	// If this key was deleted, do NOT walk children — the NK cell has been freed
+	// and its subkey list is gone. Walking children would read stale/freed memory.
+	// Record the deletion so Phase 2 skips ops targeting this path or descendants.
+	if keyDeleted {
+		wa.deleted[pathKey] = struct{}{}
+		return nil
+	}
+
+	// Re-resolve NK after ops which may have triggered hive growth
+	// (e.g., UpsertValue → Alloc → Grow → Append invalidates the old nk slice).
+	payload, err = wa.h.ResolveCellPayload(nkOffset)
+	if err != nil {
+		return nil
+	}
+	nk, err = hive.ParseNK(payload)
+	if err != nil {
+		return nil
 	}
 
 	// Check if any children are needed at this level
@@ -270,6 +295,11 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 
 		pathKey := normalizePath(op.KeyPath)
 
+		// Skip ops targeting a deleted key or any descendant of a deleted key.
+		if wa.isUnderDeletedPath(op.KeyPath) {
+			continue
+		}
+
 		// Check if key was already visited (exists)
 		nkRef, keyExists := wa.visited[pathKey]
 
@@ -339,6 +369,17 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// isUnderDeletedPath returns true if the given path, or any ancestor of it,
+// was deleted during the walk phase.
+func (wa *walkApplier) isUnderDeletedPath(keyPath []string) bool {
+	for i := 1; i <= len(keyPath); i++ {
+		if _, ok := wa.deleted[normalizePath(keyPath[:i])]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizePath converts a path slice to a lowercase string key for map lookups.

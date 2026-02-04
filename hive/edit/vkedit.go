@@ -439,16 +439,19 @@ func (ve *valueEditor) DeleteValue(nk NKRef, name string) error {
 	// Extract value name for index removal
 	vkName := decodeName(vk.Name(), vk.NameCompressed())
 
+	// Extract data length and ref BEFORE removeFromValueList, which can trigger
+	// alloc.Alloc → hive growth → invalidating the vk byte slice.
+	dataLen := vk.DataLen()
+	dataRef := vk.DataOffsetRel()
+
 	// Remove from value list
 	if removeErr := ve.removeFromValueList(nk, vkRef); removeErr != nil {
 		return fmt.Errorf("remove from value list: %w", removeErr)
 	}
 
 	// Free data cells if external (not inline in VK)
-	dataLen := vk.DataLen()
 	if dataLen > format.DWORDSize {
 		// Data is stored externally (not inline in VK)
-		dataRef := vk.DataOffsetRel()
 		if dataRef != 0 && dataRef != format.InvalidOffset {
 			// Check if it's big-data (DB format)
 			if freeErr := ve.freeBigDataIfNeeded(dataRef); freeErr != nil {

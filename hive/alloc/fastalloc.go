@@ -1257,7 +1257,7 @@ func (fa *FastAllocator) removeFreeCell(off int32, size int32) {
 func (fa *FastAllocator) getFreeCell() *freeCell {
 	cell, ok := fa.freeCellPool.Get().(*freeCell)
 	if !ok {
-		panic("freeCellPool returned unexpected type")
+		return &freeCell{}
 	}
 	return cell
 }
