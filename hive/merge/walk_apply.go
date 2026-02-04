@@ -212,8 +212,8 @@ func (wa *walkApplier) indexValues(nkOffset uint32, nk hive.NK) {
 	}
 
 	_ = walker.WalkValues(wa.h, nkOffset, func(vk hive.VK, vkRef uint32) error {
-		name := string(vk.Name())
-		wa.idx.AddVK(nkOffset, strings.ToLower(name), vkRef)
+		name := strings.ToLower(string(vk.Name()))
+		wa.idx.AddVKLower(nkOffset, name, vkRef)
 		return nil
 	})
 }
@@ -410,8 +410,8 @@ type walkApplySession struct {
 
 // newWalkApplySession creates a session for single-pass walk-apply operations.
 func newWalkApplySession(h *hive.Hive, a alloc.Allocator, dt *dirty.Tracker) *walkApplySession {
-	// Create a minimal in-memory index for tracking created keys
-	idx := index.NewIndex(index.IndexNumeric, 1000, 1000)
+	// Create a minimal in-memory index for tracking created keys (pooled)
+	idx := index.AcquireNumericIndex(1000, 1000)
 
 	// Seed the index with root key
 	rootRef := h.RootCellOffset()

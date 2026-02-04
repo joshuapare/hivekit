@@ -10,6 +10,7 @@ import (
 	"golang.org/x/text/encoding/charmap"
 
 	"github.com/joshuapare/hivekit/hive"
+	"github.com/joshuapare/hivekit/hive/namecache"
 	"github.com/joshuapare/hivekit/internal/buf"
 	"github.com/joshuapare/hivekit/internal/format"
 )
@@ -747,6 +748,10 @@ func decodeCompressedNameLowerWithHash(data []byte) (string, uint32, error) {
 //
 // Returns: (lowercaseName, regHash, fnvHash, error).
 func decodeCompressedNameLowerWithHashes(data []byte) (string, uint32, uint32, error) {
+	if name, regHash, fnvHash, ok := namecache.Lookup(data); ok {
+		return name, regHash, fnvHash, nil
+	}
+
 	var regHash uint32
 	fnvHash := fnvBasis32
 
@@ -776,7 +781,9 @@ func decodeCompressedNameLowerWithHashes(data []byte) (string, uint32, uint32, e
 				fnvHash ^= uint32(c)
 				fnvHash *= fnvPrime32
 			}
-			return string(data), regHash, fnvHash, nil
+			result := string(data)
+			namecache.Store(data, result, regHash, fnvHash)
+			return result, regHash, fnvHash, nil
 		}
 
 		// Has uppercase - lowercase while computing both hashes
@@ -809,6 +816,7 @@ func decodeCompressedNameLowerWithHashes(data []byte) (string, uint32, uint32, e
 		result := string(buf)
 		*bufPtr = buf[:0]
 		byteBufferPool.Put(bufPtr)
+		namecache.Store(data, result, regHash, fnvHash)
 		return result, regHash, fnvHash, nil
 	}
 
@@ -865,6 +873,7 @@ func decodeCompressedNameLowerWithHashes(data []byte) (string, uint32, uint32, e
 	result := string(buf)
 	*bufPtr = buf[:0]
 	byteBufferPool.Put(bufPtr)
+	namecache.Store(data, result, regHash, fnvHash)
 	return result, regHash, fnvHash, nil
 }
 
@@ -872,6 +881,10 @@ func decodeCompressedNameLowerWithHashes(data []byte) (string, uint32, uint32, e
 // AND computes its Windows Registry hash in a single pass.
 // Returns: (lowercaseName, hash, error).
 func decodeUTF16LENameLowerWithHash(data []byte) (string, uint32, error) {
+	if name, regHash, _, ok := namecache.Lookup(data); ok {
+		return name, regHash, nil
+	}
+
 	if len(data)%utf16BytesPerChar != 0 {
 		return "", 0, fmt.Errorf("UTF-16LE name has odd length: %d", len(data))
 	}
@@ -918,6 +931,7 @@ func decodeUTF16LENameLowerWithHash(data []byte) (string, uint32, error) {
 		result := string(buf)
 		*bufPtr = buf[:0]
 		byteBufferPool.Put(bufPtr)
+		namecache.Store(data, result, hash, 0)
 		return result, hash, nil
 	}
 
@@ -983,6 +997,7 @@ func decodeUTF16LENameLowerWithHash(data []byte) (string, uint32, error) {
 	result := string(buf)
 	*bufPtr = buf[:0]
 	byteBufferPool.Put(bufPtr)
+	namecache.Store(data, result, hash, 0)
 	return result, hash, nil
 }
 

@@ -796,6 +796,13 @@ func (s *Session) Close(ctx context.Context) error {
 
 	// Reset dirty tracker
 	s.dt.Reset()
+
+	// Return NumericIndex to pool for reuse by next session
+	if ni, ok := s.idx.(*index.NumericIndex); ok {
+		index.ReleaseNumericIndex(ni)
+		s.idx = nil
+	}
+
 	return nil
 }
 

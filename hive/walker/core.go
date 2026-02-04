@@ -16,10 +16,13 @@ package walker
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/internal/format"
 )
+
+var bitmapPool = sync.Pool{}
 
 const (
 	// initialStackCapacity is the pre-allocated capacity for the traversal stack.
@@ -65,6 +68,30 @@ func NewBitmap(hiveDataSize uint32) *Bitmap {
 		bits: make([]uint64, numWords),
 		size: hiveDataSize,
 	}
+}
+
+// acquireBitmap returns a bitmap from the pool if large enough, or allocates new.
+// The pool converges to the largest-seen bitmap size over time.
+func acquireBitmap(hiveDataSize uint32) *Bitmap {
+	if v := bitmapPool.Get(); v != nil {
+		bm := v.(*Bitmap)
+		if bm.size >= hiveDataSize {
+			for i := range bm.bits {
+				bm.bits[i] = 0
+			}
+			return bm
+		}
+		// Too small — discard, allocate new
+	}
+	return NewBitmap(hiveDataSize)
+}
+
+// releaseBitmap returns a bitmap to the pool for reuse.
+func releaseBitmap(bm *Bitmap) {
+	if bm == nil {
+		return
+	}
+	bitmapPool.Put(bm)
 }
 
 // Set marks the cell at the given offset as visited.
@@ -159,7 +186,7 @@ func NewWalkerCore(h *hive.Hive) *WalkerCore {
 
 	return &WalkerCore{
 		h:       h,
-		visited: NewBitmap(dataSize),
+		visited: acquireBitmap(dataSize),
 		stack:   make([]StackEntry, 0, initialStackCapacity), // Pre-allocate for typical depth
 	}
 }

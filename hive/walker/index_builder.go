@@ -95,9 +95,15 @@ func NewIndexBuilder(h *hive.Hive, nkCapacity, vkCapacity int) *IndexBuilder {
 //   - index.IndexNumeric: Zero-allocation uint64 map keys (recommended, default)
 //   - index.IndexString: Traditional string map keys (useful for debugging)
 func NewIndexBuilderWithKind(h *hive.Hive, nkCapacity, vkCapacity int, kind index.IndexKind) *IndexBuilder {
+	var idx index.Index
+	if kind == index.IndexNumeric {
+		idx = index.AcquireNumericIndex(nkCapacity, vkCapacity)
+	} else {
+		idx = index.NewIndex(kind, nkCapacity, vkCapacity)
+	}
 	return &IndexBuilder{
 		WalkerCore: NewWalkerCore(h),
-		idx:        index.NewIndex(kind, nkCapacity, vkCapacity),
+		idx:        idx,
 	}
 }
 
@@ -167,6 +173,10 @@ func (ib *IndexBuilder) Build(ctx context.Context) (index.Index, error) {
 			return nil, fmt.Errorf("invalid builder state: %d", entry.state)
 		}
 	}
+
+	// Release bitmap back to pool — no longer needed after build
+	releaseBitmap(ib.visited)
+	ib.visited = nil
 
 	return ib.idx, nil
 }
@@ -383,7 +393,6 @@ func decodeASCIILower(data []byte) string {
 	}
 
 	if !hasUpper {
-		// Already lowercase - return directly (zero allocation for common case)
 		return string(data)
 	}
 
