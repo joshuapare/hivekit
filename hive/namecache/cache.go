@@ -5,17 +5,22 @@
 // Cache hits are zero-allocation: Go optimizes map[string]V lookups with []byte
 // keys to avoid the []byte→string heap allocation.
 //
-// Concurrency: protected by a single sync.Mutex. Each hive walker is single-threaded;
-// contention is only between concurrent sessions.
+// Concurrency: 16-shard design with per-shard mutexes reduces contention
+// when multiple goroutines decode names concurrently.
 package namecache
 
 import (
 	"container/list"
+	"hash/fnv"
 	"sync"
 )
 
 // defaultCapacity is the default maximum number of entries in the cache.
 const defaultCapacity = 8192
+
+// numShards is the number of independent cache shards.
+// Must be a power of two for fast modulo via bitmask.
+const numShards = 16
 
 // cacheEntry stores the decoded result for a raw name byte sequence.
 type cacheEntry struct {
@@ -32,9 +37,6 @@ type lruCache struct {
 	items    map[string]*list.Element
 	order    *list.List // front = most recently used
 }
-
-// global is the package-level singleton cache.
-var global = newCache(defaultCapacity)
 
 // newCache creates an LRU cache with the given capacity.
 // A capacity of 0 disables caching.
@@ -69,16 +71,17 @@ func (c *lruCache) lookup(data []byte) (string, uint32, uint32, bool) {
 
 // store adds a decoded result to the cache, evicting the least-recently-used
 // entry if the cache is at capacity.
+// String allocation from data is deferred to the miss path only:
+// the c.items[string(data)] lookup on the hit path is zero-alloc per Go compiler optimization.
 func (c *lruCache) store(data []byte, name string, regHash, fnvHash uint32) {
 	if c.capacity == 0 {
 		return
 	}
 
-	key := string(data)
-
 	c.mu.Lock()
-	// Check if already present (race between lookup miss and store)
-	if elem, ok := c.items[key]; ok {
+	// Check if already present (race between lookup miss and store).
+	// This map lookup with string(data) is zero-alloc per Go compiler optimization.
+	if elem, ok := c.items[string(data)]; ok {
 		c.order.MoveToFront(elem)
 		entry := elem.Value.(*cacheEntry)
 		entry.name = name
@@ -87,6 +90,9 @@ func (c *lruCache) store(data []byte, name string, regHash, fnvHash uint32) {
 		c.mu.Unlock()
 		return
 	}
+
+	// Miss path: allocate the string key only for new entries
+	key := string(data)
 
 	// Evict LRU if at capacity
 	if c.order.Len() >= c.capacity {
@@ -140,6 +146,67 @@ func (c *lruCache) len() int {
 	c.mu.Unlock()
 	return n
 }
+
+// shardedCache distributes entries across multiple lruCache shards
+// to reduce mutex contention under concurrent access.
+type shardedCache struct {
+	shards [numShards]*lruCache
+}
+
+// newShardedCache creates a sharded cache. Each shard gets capacity/numShards entries.
+func newShardedCache(capacity int) *shardedCache {
+	sc := &shardedCache{}
+	perShard := capacity / numShards
+	if perShard < 1 && capacity > 0 {
+		perShard = 1
+	}
+	for i := range sc.shards {
+		sc.shards[i] = newCache(perShard)
+	}
+	return sc
+}
+
+// shardFor returns the shard index for the given raw bytes using FNV hash.
+func shardFor(data []byte) int {
+	h := fnv.New32a()
+	h.Write(data) //nolint:errcheck // fnv hash.Write never errors
+	return int(h.Sum32() & (numShards - 1))
+}
+
+func (sc *shardedCache) lookup(data []byte) (string, uint32, uint32, bool) {
+	return sc.shards[shardFor(data)].lookup(data)
+}
+
+func (sc *shardedCache) store(data []byte, name string, regHash, fnvHash uint32) {
+	sc.shards[shardFor(data)].store(data, name, regHash, fnvHash)
+}
+
+func (sc *shardedCache) setCapacity(n int) {
+	perShard := n / numShards
+	if perShard < 1 && n > 0 {
+		perShard = 1
+	}
+	for _, s := range sc.shards {
+		s.setCapacity(perShard)
+	}
+}
+
+func (sc *shardedCache) reset() {
+	for _, s := range sc.shards {
+		s.reset()
+	}
+}
+
+func (sc *shardedCache) len() int {
+	total := 0
+	for _, s := range sc.shards {
+		total += s.len()
+	}
+	return total
+}
+
+// global is the package-level singleton sharded cache.
+var global = newShardedCache(defaultCapacity)
 
 // --- Package-level API (delegates to global singleton) ---
 
