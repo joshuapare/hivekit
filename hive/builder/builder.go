@@ -89,7 +89,8 @@ func New(path string, opts *Options) (*Builder, error) {
 
 	// Create merge options from builder options
 	mergeOpts := merge.Options{
-		Strategy: opts.Strategy.toMergeStrategy(),
+		Strategy:  opts.Strategy.toMergeStrategy(),
+		IndexMode: opts.IndexMode.toMergeIndexMode(),
 	}
 
 	// Create session
