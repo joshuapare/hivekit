@@ -1074,14 +1074,42 @@ func (fa *FastAllocator) allocFromSizeClass(sc int, need int32) *freeCell {
 	}
 
 	// Slow path: heap[0] is too small, but larger cells in this size class
-	// may fit. Scan all cells since the heap is only partially ordered.
+	// may fit. Use bounded "good-enough fit" scan instead of full O(n) scan.
+	//
+	// Optimization: Instead of scanning ALL cells for perfect best-fit, we:
+	// 1. Limit scan to maxSlowPathScan cells (default 32)
+	// 2. Accept any cell within fitTolerance bytes of optimal as "good enough"
+	//
+	// Trade-off: Slightly more internal fragmentation (up to fitTolerance bytes
+	// per allocation) in exchange for O(1) amortized allocation time.
+	const (
+		maxSlowPathScan = 32 // Never scan more than 32 cells
+		fitTolerance    = 64 // Accept cells within 64 bytes of optimal
+	)
+
 	bestIdx := -1
 	var bestSize int32 = 1<<31 - 1 // MaxInt32
-	for i := 1; i < list.heap.Len(); i++ {
+	maxAcceptable := need + fitTolerance
+
+	heapLen := list.heap.Len()
+	scanLimit := heapLen
+	if scanLimit > maxSlowPathScan {
+		scanLimit = maxSlowPathScan
+	}
+
+	for i := 1; i < scanLimit; i++ {
 		cellSize := list.heap[i].size
-		if cellSize >= need && cellSize < bestSize {
-			bestIdx = i
-			bestSize = cellSize
+		if cellSize >= need {
+			if cellSize <= maxAcceptable {
+				// Good enough - take it immediately without further scanning
+				bestIdx = i
+				bestSize = cellSize
+				break
+			}
+			if cellSize < bestSize {
+				bestIdx = i
+				bestSize = cellSize
+			}
 		}
 	}
 
