@@ -105,6 +105,134 @@ func ReadOffsets(h *hive.Hive, listRef uint32) ([]uint32, error) {
 	return readDirectListOffsets(payload)
 }
 
+// ReadRaw reads a subkey list and returns RawEntry pairs (NKRef + Hash) without
+// decoding NK cells. This is much faster than Read() when names aren't needed.
+//
+// Use cases:
+//   - Delete-only flushes: filter by NKRef, write back without re-sorting
+//   - Existence checks: verify NKRef is in list
+//
+// For LI lists (no stored hash), Hash will be 0.
+// The returned entries are in the same order as stored in the list.
+func ReadRaw(h *hive.Hive, listRef uint32) ([]RawEntry, error) {
+	if listRef == 0 || listRef == format.InvalidOffset {
+		return nil, nil
+	}
+
+	payload, err := resolveCell(h, listRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve list cell: %w", err)
+	}
+
+	// Check if it's an RI (indirect) list
+	if len(payload) >= signatureSize && payload[0] == 'r' && payload[1] == 'i' {
+		return readRIListRaw(h, payload)
+	}
+
+	// Read direct list
+	return readDirectListRaw(payload)
+}
+
+// readDirectListRaw reads raw entries from a single LF, LH, or LI list.
+func readDirectListRaw(payload []byte) ([]RawEntry, error) {
+	if len(payload) < format.ListHeaderSize {
+		return nil, ErrTruncated
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return nil, fmt.Errorf("list count: %w", err)
+	}
+
+	sig0, sig1 := payload[0], payload[1]
+	if (sig0 == 'l' && sig1 == 'f') || (sig0 == 'l' && sig1 == 'h') {
+		return readLFLHRaw(payload, count)
+	} else if sig0 == 'l' && sig1 == 'i' {
+		return readLIRaw(payload, count)
+	}
+
+	return nil, ErrInvalidSignature
+}
+
+// readLFLHRaw reads LF or LH list entries with their stored hashes.
+func readLFLHRaw(payload []byte, count uint16) ([]RawEntry, error) {
+	// Each entry is 8 bytes: 4 bytes offset + 4 bytes hash
+	if _, err := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.QWORDSize); err != nil {
+		return nil, ErrTruncated
+	}
+
+	entries := make([]RawEntry, count)
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.QWORDSize
+		nkRef, _ := format.CheckedReadU32(payload, offset)
+		hash, _ := format.CheckedReadU32(payload, offset+4)
+		entries[i] = RawEntry{NKRef: nkRef, Hash: hash}
+	}
+
+	return entries, nil
+}
+
+// readLIRaw reads LI list entries (hash will be 0).
+func readLIRaw(payload []byte, count uint16) ([]RawEntry, error) {
+	// Each entry is 4 bytes: offset only (no hash)
+	if _, err := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); err != nil {
+		return nil, ErrTruncated
+	}
+
+	entries := make([]RawEntry, count)
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.DWORDSize
+		nkRef, _ := format.CheckedReadU32(payload, offset)
+		entries[i] = RawEntry{NKRef: nkRef, Hash: 0}
+	}
+
+	return entries, nil
+}
+
+// readRIListRaw reads an RI (indirect) list and returns all raw entries.
+func readRIListRaw(h *hive.Hive, payload []byte) ([]RawEntry, error) {
+	if len(payload) < format.ListHeaderSize {
+		return nil, ErrInvalidRI
+	}
+
+	count, err := format.CheckedReadU16(payload, listCountOffset)
+	if err != nil {
+		return nil, fmt.Errorf("ri list count: %w", err)
+	}
+
+	if uint32(count) > format.MaxRIListCount {
+		return nil, fmt.Errorf("ri list count %d exceeds limit: %w", count, format.ErrSanityLimit)
+	}
+
+	if _, boundsErr := buf.CheckListBounds(len(payload), format.ListHeaderSize, int(count), format.DWORDSize); boundsErr != nil {
+		return nil, ErrInvalidRI
+	}
+
+	// Collect all entries from sub-lists
+	var allEntries []RawEntry
+	for i := range count {
+		offset := format.ListHeaderSize + int(i)*format.DWORDSize
+		subListRef, readErr := format.CheckedReadU32(payload, offset)
+		if readErr != nil {
+			continue
+		}
+
+		subPayload, subErr := resolveCell(h, subListRef)
+		if subErr != nil {
+			continue
+		}
+
+		subEntries, subReadErr := readDirectListRaw(subPayload)
+		if subReadErr != nil {
+			continue
+		}
+
+		allEntries = append(allEntries, subEntries...)
+	}
+
+	return allEntries, nil
+}
+
 // ReadOffsetsInto reads a subkey list and appends NK cell offsets to the provided buffer.
 // This is the zero-allocation version of ReadOffsets for hot paths.
 // The buffer is reset to zero length before appending and returned (may be reallocated if capacity exceeded).

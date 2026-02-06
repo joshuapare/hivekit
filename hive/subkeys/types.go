@@ -9,6 +9,15 @@ type Entry struct {
 	FNV32     uint32 // FNV-1a hash for index lookup (computed during decode)
 }
 
+// RawEntry contains only the NKRef and Hash stored in an LF/LH list.
+// This is a lightweight alternative to Entry when names are not needed.
+// Used for delete-only operations where entries are filtered by NKRef
+// without needing to decode NK cells.
+type RawEntry struct {
+	NKRef uint32 // HCELL_INDEX reference to the NK (key node) cell
+	Hash  uint32 // Stored hash from the LF/LH list (0 for LI lists)
+}
+
 // List represents a subkey list with its entries.
 // The list can be encoded as LF (fast leaf), LH (hash leaf), LI (indexed), or RI (indirect).
 type List struct {
