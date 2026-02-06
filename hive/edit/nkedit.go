@@ -64,8 +64,10 @@ func decodeName(nameBytes []byte, compressed bool) string {
 
 // deferredParent tracks pending children for a parent key in deferred mode.
 type deferredParent struct {
-	children   []subkeys.Entry
-	oldListRef uint32 // Existing list reference (if any) to free during flush
+	children      []subkeys.Entry
+	oldListRef    uint32          // Existing list reference (if any) to free during flush
+	deletedNKRefs map[uint32]bool // NKRefs to exclude during flush (for deferred deletions)
+	loaded        bool            // True if children have been loaded from disk
 }
 
 // keyEditor implements KeyEditor interface.
@@ -349,8 +351,24 @@ func (ke *keyEditor) insertDeferredChild(parentRef NKRef, parentNK hive.NK, entr
 		dp = &deferredParent{
 			children:   existingChildren, // Start with existing children!
 			oldListRef: oldListRef,
+			loaded:     true, // We've loaded the children
 		}
 		ke.deferredParents[parentRef] = dp
+	} else if !dp.loaded {
+		// Parent exists but children not loaded yet (was created by removeDeferredChild).
+		// We need to load existing children now before appending, otherwise
+		// flushDeferredParent will overwrite our new entry when it loads children.
+		if parentNK.SubkeyCount() > 0 {
+			oldListRef := parentNK.SubkeyListOffsetRel()
+			if oldListRef != format.InvalidOffset {
+				existingList, err := subkeys.Read(ke.h, oldListRef)
+				if err == nil {
+					dp.children = existingList.Entries
+				}
+				dp.oldListRef = oldListRef
+			}
+		}
+		dp.loaded = true
 	}
 
 	// Append child (we'll sort during flush)
@@ -386,6 +404,17 @@ func (ke *keyEditor) insertImmediateChild(parentRef NKRef, parentNK hive.NK, ent
 	// Insert new entry (maintains sorted order)
 	newList := existingList.Insert(entry)
 
+	// OPTIMIZATION: Free old subkey list BEFORE allocating new one.
+	// This allows the allocator to reuse freed space immediately,
+	// preventing hive growth when cells of similar size are freed and reallocated.
+	// The children are already in memory (newList), so the old list is no longer needed.
+	if oldListRef != format.InvalidOffset {
+		if err := ke.freeSubkeyList(oldListRef); err != nil {
+			// Log but don't fail - continue with the write
+			_ = err
+		}
+	}
+
 	// Write updated subkey list (List.Insert maintains sorted order)
 	newListRef, err := subkeys.WritePresorted(ke.h, ke.alloc, newList.Entries)
 	if err != nil {
@@ -395,16 +424,6 @@ func (ke *keyEditor) insertImmediateChild(parentRef NKRef, parentNK hive.NK, ent
 	// Update parent NK's subkey count and list reference
 	if err := ke.updateParentNK(parentRef, uint32(len(newList.Entries)), newListRef); err != nil {
 		return fmt.Errorf("update parent NK: %w", err)
-	}
-
-	// CRITICAL: Free the old subkey list to prevent memory leak
-	// This frees the old list cell (and RI chunks if applicable)
-	if oldListRef != format.InvalidOffset {
-		if err := ke.freeSubkeyList(oldListRef); err != nil {
-			// Log but don't fail - the new list is already written
-			// TODO: Better error handling
-			_ = err
-		}
 	}
 
 	return nil
@@ -420,26 +439,99 @@ func (ke *keyEditor) flushDeferredParent(parentRef uint32) error {
 		return nil // No deferred children for this parent
 	}
 
+	// OPTIMIZATION: Delete-only path uses ReadRaw/WriteRaw to avoid NK decoding.
+	// If no children were added (dp.children is empty) and we have deletions,
+	// we can read the raw entries (NKRef+Hash), filter, and write back directly.
+	// This skips the expensive name decoding that dominates CPU time.
+	if !dp.loaded && len(dp.children) == 0 && len(dp.deletedNKRefs) > 0 {
+		parentPayload, err := ke.resolveCell(parentRef)
+		if err != nil {
+			return fmt.Errorf("resolve parent: %w", err)
+		}
+
+		parentNK, err := hive.ParseNK(parentPayload)
+		if err != nil {
+			return fmt.Errorf("parse parent NK: %w", err)
+		}
+
+		oldListRef := parentNK.SubkeyListOffsetRel()
+		if oldListRef == format.InvalidOffset {
+			// No existing list, nothing to delete from
+			delete(ke.deferredParents, parentRef)
+			return nil
+		}
+
+		// Read raw entries (no name decoding!)
+		rawEntries, err := subkeys.ReadRaw(ke.h, oldListRef)
+		if err != nil {
+			return fmt.Errorf("read raw subkey list: %w", err)
+		}
+
+		// Filter out deleted entries (preserves sorted order)
+		filtered := make([]subkeys.RawEntry, 0, len(rawEntries)-len(dp.deletedNKRefs))
+		for _, entry := range rawEntries {
+			if !dp.deletedNKRefs[entry.NKRef] {
+				filtered = append(filtered, entry)
+			}
+		}
+
+		// Free old list before allocating new one
+		if err := ke.freeSubkeyList(oldListRef); err != nil {
+			_ = err // Log but continue
+		}
+
+		// Write raw entries (no name needed!)
+		newListRef, err := subkeys.WriteRaw(ke.h, ke.alloc, filtered)
+		if err != nil {
+			return fmt.Errorf("write raw subkey list: %w", err)
+		}
+
+		// Update parent NK
+		if err := ke.updateParentNK(parentRef, uint32(len(filtered)), newListRef); err != nil {
+			return fmt.Errorf("update parent NK 0x%X: %w", parentRef, err)
+		}
+
+		delete(ke.deferredParents, parentRef)
+		return nil
+	}
+
+	// Standard path: children already loaded by insertDeferredChild.
+	// (Delete-only parents take the raw path above, so if we reach here, loaded must be true.)
+
+	// Filter out any deleted entries
+	children := dp.children
+	if len(dp.deletedNKRefs) > 0 {
+		children = make([]subkeys.Entry, 0, len(dp.children))
+		for _, child := range dp.children {
+			if !dp.deletedNKRefs[child.NKRef] {
+				children = append(children, child)
+			}
+		}
+	}
+
 	// Sort children by name (lowercase) for consistent ordering
-	sortEntries(dp.children)
+	sortEntries(children)
+
+	// OPTIMIZATION: Free old subkey list BEFORE allocating new one.
+	// This allows the allocator to reuse freed space immediately,
+	// preventing hive growth when cells of similar size are freed and reallocated.
+	// The children are already in memory, so the old list is no longer needed.
+	if dp.oldListRef != format.InvalidOffset {
+		if err := ke.freeSubkeyList(dp.oldListRef); err != nil {
+			// Log but don't fail - continue with the write
+			_ = err
+		}
+	}
 
 	// Write the complete subkey list (already sorted above)
-	newListRef, err := subkeys.WritePresorted(ke.h, ke.alloc, dp.children)
+	newListRef, err := subkeys.WritePresorted(ke.h, ke.alloc, children)
 	if err != nil {
 		return fmt.Errorf("write subkey list for parent 0x%X: %w", parentRef, err)
 	}
 
 	// Update parent NK cell
-	if err := ke.updateParentNK(parentRef, uint32(len(dp.children)), newListRef); err != nil {
+	if err := ke.updateParentNK(parentRef, uint32(len(children)), newListRef); err != nil {
 		return fmt.Errorf("update parent NK 0x%X: %w", parentRef, err)
-	}
-
-	// Free old subkey list if it existed
-	if dp.oldListRef != format.InvalidOffset {
-		if err := ke.freeSubkeyList(dp.oldListRef); err != nil {
-			// Log but don't fail - the new list is already written
-			_ = err
-		}
 	}
 
 	// Remove from deferred parents map
@@ -451,6 +543,12 @@ func (ke *keyEditor) flushDeferredParent(parentRef uint32) error {
 // FlushDeferredSubkeys writes all accumulated deferred children to disk.
 // This must be called before disabling deferred mode.
 // Returns the number of parents flushed.
+//
+// OPTIMIZATION: Uses a two-pass approach:
+// 1. First pass: Free all old subkey lists (returns space to allocator)
+// 2. Second pass: Allocate and write all new subkey lists
+// This allows the allocator to reuse freed space immediately, preventing
+// hive growth when many subkey lists of similar size are being rewritten.
 func (ke *keyEditor) FlushDeferredSubkeys() (int, error) {
 	if !ke.deferredMode {
 		return 0, nil // Nothing to do
@@ -460,12 +558,32 @@ func (ke *keyEditor) FlushDeferredSubkeys() (int, error) {
 		return 0, nil // No pending children
 	}
 
-	// Collect keys first since flushDeferredParent deletes from the map
+	// Collect keys first since we'll be modifying the map
 	parents := make([]uint32, 0, len(ke.deferredParents))
 	for ref := range ke.deferredParents {
 		parents = append(parents, ref)
 	}
 
+	// PASS 1: Free all old subkey lists FIRST
+	// This returns space to the allocator before any new allocations,
+	// maximizing the chance of reusing freed cells.
+	for _, parentRef := range parents {
+		dp := ke.deferredParents[parentRef]
+		if dp.oldListRef != format.InvalidOffset {
+			// Sort entries now so they're ready for pass 2
+			sortEntries(dp.children)
+
+			// Free the old list - this makes space available for new allocations
+			if err := ke.freeSubkeyList(dp.oldListRef); err != nil {
+				// Log but don't fail
+				_ = err
+			}
+			// Mark as already freed so pass 2 doesn't double-free
+			dp.oldListRef = format.InvalidOffset
+		}
+	}
+
+	// PASS 2: Allocate and write all new subkey lists
 	flushedCount := 0
 	for _, parentRef := range parents {
 		if err := ke.flushDeferredParent(parentRef); err != nil {
@@ -679,8 +797,8 @@ func (ke *keyEditor) DeleteKey(nk NKRef, recursive bool) error {
 	// alloc.Alloc → hive growth → invalidating the nkCell byte slice.
 	nkName := decodeName(nkCell.Name(), nkCell.IsCompressedName())
 
-	// Phase 3: Remove from parent's subkey list
-	if removeErr := ke.removeFromParentSubkeyList(parentRef, nkCell); removeErr != nil {
+	// Phase 3: Remove from parent's subkey list (using NKRef, not nkCell)
+	if removeErr := ke.removeFromParentSubkeyList(parentRef, nk); removeErr != nil {
 		return fmt.Errorf("remove from parent: %w", removeErr)
 	}
 
@@ -698,7 +816,10 @@ func (ke *keyEditor) DeleteKey(nk NKRef, recursive bool) error {
 }
 
 // deleteSubkeys recursively deletes all subkeys of the given NK.
-func (ke *keyEditor) deleteSubkeys(_ NKRef, nk hive.NK) error {
+// OPTIMIZATION: This directly deletes child subtrees without updating the parent's
+// subkey list for each child. The parent's subkey list is freed once at the end.
+// This reduces O(n²) subkey list rewrites to O(n).
+func (ke *keyEditor) deleteSubkeys(parentRef NKRef, nk hive.NK) error {
 	subkeyListRef := nk.SubkeyListOffsetRel()
 	if subkeyListRef == format.InvalidOffset {
 		// No subkeys
@@ -711,20 +832,69 @@ func (ke *keyEditor) deleteSubkeys(_ NKRef, nk hive.NK) error {
 		return fmt.Errorf("read subkey list: %w", err)
 	}
 
-	// Delete each subkey recursively
-	// NOTE: Each deletion will update THIS key's subkey list by removing the child,
-	// which means the subkeyListRef becomes stale. That's OK - we don't use it after this loop.
+	// Delete each child's subtree WITHOUT updating this key's subkey list
 	for _, entry := range subkeyList.Entries {
-		if deleteErr := ke.DeleteKey(entry.NKRef, true); deleteErr != nil {
+		if deleteErr := ke.deleteSubtreeNoParentUpdate(parentRef, entry.NKRef); deleteErr != nil {
 			return fmt.Errorf("delete subkey %q: %w", entry.NameLower, deleteErr)
 		}
 	}
 
-	// NOTE: We don't free the subkey list here because:
-	// 1. Each child deletion calls removeFromParentSubkeyList, which writes a new list
-	// 2. The original subkeyListRef has been invalidated by these updates
-	// 3. The final subkey list (after all children are deleted) will be freed when
-	//    THIS key is removed from its parent's subkey list
+	// Free the subkey list itself (just once, not per-child)
+	if freeErr := ke.freeSubkeyList(subkeyListRef); freeErr != nil {
+		// Log but don't fail - we've already deleted the children
+		_ = freeErr
+	}
+
+	return nil
+}
+
+// deleteSubtreeNoParentUpdate deletes a key and its entire subtree without
+// updating the parent's subkey list. Used by deleteSubkeys for O(n) deletion.
+func (ke *keyEditor) deleteSubtreeNoParentUpdate(parentRef NKRef, nkRef uint32) error {
+	// Parse NK cell
+	nkPayload, err := ke.resolveCell(nkRef)
+	if err != nil {
+		return fmt.Errorf("resolve NK: %w", err)
+	}
+
+	nkCell, err := hive.ParseNK(nkPayload)
+	if err != nil {
+		return fmt.Errorf("parse NK: %w", err)
+	}
+
+	// Extract name for index removal
+	nkName := decodeName(nkCell.Name(), nkCell.IsCompressedName())
+
+	// Recursively delete all subkeys (if any)
+	subkeyCount := nkCell.SubkeyCount()
+	if subkeyCount > 0 {
+		if deleteErr := ke.deleteSubkeys(nkRef, nkCell); deleteErr != nil {
+			return fmt.Errorf("delete subkeys: %w", deleteErr)
+		}
+	}
+
+	// Delete all values
+	// Re-resolve after subkey deletion may have caused hive growth
+	nkPayload, err = ke.resolveCell(nkRef)
+	if err != nil {
+		return fmt.Errorf("re-resolve NK: %w", err)
+	}
+	nkCell, err = hive.ParseNK(nkPayload)
+	if err != nil {
+		return fmt.Errorf("re-parse NK: %w", err)
+	}
+
+	if deleteErr := ke.deleteAllValues(nkRef, nkCell); deleteErr != nil {
+		return fmt.Errorf("delete values: %w", deleteErr)
+	}
+
+	// Remove from index
+	ke.index.RemoveNK(parentRef, nkName)
+
+	// Free the NK cell
+	if freeErr := ke.alloc.Free(nkRef); freeErr != nil {
+		return fmt.Errorf("free NK cell: %w", freeErr)
+	}
 
 	return nil
 }
@@ -817,9 +987,17 @@ func (ke *keyEditor) freeBigDataIfNeeded(ref uint32) error {
 	return freeBigDataIfNeeded(ke, ke.alloc, ref)
 }
 
-// removeFromParentSubkeyList removes this NK from its parent's subkey list.
-func (ke *keyEditor) removeFromParentSubkeyList(parentRef NKRef, nk hive.NK) error {
-	// Parse parent NK
+// removeFromParentSubkeyList removes a key from its parent's subkey list by NKRef.
+// In deferred mode, marks the entry for deletion during flush.
+// In immediate mode, uses RemoveByRef which avoids parsing all sibling NK cells.
+func (ke *keyEditor) removeFromParentSubkeyList(parentRef NKRef, nkRef uint32) error {
+	// DEFERRED MODE: Mark for deletion instead of immediate rewrite
+	if ke.deferredMode {
+		return ke.removeDeferredChild(parentRef, nkRef)
+	}
+
+	// IMMEDIATE MODE: Traditional remove and rewrite
+	// Parse parent NK to get subkey list ref
 	parentPayload, err := ke.resolveCell(parentRef)
 	if err != nil {
 		return fmt.Errorf("resolve parent: %w", err)
@@ -830,63 +1008,72 @@ func (ke *keyEditor) removeFromParentSubkeyList(parentRef NKRef, nk hive.NK) err
 		return fmt.Errorf("parse parent NK: %w", err)
 	}
 
-	// Read parent's subkey list
 	parentSubkeyListRef := parentNK.SubkeyListOffsetRel()
 	if parentSubkeyListRef == format.InvalidOffset {
-		// Parent has no subkey list (shouldn't happen, but handle gracefully)
 		return nil
 	}
 
-	parentSubkeyList, err := subkeys.Read(ke.h, parentSubkeyListRef)
+	// Remove by NKRef - avoids parsing all sibling NK cells
+	newListRef, newCount, err := subkeys.RemoveByRef(ke.h, ke.alloc, parentSubkeyListRef, nkRef)
 	if err != nil {
-		return fmt.Errorf("read parent subkey list: %w", err)
+		return fmt.Errorf("remove from subkey list: %w", err)
 	}
 
-	// Get this key's name for removal from subkey list
-	nameBytes := nk.Name()
-	name := decodeNKName(nameBytes, nk.IsCompressedName())
-	nameLower := strings.ToLower(name) // CRITICAL: Remove() expects lowercase
-
-	// Remove from list (subkey list handles case-insensitivity internally)
-	updatedList := parentSubkeyList.Remove(nameLower)
-
-	// Write updated subkey list (or set to 0xFFFFFFFF if empty)
-	// Remove() preserves sorted order, so use WritePresorted.
-	var newListRef uint32 = 0xFFFFFFFF
-	if len(updatedList.Entries) > 0 {
-		var writeErr error
-		newListRef, writeErr = subkeys.WritePresorted(ke.h, ke.alloc, updatedList.Entries)
-		if writeErr != nil {
-			return fmt.Errorf("write updated subkey list: %w", writeErr)
-		}
-	}
-
-	// Update parent NK's subkey count and list reference FIRST
-	// CRITICAL: Re-resolve parent after subkeys.WritePresorted() which may have grown the hive
+	// Re-resolve parent after allocation may have grown hive
 	parentPayload, resolveErr := ke.resolveCell(parentRef)
 	if resolveErr != nil {
 		return fmt.Errorf("re-resolve parent: %w", resolveErr)
 	}
 
-	// Update subkey count
-	format.PutU32(parentPayload, format.NKSubkeyCountOffset, uint32(len(updatedList.Entries)))
-
-	// Update subkey list offset
+	// Update parent NK
+	format.PutU32(parentPayload, format.NKSubkeyCountOffset, uint32(newCount))
 	format.PutU32(parentPayload, format.NKSubkeyListOffset, newListRef)
 
-	// Update parent timestamp
 	filetime := timeToFiletime(time.Now())
 	copy(parentPayload[format.NKLastWriteOffset:format.NKLastWriteOffset+8], filetime[:])
 
-	// CRITICAL: Mark parent NK cell as dirty so changes are flushed to disk
 	ke.markCellDirty(parentRef)
 
-	// Free the old subkey list (after parent is updated to point to new list)
-	// This ensures the hive is always in a consistent state and prevents memory leaks
-	if parentSubkeyListRef != newListRef && parentSubkeyListRef != 0xFFFFFFFF {
-		// NOTE: The Free() method marks the cell as free by flipping the size field
-		// Ignore errors - the hive is still consistent even if free fails
+	// Free old list
+	if parentSubkeyListRef != newListRef && parentSubkeyListRef != format.InvalidOffset {
 		_ = ke.alloc.Free(parentSubkeyListRef)
+	}
+
+	return nil
+}
+
+// removeDeferredChild marks a child for deletion in deferred mode.
+// The actual removal happens during FlushDeferredSubkeys.
+// OPTIMIZATION: This is lazy - we don't load the subkey list until flush time.
+func (ke *keyEditor) removeDeferredChild(parentRef NKRef, childNKRef uint32) error {
+	dp, exists := ke.deferredParents[parentRef]
+	if !exists {
+		// Parent not tracked yet - create a lazy entry (don't load children yet)
+		dp = &deferredParent{
+			children:      nil, // Will be loaded lazily during flush
+			oldListRef:    format.InvalidOffset,
+			deletedNKRefs: make(map[uint32]bool),
+			loaded:        false, // Mark as not loaded
+		}
+		ke.deferredParents[parentRef] = dp
+	}
+
+	// Initialize deletedNKRefs if nil
+	if dp.deletedNKRefs == nil {
+		dp.deletedNKRefs = make(map[uint32]bool)
+	}
+
+	// Mark the child for deletion
+	dp.deletedNKRefs[childNKRef] = true
+
+	// Also remove from in-memory children list if already loaded
+	if dp.loaded {
+		for i, child := range dp.children {
+			if child.NKRef == childNKRef {
+				dp.children = append(dp.children[:i], dp.children[i+1:]...)
+				break
+			}
+		}
 	}
 
 	return nil

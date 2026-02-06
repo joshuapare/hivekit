@@ -331,6 +331,8 @@ func (fa *FastAllocator) Alloc(need int32, cls Class) (CellRef, []byte, error) {
 			totalFreeCells := 0
 			totalFreeBytes := int64(0)
 			largestCell := int32(0)
+			fittingCells := 0 // NEW: count cells that could fit our request
+			fittingByClass := make(map[int]int) // class -> count of fitting cells
 			for sc := range len(fa.freeLists) {
 				if fa.freeLists[sc].heap.Len() > 0 {
 					totalFreeCells += fa.freeLists[sc].heap.Len()
@@ -339,6 +341,10 @@ func (fa *FastAllocator) Alloc(need int32, cls Class) (CellRef, []byte, error) {
 						totalFreeBytes += int64(size)
 						if size > largestCell {
 							largestCell = size
+						}
+						if size >= need {
+							fittingCells++
+							fittingByClass[sc]++
 						}
 					}
 				}
@@ -352,19 +358,47 @@ func (fa *FastAllocator) Alloc(need int32, cls Class) (CellRef, []byte, error) {
 				if lb.size > largestCell {
 					largestCell = lb.size
 				}
+				if lb.size >= need {
+					fittingCells++
+					fittingByClass[-1]++ // -1 for large list
+				}
 				lb = lb.next
+			}
+
+			// Show class populations for classes 36-40
+			class36Len := 0
+			class38Len := 0
+			class39Len := 0
+			if len(fa.freeLists) > 36 {
+				class36Len = fa.freeLists[36].heap.Len()
+			}
+			if len(fa.freeLists) > 38 {
+				class38Len = fa.freeLists[38].heap.Len()
+			}
+			if len(fa.freeLists) > 39 {
+				class39Len = fa.freeLists[39].heap.Len()
 			}
 
 			fmt.Fprintf(
 				os.Stderr,
-				"[ALLOC] NEED GROW: need=%d, maxFree=%d (stale?=%v), actual_largest=%d\n",
+				"[ALLOC] NEED GROW: need=%d, maxFree=%d (stale?=%v), actual_largest=%d, fitting_cells=%d, search_start=%d, class37_len=%d, c36=%d, c38=%d, c39=%d\n",
 				need,
 				fa.maxFree,
 				fa.maxFree != largestCell,
 				largestCell,
+				fittingCells,
+				sizeClass,
+				fa.freeLists[37].heap.Len(),
+				class36Len,
+				class38Len,
+				class39Len,
 			)
 			fmt.Fprintf(os.Stderr, "[ALLOC]   Free: %d cells, %d bytes total, avg=%d bytes/cell\n",
 				totalFreeCells, totalFreeBytes, totalFreeBytes/max(1, int64(totalFreeCells)))
+			// Show which classes have fitting cells
+			if fittingCells > 0 && fittingCells < 100 {
+				fmt.Fprintf(os.Stderr, "[ALLOC]   Fitting cells by class: %v\n", fittingByClass)
+			}
 		}
 
 		// CRITICAL: If we couldn't find a cell, always grow
@@ -520,6 +554,7 @@ func (fa *FastAllocator) Free(ref CellRef) error {
 		rawSize = -rawSize
 	}
 	sz := rawSize
+	originalSize := sz // Track for logging
 	fa.stats.BytesFreed += int64(sz)
 
 	putI32(data, off, sz)
@@ -614,6 +649,12 @@ func (fa *FastAllocator) Free(ref CellRef) error {
 	}
 
 	// Insert coalesced cell into free list
+	if logAlloc {
+		coalesced := sz != originalSize
+		classIdx := fa.sizeTable.getSizeClass(sz)
+		fmt.Fprintf(os.Stderr, "[FREE] off=0x%X, original=%d, final=%d, coalesced=%v, class=%d\n",
+			off, originalSize, sz, coalesced, classIdx)
+	}
 	fa.insertFreeCell(off, sz)
 	return nil
 }
@@ -645,7 +686,14 @@ func (fa *FastAllocator) Grow(need int32) error {
 	//
 	// Example: If we need 4072 bytes:
 	//   - WRONG: hbinSize = align(4072) = 4096, usable = 4096-32 = 4064 < 4072 	//   - CORRECT: hbinSize = align(4072+32) = align(4104) = 8192, usable = 8192-32 = 8160 ✓
-	hbinSize := format.AlignHBINI32(need + format.HBINHeaderSize)
+	//
+	// OPTIMIZATION: Grow by at least 4x the requested size to ensure the remainder
+	// can satisfy multiple similar requests. This prevents the pattern where we
+	// repeatedly grow for the same allocation size because the remainder is too small.
+	// Each split costs 4 bytes for the cell header, so 4 allocations of N bytes
+	// need approximately 4*(N+4) bytes. The 4x multiplier ensures enough space.
+	minGrowth := need * 4
+	hbinSize := format.AlignHBINI32(minGrowth + format.HBINHeaderSize)
 
 	// Allocation logging - controlled by HIVE_LOG_ALLOC environment variable
 	if logAlloc {
@@ -1074,30 +1122,20 @@ func (fa *FastAllocator) allocFromSizeClass(sc int, need int32) *freeCell {
 	}
 
 	// Slow path: heap[0] is too small, but larger cells in this size class
-	// may fit. Use bounded "good-enough fit" scan instead of full O(n) scan.
+	// may fit. Scan all cells to find the smallest one that fits.
 	//
-	// Optimization: Instead of scanning ALL cells for perfect best-fit, we:
-	// 1. Limit scan to maxSlowPathScan cells (default 32)
-	// 2. Accept any cell within fitTolerance bytes of optimal as "good enough"
-	//
-	// Trade-off: Slightly more internal fragmentation (up to fitTolerance bytes
-	// per allocation) in exchange for O(1) amortized allocation time.
-	const (
-		maxSlowPathScan = 32 // Never scan more than 32 cells
-		fitTolerance    = 64 // Accept cells within 64 bytes of optimal
-	)
+	// Note: We previously limited this to 32 cells for performance, but that
+	// caused size bloat when fitting cells were sparse in large heaps.
+	// Full scan is acceptable since heaps rarely exceed 1000 cells.
+	const fitTolerance = 64 // Accept cells within 64 bytes of optimal
 
 	bestIdx := -1
 	var bestSize int32 = 1<<31 - 1 // MaxInt32
 	maxAcceptable := need + fitTolerance
 
 	heapLen := list.heap.Len()
-	scanLimit := heapLen
-	if scanLimit > maxSlowPathScan {
-		scanLimit = maxSlowPathScan
-	}
 
-	for i := 1; i < scanLimit; i++ {
+	for i := 1; i < heapLen; i++ {
 		cellSize := list.heap[i].size
 		if cellSize >= need {
 			if cellSize <= maxAcceptable {
