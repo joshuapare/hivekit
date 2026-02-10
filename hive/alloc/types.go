@@ -70,4 +70,9 @@ type Allocator interface {
 	//   Grow(8192)  → GrowByPages(2)  // 8KB HBIN
 	//   Grow(16384) → GrowByPages(4)  // 16KB HBIN
 	Grow(need int32) error
+
+	// Close releases internal resources back to pools for reuse.
+	// Should be called when the allocator is no longer needed.
+	// After Close, the allocator should not be used.
+	Close()
 }

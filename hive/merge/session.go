@@ -825,6 +825,12 @@ func (s *Session) Close(ctx context.Context) error {
 		s.idx = nil
 	}
 
+	// Release allocator resources (returns freeCells to pool)
+	if s.alloc != nil {
+		s.alloc.Close()
+		s.alloc = nil
+	}
+
 	return nil
 }
 

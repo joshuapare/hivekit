@@ -33,6 +33,11 @@ type NumericIndex struct {
 	nodes  map[uint64]uint32 // (parentOff << 32) | hash → NK offset
 	values map[uint64]uint32 // (parentOff << 32) | hash → VK offset
 
+	// Name storage for main map entries - enables collision detection
+	// Maps key → lowercased name of the entry in nodes/values map
+	nodeNames  map[uint64]string
+	valueNames map[uint64]string
+
 	// Collision handling - maps uint64 key to slice of entries with same hash
 	// Only used when multiple different names hash to the same value under same parent
 	nodeCollisions  map[uint64][]collisionEntry
@@ -54,8 +59,10 @@ func NewNumericIndex(nkCap, vkCap int) *NumericIndex {
 		vkCap = 4096
 	}
 	return &NumericIndex{
-		nodes:  make(map[uint64]uint32, nkCap),
-		values: make(map[uint64]uint32, vkCap),
+		nodes:      make(map[uint64]uint32, nkCap),
+		values:     make(map[uint64]uint32, vkCap),
+		nodeNames:  make(map[uint64]string, nkCap),
+		valueNames: make(map[uint64]string, vkCap),
 		// Collision maps initialized lazily (almost never needed)
 	}
 }
@@ -131,41 +138,40 @@ func (n *NumericIndex) AddNKLower(parentOff uint32, nameLower string, offset uin
 	// Fast path: key not in map
 	if _, ok := n.nodes[key]; !ok {
 		n.nodes[key] = offset
+		n.nodeNames[key] = nameLower
 		return
 	}
 
-	// Key exists - this could be:
-	// 1. Same name, same offset (idempotent) - do nothing
-	// 2. Same name, different offset (update) - overwrite
-	// 3. Different name, same hash (collision) - use collision map
-	//
-	// Since we only store the hash, we can't distinguish cases 1-2 from 3
-	// without storing the original name. For correctness with collisions,
-	// we use the collision map when there are multiple entries.
-	//
-	// Optimization: If no collisions exist yet for this key, just overwrite.
-	// This handles the common case of update (case 2) efficiently.
-	if n.nodeCollisions == nil {
-		// No collision map yet - safe to overwrite
+	// Key exists - check if it's the same name (update) or different name (collision)
+	existingName := n.nodeNames[key]
+	if existingName == nameLower {
+		// Same name - just update the offset
 		n.nodes[key] = offset
 		return
 	}
 
-	if entries, hasCollisions := n.nodeCollisions[key]; hasCollisions {
-		// Collisions exist - need to check if this name is already there
-		for i := range entries {
-			if entries[i].name == nameLower {
-				entries[i].offset = offset // Update existing collision entry
-				return
+	// Different name with same hash - this is a collision
+	// Check collision map first
+	if n.nodeCollisions != nil {
+		if entries, hasCollisions := n.nodeCollisions[key]; hasCollisions {
+			for i := range entries {
+				if entries[i].name == nameLower {
+					entries[i].offset = offset
+					return
+				}
 			}
+			// New collision entry
+			n.nodeCollisions[key] = append(entries, collisionEntry{name: nameLower, offset: offset})
+			return
 		}
-		// New collision - add to list
-		n.nodeCollisions[key] = append(entries, collisionEntry{name: nameLower, offset: offset})
-		return
 	}
 
-	// No collisions for this specific key - safe to overwrite
-	n.nodes[key] = offset
+	// First collision for this key - initialize collision map if needed
+	if n.nodeCollisions == nil {
+		n.nodeCollisions = make(map[uint64][]collisionEntry)
+	}
+	// Add the new entry to collision map
+	n.nodeCollisions[key] = []collisionEntry{{name: nameLower, offset: offset}}
 }
 
 // AddVKLower implements Index.
@@ -177,114 +183,146 @@ func (n *NumericIndex) AddVKLower(parentOff uint32, valueNameLower string, offse
 	// Fast path: key not in map
 	if _, ok := n.values[key]; !ok {
 		n.values[key] = offset
+		n.valueNames[key] = valueNameLower
 		return
 	}
 
-	// Key exists - handle updates and collisions (see AddNKLower for details)
-	if n.valueCollisions == nil {
+	// Key exists - check if it's the same name (update) or different name (collision)
+	existingName := n.valueNames[key]
+	if existingName == valueNameLower {
+		// Same name - just update the offset
 		n.values[key] = offset
 		return
 	}
 
-	if entries, hasCollisions := n.valueCollisions[key]; hasCollisions {
-		for i := range entries {
-			if entries[i].name == valueNameLower {
-				entries[i].offset = offset
-				return
+	// Different name with same hash - this is a collision
+	// Check collision map first
+	if n.valueCollisions != nil {
+		if entries, hasCollisions := n.valueCollisions[key]; hasCollisions {
+			for i := range entries {
+				if entries[i].name == valueNameLower {
+					entries[i].offset = offset
+					return
+				}
 			}
+			// New collision entry
+			n.valueCollisions[key] = append(entries, collisionEntry{name: valueNameLower, offset: offset})
+			return
 		}
-		n.valueCollisions[key] = append(entries, collisionEntry{name: valueNameLower, offset: offset})
-		return
 	}
 
-	n.values[key] = offset
+	// First collision for this key - initialize collision map if needed
+	if n.valueCollisions == nil {
+		n.valueCollisions = make(map[uint64][]collisionEntry)
+	}
+	// Add the new entry to collision map
+	n.valueCollisions[key] = []collisionEntry{{name: valueNameLower, offset: offset}}
 }
 
 // AddVKHash adds a value using pre-computed hash and raw bytes.
-// This is the zero-allocation fast path for index building.
-// Only allocates string if collision map exists (rare ~0.001%).
+// This is the zero-allocation fast path for index building when key doesn't exist.
+// Allocates string only when key already exists (for collision detection).
 //
 // Parameters:
 //   - parentOff: offset of the parent NK cell
 //   - hash: pre-computed FNV-1a hash of the lowercase name (from Fnv32LowerBytes)
-//   - nameBytes: raw name bytes (used only for collision handling)
+//   - nameBytes: raw name bytes (used for collision detection)
 //   - offset: VK cell offset to store
 func (n *NumericIndex) AddVKHash(parentOff uint32, hash uint32, nameBytes []byte, offset uint32) {
 	key := makeNumericKey(parentOff, hash)
 
 	// Fast path: key not in map (99.9% of cases)
 	if _, ok := n.values[key]; !ok {
-		n.values[key] = offset
-		return
-	}
-
-	// Key exists - handle updates and collisions
-	if n.valueCollisions == nil {
-		// No collision map yet - safe to overwrite
-		n.values[key] = offset
-		return
-	}
-
-	if entries, hasCollisions := n.valueCollisions[key]; hasCollisions {
-		// Collisions exist - need to allocate string and check by name
-		// This is rare (~0.001% of cases)
 		nameLower := toLowerASCII(nameBytes)
-		for i := range entries {
-			if entries[i].name == nameLower {
-				entries[i].offset = offset // Update existing collision entry
-				return
-			}
-		}
-		// New collision - add to list
-		n.valueCollisions[key] = append(entries, collisionEntry{name: nameLower, offset: offset})
+		n.values[key] = offset
+		n.valueNames[key] = nameLower
 		return
 	}
 
-	// No collisions for this specific key - safe to overwrite
-	n.values[key] = offset
+	// Key exists - need to check if it's the same name or a collision
+	nameLower := toLowerASCII(nameBytes)
+	existingName := n.valueNames[key]
+	if existingName == nameLower {
+		// Same name - just update the offset
+		n.values[key] = offset
+		return
+	}
+
+	// Different name with same hash - this is a collision
+	// Check collision map first
+	if n.valueCollisions != nil {
+		if entries, hasCollisions := n.valueCollisions[key]; hasCollisions {
+			for i := range entries {
+				if entries[i].name == nameLower {
+					entries[i].offset = offset
+					return
+				}
+			}
+			// New collision entry
+			n.valueCollisions[key] = append(entries, collisionEntry{name: nameLower, offset: offset})
+			return
+		}
+	}
+
+	// First collision for this key - initialize collision map if needed
+	if n.valueCollisions == nil {
+		n.valueCollisions = make(map[uint64][]collisionEntry)
+	}
+	// Add the new entry to collision map
+	n.valueCollisions[key] = []collisionEntry{{name: nameLower, offset: offset}}
 }
 
 // AddNKHash adds an NK using pre-computed hash and raw bytes.
-// This is the zero-allocation fast path for index building.
-// Only allocates string if collision map exists (rare ~0.001%).
+// This is the zero-allocation fast path for index building when key doesn't exist.
+// Allocates string only when key already exists (for collision detection).
 //
 // Parameters:
 //   - parentOff: offset of the parent NK cell
 //   - hash: pre-computed FNV-1a hash of the lowercase name
-//   - nameBytes: raw name bytes (used only for collision handling)
+//   - nameBytes: raw name bytes (used for collision detection)
 //   - offset: NK cell offset to store
 func (n *NumericIndex) AddNKHash(parentOff uint32, hash uint32, nameBytes []byte, offset uint32) {
 	key := makeNumericKey(parentOff, hash)
 
 	// Fast path: key not in map (99.9% of cases)
 	if _, ok := n.nodes[key]; !ok {
-		n.nodes[key] = offset
-		return
-	}
-
-	// Key exists - handle updates and collisions
-	if n.nodeCollisions == nil {
-		// No collision map yet - safe to overwrite
-		n.nodes[key] = offset
-		return
-	}
-
-	if entries, hasCollisions := n.nodeCollisions[key]; hasCollisions {
-		// Collisions exist - need to allocate string and check by name
 		nameLower := toLowerASCII(nameBytes)
-		for i := range entries {
-			if entries[i].name == nameLower {
-				entries[i].offset = offset // Update existing collision entry
-				return
-			}
-		}
-		// New collision - add to list
-		n.nodeCollisions[key] = append(entries, collisionEntry{name: nameLower, offset: offset})
+		n.nodes[key] = offset
+		n.nodeNames[key] = nameLower
 		return
 	}
 
-	// No collisions for this specific key - safe to overwrite
-	n.nodes[key] = offset
+	// Key exists - need to check if it's the same name or a collision
+	nameLower := toLowerASCII(nameBytes)
+	existingName := n.nodeNames[key]
+	if existingName == nameLower {
+		// Same name - just update the offset
+		n.nodes[key] = offset
+		return
+	}
+
+	// Different name with same hash - this is a collision
+	// Check collision map first
+	if n.nodeCollisions != nil {
+		if entries, hasCollisions := n.nodeCollisions[key]; hasCollisions {
+			for i := range entries {
+				if entries[i].name == nameLower {
+					entries[i].offset = offset
+					return
+				}
+			}
+			// New collision entry
+			n.nodeCollisions[key] = append(entries, collisionEntry{name: nameLower, offset: offset})
+			return
+		}
+	}
+
+	// First collision for this key - initialize collision map if needed
+	if n.nodeCollisions == nil {
+		n.nodeCollisions = make(map[uint64][]collisionEntry)
+	}
+	// Add the new entry to collision map
+	n.nodeCollisions[key] = []collisionEntry{{name: nameLower, offset: offset}}
 }
 
 // AddVKHashFast adds a value using direct map assignment.
@@ -439,25 +477,26 @@ func (n *NumericIndex) RemoveNK(parentOff uint32, name string) {
 	hash := fnv32Lower(name)
 	key := makeNumericKey(parentOff, hash)
 
-	// Remove from main map
-	delete(n.nodes, key)
-
-	// Also remove from collision map if present
+	// Check collision map first - if the entry is there, remove it and return.
+	// Only delete from main map if the entry is NOT in the collision map.
 	if n.nodeCollisions != nil {
 		nameLower := strings.ToLower(name)
 		if entries, ok := n.nodeCollisions[key]; ok {
 			for i := range entries {
 				if entries[i].name == nameLower {
-					// Remove this entry
+					// Found in collision map - remove from there only
 					n.nodeCollisions[key] = append(entries[:i], entries[i+1:]...)
 					if len(n.nodeCollisions[key]) == 0 {
 						delete(n.nodeCollisions, key)
 					}
-					break
+					return
 				}
 			}
 		}
 	}
+
+	// Not in collision map - remove from main map
+	delete(n.nodes, key)
 }
 
 // RemoveVK implements Index.
@@ -466,25 +505,26 @@ func (n *NumericIndex) RemoveVK(parentOff uint32, valueName string) {
 	hash := fnv32Lower(valueName)
 	key := makeNumericKey(parentOff, hash)
 
-	// Remove from main map
-	delete(n.values, key)
-
-	// Also remove from collision map if present
+	// Check collision map first - if the entry is there, remove it and return.
+	// Only delete from main map if the entry is NOT in the collision map.
 	if n.valueCollisions != nil {
 		nameLower := strings.ToLower(valueName)
 		if entries, ok := n.valueCollisions[key]; ok {
 			for i := range entries {
 				if entries[i].name == nameLower {
-					// Remove this entry
+					// Found in collision map - remove from there only
 					n.valueCollisions[key] = append(entries[:i], entries[i+1:]...)
 					if len(n.valueCollisions[key]) == 0 {
 						delete(n.valueCollisions, key)
 					}
-					break
+					return
 				}
 			}
 		}
 	}
+
+	// Not in collision map - remove from main map
+	delete(n.values, key)
 }
 
 // Reset clears all entries while retaining allocated map capacity.
@@ -493,6 +533,8 @@ func (n *NumericIndex) RemoveVK(parentOff uint32, valueName string) {
 func (n *NumericIndex) Reset() {
 	clear(n.nodes)
 	clear(n.values)
+	clear(n.nodeNames)
+	clear(n.valueNames)
 	if n.nodeCollisions != nil {
 		clear(n.nodeCollisions)
 	}

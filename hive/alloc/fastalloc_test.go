@@ -601,8 +601,8 @@ func TestGetFreeCell_NoPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Pollute the pool with a wrong type
-	fa.freeCellPool.Put("not a *freeCell")
+	// Pollute the package-level pool with a wrong type
+	freeCellPool.Put("not a *freeCell")
 
 	// getFreeCell should NOT panic — it should fall back to a fresh allocation
 	defer func() {

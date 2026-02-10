@@ -228,6 +228,11 @@ func createValidMinimalHive(t *testing.T) []byte {
 	format.PutI32(buf, cellOff, -int32(cellSize)) // Allocated cell
 	copy(buf[cellOff+4:cellOff+6], []byte("nk"))
 
+	// Set subkey list offset to InvalidOffset (no subkeys)
+	format.PutU32(buf, cellOff+4+format.NKSubkeyListOffset, format.InvalidOffset)
+	// Set value list offset to InvalidOffset (no values)
+	format.PutU32(buf, cellOff+4+format.NKValueListOffset, format.InvalidOffset)
+
 	// Write a free cell for the remaining space
 	nextCellOff := cellOff + cellSize
 	freeSize := hbinSize - format.HBINHeaderSize - cellSize

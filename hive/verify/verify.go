@@ -35,6 +35,9 @@ func AllInvariants(data []byte) error {
 	if err := FileSize(data); err != nil {
 		return err
 	}
+	if err := NKRefIntegrity(data); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -311,6 +314,371 @@ func Checksum(data []byte) error {
 				"calculated": calculated,
 				"stored":     stored,
 			},
+		}
+	}
+
+	return nil
+}
+
+// NKRefIntegrity validates that all NKRefs in subkey lists point to valid allocated NK cells.
+// This is a deep validation that walks the entire hive tree starting from the root.
+//
+// It detects:
+//   - NKRefs pointing to freed cells (positive cell size)
+//   - NKRefs pointing to non-NK cells (wrong signature)
+//   - NKRefs pointing to invalid offsets (out of bounds)
+//
+// Returns nil if all NKRefs are valid.
+func NKRefIntegrity(data []byte) error {
+	if len(data) < format.HeaderSize {
+		return &ValidationError{
+			Type:    "NKRefIntegrity",
+			Message: "file too small for header",
+			Offset:  -1,
+		}
+	}
+
+	// Get root NK offset from REGF header
+	rootOffset := format.ReadU32(data, format.REGFRootCellOffset)
+	if rootOffset == format.InvalidOffset {
+		return &ValidationError{
+			Type:    "NKRefIntegrity",
+			Message: "invalid root offset in header",
+			Offset:  format.REGFRootCellOffset,
+		}
+	}
+
+	// Use stack-based traversal to avoid recursion
+	type stackEntry struct {
+		nkOffset uint32
+		parent   uint32
+	}
+	stack := []stackEntry{{nkOffset: rootOffset, parent: 0}}
+
+	// Track visited NKs to detect cycles
+	visited := make(map[uint32]bool)
+
+	for len(stack) > 0 {
+		// Pop from stack
+		entry := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		nkOffset := entry.nkOffset
+
+		// Skip if already visited (cycle detection)
+		if visited[nkOffset] {
+			continue
+		}
+		visited[nkOffset] = true
+
+		// Validate the NK cell
+		payload, err := resolveCellPayload(data, nkOffset)
+		if err != nil {
+			return &ValidationError{
+				Type:    "NKRefIntegrity",
+				Message: fmt.Sprintf("NKRef 0x%X from parent 0x%X: %v", nkOffset, entry.parent, err),
+				Offset:  int(nkOffset),
+				Details: map[string]interface{}{
+					"parent_nk": entry.parent,
+					"child_nk":  nkOffset,
+				},
+			}
+		}
+
+		// Check NK signature
+		if len(payload) < 2 || payload[0] != 'n' || payload[1] != 'k' {
+			return &ValidationError{
+				Type:    "NKRefIntegrity",
+				Message: fmt.Sprintf("NKRef 0x%X from parent 0x%X: not an NK cell (sig=%q)", nkOffset, entry.parent, string(payload[:min(2, len(payload))])),
+				Offset:  int(nkOffset),
+				Details: map[string]interface{}{
+					"parent_nk":    entry.parent,
+					"child_nk":     nkOffset,
+					"actual_sig":   string(payload[:min(2, len(payload))]),
+					"expected_sig": "nk",
+				},
+			}
+		}
+
+		// Check minimum NK size (signature + flags + timestamps, etc.)
+		if len(payload) < format.NKMinSize {
+			return &ValidationError{
+				Type:    "NKRefIntegrity",
+				Message: fmt.Sprintf("NKRef 0x%X from parent 0x%X: NK cell too small (%d bytes)", nkOffset, entry.parent, len(payload)),
+				Offset:  int(nkOffset),
+				Details: map[string]interface{}{
+					"parent_nk":    entry.parent,
+					"child_nk":     nkOffset,
+					"payload_size": len(payload),
+					"min_size":     format.NKMinSize,
+				},
+			}
+		}
+
+		// Get subkey list offset
+		subkeyListOffset := format.ReadU32(payload, format.NKSubkeyListOffset)
+		if subkeyListOffset == format.InvalidOffset {
+			continue // No subkeys
+		}
+
+		// Read subkey offsets from the list
+		childOffsets, err := readSubkeyListOffsets(data, subkeyListOffset)
+		if err != nil {
+			return &ValidationError{
+				Type:    "NKRefIntegrity",
+				Message: fmt.Sprintf("NK 0x%X: invalid subkey list at 0x%X: %v", nkOffset, subkeyListOffset, err),
+				Offset:  int(subkeyListOffset),
+				Details: map[string]interface{}{
+					"nk_offset":   nkOffset,
+					"list_offset": subkeyListOffset,
+				},
+			}
+		}
+
+		// Push children to stack
+		for _, childOffset := range childOffsets {
+			stack = append(stack, stackEntry{nkOffset: childOffset, parent: nkOffset})
+		}
+	}
+
+	return nil
+}
+
+// resolveCellPayload resolves an offset to a cell payload, validating the cell is allocated.
+func resolveCellPayload(data []byte, offset uint32) ([]byte, error) {
+	absOffset := format.HeaderSize + int(offset)
+
+	// Bounds check
+	if absOffset < 0 || absOffset+4 > len(data) {
+		return nil, fmt.Errorf("offset out of bounds")
+	}
+
+	// Read cell size (negative = allocated, positive = free)
+	rawSize := int32(format.ReadU32(data, absOffset))
+	if rawSize >= 0 {
+		return nil, fmt.Errorf("points to free cell (size=%d)", rawSize)
+	}
+
+	size := int(-rawSize)
+	if size < format.CellHeaderSize {
+		return nil, fmt.Errorf("cell size too small (%d)", size)
+	}
+
+	endOffset := absOffset + size
+	if endOffset > len(data) {
+		return nil, fmt.Errorf("cell extends beyond file")
+	}
+
+	// Return payload (skip 4-byte header)
+	return data[absOffset+4 : endOffset], nil
+}
+
+// readSubkeyListOffsets reads all NKRef offsets from a subkey list (LF/LH/LI/RI).
+func readSubkeyListOffsets(data []byte, listOffset uint32) ([]uint32, error) {
+	payload, err := resolveCellPayload(data, listOffset)
+	if err != nil {
+		return nil, fmt.Errorf("resolve list cell: %w", err)
+	}
+
+	if len(payload) < 4 {
+		return nil, fmt.Errorf("list too short: %d bytes", len(payload))
+	}
+
+	sig := string(payload[0:2])
+	count := int(format.ReadU16(payload, 2))
+
+	switch sig {
+	case "lf", "lh":
+		// LF/LH: 8 bytes per entry (offset + hash)
+		entrySize := 8
+		minSize := 4 + count*entrySize
+		if len(payload) < minSize {
+			return nil, fmt.Errorf("LF/LH truncated: need %d, have %d", minSize, len(payload))
+		}
+		offsets := make([]uint32, count)
+		for i := 0; i < count; i++ {
+			offsets[i] = format.ReadU32(payload, 4+i*entrySize)
+		}
+		return offsets, nil
+
+	case "li":
+		// LI: 4 bytes per entry (offset only)
+		entrySize := 4
+		minSize := 4 + count*entrySize
+		if len(payload) < minSize {
+			return nil, fmt.Errorf("LI truncated: need %d, have %d", minSize, len(payload))
+		}
+		offsets := make([]uint32, count)
+		for i := 0; i < count; i++ {
+			offsets[i] = format.ReadU32(payload, 4+i*entrySize)
+		}
+		return offsets, nil
+
+	case "ri":
+		// RI: indirect list, contains offsets to other lists
+		entrySize := 4
+		minSize := 4 + count*entrySize
+		if len(payload) < minSize {
+			return nil, fmt.Errorf("RI truncated: need %d, have %d", minSize, len(payload))
+		}
+		var allOffsets []uint32
+		for i := 0; i < count; i++ {
+			subListOffset := format.ReadU32(payload, 4+i*entrySize)
+			subOffsets, err := readSubkeyListOffsets(data, subListOffset)
+			if err != nil {
+				return nil, fmt.Errorf("RI sub-list %d at 0x%X: %w", i, subListOffset, err)
+			}
+			allOffsets = append(allOffsets, subOffsets...)
+		}
+		return allOffsets, nil
+
+	default:
+		return nil, fmt.Errorf("unknown list signature: %q", sig)
+	}
+}
+
+// VKRefIntegrity validates that all VK references in value lists point to valid allocated VK cells.
+// This walks the entire hive tree and checks each NK's value list.
+//
+// It detects:
+//   - VKRefs pointing to freed cells (positive cell size)
+//   - VKRefs pointing to non-VK cells (wrong signature)
+//   - VKRefs pointing to invalid offsets (out of bounds)
+//   - Value list cells that are freed
+//
+// Returns nil if all VKRefs are valid.
+func VKRefIntegrity(data []byte) error {
+	if len(data) < format.HeaderSize {
+		return &ValidationError{
+			Type:    "VKRefIntegrity",
+			Message: "file too small for header",
+			Offset:  -1,
+		}
+	}
+
+	// Get root NK offset from REGF header
+	rootOffset := format.ReadU32(data, format.REGFRootCellOffset)
+	if rootOffset == format.InvalidOffset {
+		return &ValidationError{
+			Type:    "VKRefIntegrity",
+			Message: "invalid root offset in header",
+			Offset:  format.REGFRootCellOffset,
+		}
+	}
+
+	// Use stack-based traversal to walk all NKs
+	stack := []uint32{rootOffset}
+	visited := make(map[uint32]bool)
+
+	for len(stack) > 0 {
+		// Pop from stack
+		nkOffset := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		// Skip if already visited
+		if visited[nkOffset] {
+			continue
+		}
+		visited[nkOffset] = true
+
+		// Get NK payload
+		payload, err := resolveCellPayload(data, nkOffset)
+		if err != nil {
+			continue // Skip invalid NKs (NKRefIntegrity handles these)
+		}
+
+		// Check NK signature
+		if len(payload) < format.NKMinSize || payload[0] != 'n' || payload[1] != 'k' {
+			continue // Skip non-NK cells
+		}
+
+		// Get value count and value list offset
+		valueCount := format.ReadU32(payload, format.NKValueCountOffset)
+		valueListOffset := format.ReadU32(payload, format.NKValueListOffset)
+
+		// Validate value list if present
+		if valueCount > 0 && valueListOffset != format.InvalidOffset {
+			if err := validateValueList(data, nkOffset, valueListOffset, valueCount); err != nil {
+				return err
+			}
+		}
+
+		// Get subkey list offset and push children to stack
+		subkeyListOffset := format.ReadU32(payload, format.NKSubkeyListOffset)
+		if subkeyListOffset != format.InvalidOffset {
+			childOffsets, err := readSubkeyListOffsets(data, subkeyListOffset)
+			if err == nil {
+				stack = append(stack, childOffsets...)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateValueList validates all VK references in a value list.
+func validateValueList(data []byte, nkOffset, listOffset, valueCount uint32) error {
+	// Resolve value list cell
+	listPayload, err := resolveCellPayload(data, listOffset)
+	if err != nil {
+		return &ValidationError{
+			Type:    "VKRefIntegrity",
+			Message: fmt.Sprintf("NK 0x%X: value list at 0x%X: %v", nkOffset, listOffset, err),
+			Offset:  int(listOffset),
+			Details: map[string]interface{}{
+				"nk_offset":   nkOffset,
+				"list_offset": listOffset,
+			},
+		}
+	}
+
+	// Check list has enough space for all VK offsets
+	needed := int(valueCount) * 4
+	if len(listPayload) < needed {
+		return &ValidationError{
+			Type:    "VKRefIntegrity",
+			Message: fmt.Sprintf("NK 0x%X: value list too small: need %d bytes for %d values, have %d", nkOffset, needed, valueCount, len(listPayload)),
+			Offset:  int(listOffset),
+		}
+	}
+
+	// Validate each VK reference
+	for i := uint32(0); i < valueCount; i++ {
+		vkOffset := format.ReadU32(listPayload, int(i)*4)
+		if vkOffset == 0 || vkOffset == format.InvalidOffset {
+			continue // Skip empty slots
+		}
+
+		// Resolve VK cell
+		vkPayload, err := resolveCellPayload(data, vkOffset)
+		if err != nil {
+			return &ValidationError{
+				Type:    "VKRefIntegrity",
+				Message: fmt.Sprintf("NK 0x%X value[%d]: VK at 0x%X: %v", nkOffset, i, vkOffset, err),
+				Offset:  int(vkOffset),
+				Details: map[string]interface{}{
+					"nk_offset":    nkOffset,
+					"value_index":  i,
+					"vk_offset":    vkOffset,
+					"list_offset":  listOffset,
+					"value_count":  valueCount,
+				},
+			}
+		}
+
+		// Check VK signature
+		if len(vkPayload) < 2 || vkPayload[0] != 'v' || vkPayload[1] != 'k' {
+			return &ValidationError{
+				Type:    "VKRefIntegrity",
+				Message: fmt.Sprintf("NK 0x%X value[%d]: VK at 0x%X has wrong signature %q", nkOffset, i, vkOffset, string(vkPayload[:min(2, len(vkPayload))])),
+				Offset:  int(vkOffset),
+				Details: map[string]interface{}{
+					"nk_offset":   nkOffset,
+					"value_index": i,
+					"vk_offset":   vkOffset,
+					"actual_sig":  string(vkPayload[:min(2, len(vkPayload))]),
+				},
+			}
 		}
 	}
 

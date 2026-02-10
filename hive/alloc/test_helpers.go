@@ -606,10 +606,8 @@ func assertInvariants(t testing.TB, fa *FastAllocator, h *hive.Hive) {
 		hbinIndex++
 	}
 
-	// Check index consistency (only if indexes are enabled)
-	if fa.startIdx != nil || fa.endIdx != nil {
-		assertIndexConsistency(t, fa)
-	}
+	// Check index consistency (cellIndex is always enabled now)
+	assertIndexConsistency(t, fa)
 }
 
 // assertInvariantsNoHBIN is like assertInvariants but skips HBIN accounting checks.
@@ -676,13 +674,9 @@ func assertHBINAccounting(t testing.TB, h *hive.Hive, hbinIndex int, hbinOff int
 		hbinIndex, totalAlloc, totalFree, total, usableSize)
 }
 
-// assertIndexConsistency verifies that startIdx and endIdx match the free lists.
+// assertIndexConsistency verifies that cellIndex matches the free lists.
 func assertIndexConsistency(t testing.TB, fa *FastAllocator) {
 	t.Helper()
-
-	if fa.startIdx == nil && fa.endIdx == nil {
-		return // Indexes not enabled yet
-	}
 
 	// Collect all free cells from lists
 	freeCells := make(map[int32]int32) // offset -> size
@@ -701,36 +695,18 @@ func assertIndexConsistency(t testing.TB, fa *FastAllocator) {
 		lb = lb.next
 	}
 
-	// Verify startIdx matches
-	if fa.startIdx != nil {
-		for off, size := range freeCells {
-			idxSize, exists := fa.startIdx[off]
-			assert.True(t, exists, "free cell at 0x%x missing from startIdx", off)
-			if exists {
-				assert.Equal(t, size, idxSize, "startIdx size mismatch at 0x%x", off)
-			}
+	// Verify cellIndex matches free lists
+	for off, size := range freeCells {
+		entry := fa.cellIndex.findByOffset(off)
+		assert.NotNil(t, entry, "free cell at 0x%x missing from cellIndex", off)
+		if entry != nil {
+			assert.Equal(t, size, entry.cell.size, "cellIndex size mismatch at 0x%x", off)
 		}
-
-		// No extra entries in startIdx
-		assert.Len(t, fa.startIdx, len(freeCells),
-			"startIdx has %d entries, expected %d", len(fa.startIdx), len(freeCells))
 	}
 
-	// Verify endIdx matches (endIdx maps end positions to start offsets)
-	if fa.endIdx != nil {
-		for off, size := range freeCells {
-			end := off + format.Align8I32(size)
-			idxOff, exists := fa.endIdx[end]
-			assert.True(t, exists, "free cell ending at 0x%x missing from endIdx", end)
-			if exists {
-				assert.Equal(t, off, idxOff, "endIdx offset mismatch at end 0x%x", end)
-			}
-		}
-
-		// No extra entries in endIdx
-		assert.Len(t, fa.endIdx, len(freeCells),
-			"endIdx has %d entries, expected %d", len(fa.endIdx), len(freeCells))
-	}
+	// No extra entries in cellIndex
+	assert.Equal(t, len(freeCells), fa.cellIndex.len(),
+		"cellIndex has %d entries, expected %d", fa.cellIndex.len(), len(freeCells))
 }
 
 // ============================================================================

@@ -41,9 +41,9 @@ func (h *Hive) NewHBINIterator() HBINIterator {
 // Next returns the next HBIN or io.EOF.
 // Non-"hbin" bytes encountered at a 0x1000 boundary are treated as end-of-bins
 // (Windows hives may have zero padding after the last HBIN).
-func (it *HBINIterator) Next() (*HBIN, error) {
+func (it *HBINIterator) Next() (HBIN, error) {
 	if it.done {
-		return nil, io.EOF
+		return HBIN{}, io.EOF
 	}
 	data := it.h.data
 	if it.limit == 0 {
@@ -51,7 +51,7 @@ func (it *HBINIterator) Next() (*HBIN, error) {
 		// Validate conversion safety: hive files are limited to 4GB by format spec.
 		// Registry uses uint32 offsets, so files larger than 4GB are malformed.
 		if dataLen > maxHiveSize {
-			return nil, fmt.Errorf("hive: file too large (%d bytes, max 4GB)", dataLen)
+			return HBIN{}, fmt.Errorf("hive: file too large (%d bytes, max 4GB)", dataLen)
 		}
 		// Safe conversion: validated dataLen <= maxHiveSize (0xFFFFFFFF)
 		it.limit = uint32(dataLen)
@@ -60,13 +60,13 @@ func (it *HBINIterator) Next() (*HBIN, error) {
 	// No room for an HBIN header.
 	if it.next > it.limit || it.next+uint32(format.HBINHeaderSize) > it.limit {
 		it.done = true
-		return nil, io.EOF
+		return HBIN{}, io.EOF
 	}
 
 	// Treat non-"hbin" as end-of-stream (common trailing padding).
 	if string(data[it.next:it.next+4]) != string(format.HBINSignature) {
 		it.done = true
-		return nil, io.EOF
+		return HBIN{}, io.EOF
 	}
 
 	// Delegate to the strict single-HBIN parser (ensures size/alignment/bounds).
@@ -74,7 +74,7 @@ func (it *HBINIterator) Next() (*HBIN, error) {
 	if err != nil {
 		// Surface the precise error (corruption, overflow, etc.).
 		it.done = true
-		return nil, err
+		return HBIN{}, err
 	}
 
 	// Advance to the next aligned HBIN.
@@ -85,7 +85,7 @@ func (it *HBINIterator) Next() (*HBIN, error) {
 		it.next = next
 	}
 
-	return &hb, nil
+	return hb, nil
 }
 
 // fast, zero-alloc check.
