@@ -254,17 +254,22 @@ func NewFast(h *hive.Hive, dt DirtyTracker, config *SizeClassConfig) (*FastAlloc
 	// Build size class table from config
 	sizeTable := newSizeClassTable(*config)
 
+	// Estimate free cell count to pre-size maps and avoid rehashing.
+	// Heuristic: ~1 free cell per 4KB of hive size (from production profiling).
+	// This eliminates O(n) rehash operations during initializeFreeLists.
+	estimatedCells := int(h.Size() / 4096)
+	if estimatedCells < 256 {
+		estimatedCells = 256
+	}
+
 	fa := &FastAllocator{
 		h:         h,
 		dt:        dt,
 		sizeTable: sizeTable,
 		freeLists: make([]freeList, sizeTable.NumClasses()),
-		startIdx:  make(map[int32]int32),
-		endIdx:    make(map[int32]int32),
-		byOff: make(
-			map[int32]*freeCell,
-			256,
-		), // Reduced from 4096 - actual usage is much lower
+		startIdx:  make(map[int32]int32, estimatedCells),
+		endIdx:    make(map[int32]int32, estimatedCells),
+		byOff:     make(map[int32]*freeCell, estimatedCells),
 		bins:         make([]hbinRange, 0, 256),  // Preallocate for HBIN index
 		hbinTracking: make(map[int32]*hbinStats), // Per-HBIN lifecycle tracking
 	}
