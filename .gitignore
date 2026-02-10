@@ -5,11 +5,15 @@
 venv/
 
 testdata/suite/
+testdata/**/*
 tests/integration/golden/
 tests/integration/output/
 
 benchmarks/reports/*
 benchmarks/graphs/*
+benchmarks/*.txt
 
 bin/
 *.log
+
+*.test

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"sync"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -42,7 +41,7 @@ const (
 // FastAllocator is a high-performance allocator using min-heaps per size class.
 // - Min-heaps give O(log n) allocation/removal and perfect best-fit
 // - Tunable size classes (20-80 typical) keep heaps small (10-100 cells typically)
-// - Sparse index enables O(log n) cell lookup with 6x less memory than maps
+// - byOff map enables O(1) cell lookup for coalescing
 // - bins index enables O(log B) HBIN bounds lookup.
 type FastAllocator struct {
 	h  *hive.Hive
@@ -58,12 +57,14 @@ type FastAllocator struct {
 	// Large allocations (≥16KB) - simple linked list
 	largeFree *largeBlock
 
-	// Sparse index for O(log n) cell lookup and coalescing.
-	// Replaces byOff and endIdx maps with a sorted slice.
-	// Memory: 24 bytes/cell vs ~144 bytes for 3 maps = 6x savings.
-	// Init: O(1) sequential appends (cells iterated in order).
-	// Lookup: O(log n) binary search (acceptable for <200K cells).
-	cellIndex sparseIndex
+	// O(1) coalescing indexes (enable via option, nil by default for backwards compat)
+	// startIdx: offset -> size (for backward coalesce lookup)
+	// endIdx: end offset -> size (for forward coalesce lookup)
+	startIdx map[int32]int32
+	endIdx   map[int32]int32
+
+	// O(1) cell lookup by offset (for heap.Remove during coalescing)
+	byOff map[int32]*freeCell
 
 	// HBIN boundaries for O(log B) binary search (replaces linear walk)
 	bins []hbinRange
@@ -238,92 +239,6 @@ type largeBlock struct {
 	next *largeBlock
 }
 
-// sparseIndex provides O(log n) cell lookup using a sorted slice.
-// Replaces map-based byOff and endIdx with 6x less memory and cache-friendly access.
-//
-// During initialization, cells are iterated in offset order, enabling O(1) appends.
-// Post-init operations (insert/remove) are O(n) but rare compared to init.
-//
-// Memory: 24 bytes per entry vs ~144 bytes for 3 map entries = 6x savings.
-// For 147K cells (122MB hive): 3.5MB vs 21MB.
-type sparseIndex struct {
-	entries []sparseEntry
-}
-
-// sparseEntry stores a free cell's metadata for O(log n) lookup.
-type sparseEntry struct {
-	off  int32      // Cell start offset (sorted key)
-	end  int32      // Cell end offset (off + size) for forward coalesce lookup
-	cell *freeCell  // Pointer to heap node for heap.Remove
-}
-
-// findByOffset returns the entry for a free cell at the given offset, or nil.
-// O(log n) binary search.
-func (idx *sparseIndex) findByOffset(off int32) *sparseEntry {
-	i := sort.Search(len(idx.entries), func(i int) bool {
-		return idx.entries[i].off >= off
-	})
-	if i < len(idx.entries) && idx.entries[i].off == off {
-		return &idx.entries[i]
-	}
-	return nil
-}
-
-// findByEnd returns the entry for a free cell that ends at the given offset.
-// O(n) linear scan - acceptable since forward coalesce only happens during Free().
-func (idx *sparseIndex) findByEnd(endOff int32) *sparseEntry {
-	for i := range idx.entries {
-		if idx.entries[i].end == endOff {
-			return &idx.entries[i]
-		}
-	}
-	return nil
-}
-
-// insert adds a new free cell to the index, maintaining sort order.
-// O(n) due to slice insertion, but rare after init.
-func (idx *sparseIndex) insert(off int32, size int32, cell *freeCell) {
-	// Use aligned size for end offset to match cell positioning in hive
-	entry := sparseEntry{off: off, end: off + format.Align8I32(size), cell: cell}
-
-	// Find insertion point using binary search
-	i := sort.Search(len(idx.entries), func(i int) bool {
-		return idx.entries[i].off >= off
-	})
-
-	// Insert at position i
-	idx.entries = append(idx.entries, sparseEntry{})
-	copy(idx.entries[i+1:], idx.entries[i:])
-	idx.entries[i] = entry
-}
-
-// remove deletes the entry at the given offset.
-// O(n) due to slice deletion, but rare after init.
-func (idx *sparseIndex) remove(off int32) {
-	i := sort.Search(len(idx.entries), func(i int) bool {
-		return idx.entries[i].off >= off
-	})
-	if i < len(idx.entries) && idx.entries[i].off == off {
-		idx.entries = append(idx.entries[:i], idx.entries[i+1:]...)
-	}
-}
-
-// appendOrdered appends an entry assuming offset order (used during init).
-// O(1) operation - no search needed.
-func (idx *sparseIndex) appendOrdered(off int32, size int32, cell *freeCell) {
-	// Use aligned size for end offset to match cell positioning in hive
-	idx.entries = append(idx.entries, sparseEntry{
-		off:  off,
-		end:  off + format.Align8I32(size),
-		cell: cell,
-	})
-}
-
-// len returns the number of entries.
-func (idx *sparseIndex) len() int {
-	return len(idx.entries)
-}
-
 // NewFast creates a high-performance allocator with dirty page tracking.
 //
 // Parameters:
@@ -339,30 +254,19 @@ func NewFast(h *hive.Hive, dt DirtyTracker, config *SizeClassConfig) (*FastAlloc
 	// Build size class table from config
 	sizeTable := newSizeClassTable(*config)
 
-	// Estimate capacity for sparse index based on hive size.
-	// Typically ~1 free cell per 400-1000 bytes of hive.
-	hiveSize := h.Size()
-	estimatedCells := int(hiveSize / 400)
-	if estimatedCells < 256 {
-		estimatedCells = 256
-	}
-	if estimatedCells > 200000 {
-		estimatedCells = 200000
-	}
-
-	numClasses := sizeTable.NumClasses()
-	freeLists := make([]freeList, numClasses)
-
 	fa := &FastAllocator{
 		h:         h,
 		dt:        dt,
 		sizeTable: sizeTable,
-		freeLists: freeLists,
-		cellIndex: sparseIndex{
-			entries: make([]sparseEntry, 0, estimatedCells),
-		},
-		bins:         make([]hbinRange, 0, 256),
-		hbinTracking: make(map[int32]*hbinStats),
+		freeLists: make([]freeList, sizeTable.NumClasses()),
+		startIdx:  make(map[int32]int32),
+		endIdx:    make(map[int32]int32),
+		byOff: make(
+			map[int32]*freeCell,
+			256,
+		), // Reduced from 4096 - actual usage is much lower
+		bins:         make([]hbinRange, 0, 256),  // Preallocate for HBIN index
+		hbinTracking: make(map[int32]*hbinStats), // Per-HBIN lifecycle tracking
 	}
 
 	// Note: Trailing slack space is truncated in hive.Open(), so HBINs are
@@ -686,14 +590,16 @@ func (fa *FastAllocator) Free(ref CellRef) error {
 		}
 	}
 
-	// Try to coalesce backward using O(log n) index lookup
+	// Try to coalesce backward using O(1) index lookup
 	var prevOff int32 = -1
 
-	// Use cellIndex.findByEnd for O(n) lookup (rare operation)
-	if entry := fa.cellIndex.findByEnd(off); entry != nil {
-		prevOff = entry.off
-	}
-	if prevOff == -1 {
+	// Use endIdx for O(1) lookup if available, otherwise fall back to O(n) walk
+	if fa.endIdx != nil {
+		// Check if there's a free cell ending exactly at our start position
+		if pOff, exists := fa.endIdx[off]; exists {
+			prevOff = pOff
+		}
+	} else {
 		// Fallback: O(n) walk (for compatibility if indexes not initialized)
 		cur := int32(hbinStart + format.HBINHeaderSize)
 
@@ -1080,7 +986,8 @@ func (fa *FastAllocator) removeFreeListEntriesAfter(offset int32) {
 			if cell.off < offset {
 				newHeap = append(newHeap, cell)
 			} else {
-				// Return to pool (sparse index will be rebuilt below)
+				// Remove from byOff map and return to pool
+				delete(fa.byOff, cell.off)
 				fa.putFreeCell(cell)
 			}
 		}
@@ -1109,13 +1016,6 @@ func (fa *FastAllocator) removeFreeListEntriesAfter(offset int32) {
 		}
 		curr = next
 	}
-
-	// Rebuild sparse index: remove entries at or after offset
-	// Since entries are sorted by offset, we can truncate efficiently
-	cutIdx := sort.Search(len(fa.cellIndex.entries), func(i int) bool {
-		return fa.cellIndex.entries[i].off >= offset
-	})
-	fa.cellIndex.entries = fa.cellIndex.entries[:cutIdx]
 }
 
 // ============================================================================
@@ -1148,12 +1048,7 @@ func (fa *FastAllocator) initializeFreeLists() error {
 			end:   hbinStart + hbinSize,
 		})
 
-		// Track HBIN stats as we scan (eliminates need for scanHBINEfficiency)
-		usableSize := hbinSize - format.HBINHeaderSize
-		var allocatedBytes int32
-		var allocCount int
-
-		// Scan cells and build free lists + cellIndex
+		// Scan cells and build free lists + byOff map
 		cit := hb.Cells()
 		for {
 			c, cellErr := cit.Next()
@@ -1164,22 +1059,11 @@ func (fa *FastAllocator) initializeFreeLists() error {
 				break
 			}
 
-			cellSize := int32(c.SizeAbs())
-			if c.IsAllocated() {
-				allocatedBytes += cellSize
-				allocCount++
-			} else {
+			if !c.IsAllocated() {
 				absOff := int32(int(hb.Offset) + c.Off)
-				fa.insertFreeCellOrdered(absOff, cellSize)
+				sz := int32(c.SizeAbs())
+				fa.insertFreeCell(absOff, sz)
 			}
-		}
-
-		// Store HBIN tracking data
-		fa.hbinTracking[hbinStart] = &hbinStats{
-			offset:         hbinStart,
-			initialSize:    usableSize,
-			bytesAllocated: allocatedBytes,
-			allocCount:     allocCount,
 		}
 	}
 
@@ -1208,8 +1092,17 @@ func (fa *FastAllocator) allocFromSizeClass(sc int, need int32) *freeCell {
 		cell := heap.Pop(&list.heap).(*freeCell) //nolint:errcheck // heap contains only *freeCell
 		list.count--
 
-		// Remove from sparse index
-		fa.cellIndex.remove(cell.off)
+		// Remove from byOff map
+		delete(fa.byOff, cell.off)
+
+		// Remove from coalesce indexes
+		if fa.startIdx != nil {
+			delete(fa.startIdx, cell.off)
+		}
+		if fa.endIdx != nil {
+			end := cell.off + format.Align8I32(cell.size)
+			delete(fa.endIdx, end)
+		}
 
 		// O(1) maxFree update via top-2 tracking
 		if cell.size == fa.maxFree {
@@ -1268,8 +1161,17 @@ func (fa *FastAllocator) allocFromSizeClass(sc int, need int32) *freeCell {
 	cell := heap.Remove(&list.heap, bestIdx).(*freeCell) //nolint:errcheck // heap contains only *freeCell
 	list.count--
 
-	// Remove from sparse index
-	fa.cellIndex.remove(cell.off)
+	// Remove from byOff map
+	delete(fa.byOff, cell.off)
+
+	// Remove from coalesce indexes
+	if fa.startIdx != nil {
+		delete(fa.startIdx, cell.off)
+	}
+	if fa.endIdx != nil {
+		end := cell.off + format.Align8I32(cell.size)
+		delete(fa.endIdx, end)
+	}
 
 	// O(1) maxFree update: if we just consumed the largest cell, demote to second-largest.
 	// secondMaxFree is maintained by insertFreeCell. This replaces an O(N) recomputeMaxFree scan.
@@ -1327,9 +1229,6 @@ func (fa *FastAllocator) allocFromLarge(need int32) *freeCell {
 				}
 			}
 
-			// Remove from sparse index
-			fa.cellIndex.remove(curr.off)
-
 			return cell
 		}
 		prev = curr
@@ -1352,10 +1251,9 @@ func (fa *FastAllocator) insertFreeCell(off, size int32) {
 
 	sc := fa.getSizeClass(size)
 
-	var cell *freeCell
 	if sc < len(fa.freeLists) {
 		// Allocate cell and populate fields
-		cell = fa.getFreeCell()
+		cell := fa.getFreeCell()
 		cell.off = off
 		cell.size = size
 		cell.sc = sc
@@ -1364,6 +1262,9 @@ func (fa *FastAllocator) insertFreeCell(off, size int32) {
 		fa.stats.HeapPushes++
 		heap.Push(&fa.freeLists[sc].heap, cell)
 		fa.freeLists[sc].count++
+
+		// Add to byOff map for O(1) lookup during coalescing
+		fa.byOff[off] = cell
 	} else {
 		// Large allocation (>= MediumMax) → linked list
 		lb := &largeBlock{
@@ -1374,56 +1275,13 @@ func (fa *FastAllocator) insertFreeCell(off, size int32) {
 		fa.largeFree = lb
 	}
 
-	// Add to sparse index for coalescing lookups
-	fa.cellIndex.insert(off, size, cell)
-
-	// Update maxFree tracking (top-2)
-	if size > fa.maxFree {
-		fa.secondMaxFree = fa.maxFree
-		fa.maxFree = size
-	} else if size > fa.secondMaxFree {
-		fa.secondMaxFree = size
+	// Update indexes for O(1) coalescing
+	if fa.startIdx != nil {
+		fa.startIdx[off] = size
 	}
-}
-
-// insertFreeCellOrdered is an optimized insert for initialization.
-// Assumes cells are being added in offset order (from HBIN iteration).
-// Uses O(1) append instead of O(n) sorted insert.
-func (fa *FastAllocator) insertFreeCellOrdered(off, size int32) {
-	// Defensive check: ensure cell is within hive bounds
-	data := fa.h.Bytes()
-
-	if off < format.HeaderSize+format.HBINHeaderSize || int(off+size) > len(data) {
-		// Invalid cell - ignore it
-		return
+	if fa.endIdx != nil {
+		fa.endIdx[off+size] = off
 	}
-
-	sc := fa.getSizeClass(size)
-
-	var cell *freeCell
-	if sc < len(fa.freeLists) {
-		// Allocate cell and populate fields
-		cell = fa.getFreeCell()
-		cell.off = off
-		cell.size = size
-		cell.sc = sc
-
-		// Push onto heap (O(log n))
-		fa.stats.HeapPushes++
-		heap.Push(&fa.freeLists[sc].heap, cell)
-		fa.freeLists[sc].count++
-	} else {
-		// Large allocation (>= MediumMax) → linked list
-		lb := &largeBlock{
-			off:  off,
-			size: size,
-			next: fa.largeFree,
-		}
-		fa.largeFree = lb
-	}
-
-	// O(1) ordered append to sparse index (cells are iterated in order)
-	fa.cellIndex.appendOrdered(off, size, cell)
 
 	// Update maxFree tracking (top-2)
 	if size > fa.maxFree {
@@ -1435,26 +1293,38 @@ func (fa *FastAllocator) insertFreeCellOrdered(off, size int32) {
 }
 
 // removeFreeCell removes a free cell from the heap.
-// O(log n) heap.Remove with O(log n) sparse index lookup.
+// O(log n) operation via heap.Remove() with O(1) lookup via byOff map.
 func (fa *FastAllocator) removeFreeCell(off int32, size int32) {
 	sc := fa.getSizeClass(size)
 
 	if sc < len(fa.freeLists) {
-		// O(log n) lookup via sparse index
-		entry := fa.cellIndex.findByOffset(off)
-		if entry == nil || entry.cell == nil {
+		// O(1) lookup via map
+		cell := fa.byOff[off]
+		if cell == nil {
 			// Cell not in free list (might have been already allocated)
 			return
 		}
-		cell := entry.cell
 
 		// Remove from heap (O(log n))
 		fa.stats.HeapRemoves++
 		heap.Remove(&fa.freeLists[sc].heap, cell.heapIndex)
 		fa.freeLists[sc].count--
 
-		// Remove from sparse index
-		fa.cellIndex.remove(off)
+		// Remove from byOff map (O(1))
+		delete(fa.byOff, off)
+
+		// Remove from coalesce indexes
+		if fa.startIdx != nil {
+			delete(fa.startIdx, off)
+		}
+		if fa.endIdx != nil {
+			delete(fa.endIdx, off+size)
+		}
+
+		// Note: We don't recompute maxFree here because:
+		// 1. This is often called during coalescing, before the new cell is inserted
+		// 2. maxFree is maintained incrementally by insertFreeCell()
+		// 3. Premature recomputation can cause maxFree to miss coalesced cells
 
 		// Return cell to pool
 		fa.putFreeCell(cell)
@@ -1471,8 +1341,15 @@ func (fa *FastAllocator) removeFreeCell(off int32, size int32) {
 					prev.next = curr.next
 				}
 
-				// Remove from sparse index
-				fa.cellIndex.remove(off)
+				// Remove from indexes
+				if fa.startIdx != nil {
+					delete(fa.startIdx, off)
+				}
+				if fa.endIdx != nil {
+					delete(fa.endIdx, off+size)
+				}
+
+				// Note: maxFree is maintained incrementally by insertFreeCell()
 				return
 			}
 			prev = curr
@@ -1508,8 +1385,10 @@ func (fa *FastAllocator) Close() {
 		fa.freeLists[i].count = 0
 	}
 
-	// Clear cellIndex to allow GC
-	fa.cellIndex.entries = nil
+	// Clear maps to allow GC
+	fa.byOff = nil
+	fa.startIdx = nil
+	fa.endIdx = nil
 }
 
 // getSizeClass returns the size class (heap index) for a given allocation size.
@@ -1639,7 +1518,7 @@ func (fa *FastAllocator) dumpAllocatorState(need int32) {
 	fmt.Fprintf(os.Stderr, "\n=== ALLOCATOR STATE DUMP (need=%d) ===\n", need)
 	fmt.Fprintf(os.Stderr, "maxFree: %d\n", fa.maxFree)
 	fmt.Fprintf(os.Stderr, "Size classes: %d\n", len(fa.freeLists))
-	fmt.Fprintf(os.Stderr, "cellIndex: %d entries\n", fa.cellIndex.len())
+	fmt.Fprintf(os.Stderr, "byOff map: %d entries\n", len(fa.byOff))
 	fmt.Fprintf(os.Stderr, "bins index: %d HBINs\n", len(fa.bins))
 
 	totalFreeCells := 0
@@ -1757,6 +1636,72 @@ func (fa *FastAllocator) PrintStats() {
 	fmt.Fprintf(os.Stderr, "============================\n\n")
 }
 
+// scanHBINEfficiency scans the existing hive to compute efficiency metrics.
+// This is useful for analyzing hives that were opened (not built from scratch).
+func (fa *FastAllocator) scanHBINEfficiency() {
+	data := fa.h.Bytes()
+	offset := format.HeaderSize
+
+	// Scan all HBINs in the hive
+	for offset < len(data) {
+		// Check for HBIN signature
+		if offset+32 > len(data) {
+			break
+		}
+
+		sig := string(data[offset : offset+4])
+		if sig != "hbin" {
+			break
+		}
+
+		// Read HBIN size
+		hbinSize := int32(getU32(data, offset+8))
+		usableSize := hbinSize - format.HBINHeaderSize
+
+		// Scan cells within this HBIN to calculate allocated bytes
+		cellOffset := offset + format.HBINHeaderSize
+		hbinEnd := offset + int(hbinSize)
+		allocatedBytes := int32(0)
+		allocCount := 0
+
+		for cellOffset < hbinEnd {
+			if cellOffset+4 > len(data) {
+				break
+			}
+
+			cellSize := getI32(data, cellOffset)
+			if cellSize == 0 {
+				break
+			}
+
+			absCellSize := cellSize
+			if absCellSize < 0 {
+				absCellSize = -absCellSize
+			}
+
+			// Negative size = allocated cell
+			if cellSize < 0 {
+				allocatedBytes += absCellSize
+				allocCount++
+			}
+
+			cellOffset += int(absCellSize)
+		}
+
+		// Store in tracking map
+		if _, exists := fa.hbinTracking[int32(offset)]; !exists {
+			fa.hbinTracking[int32(offset)] = &hbinStats{
+				offset:         int32(offset),
+				initialSize:    usableSize,
+				bytesAllocated: allocatedBytes,
+				allocCount:     allocCount,
+			}
+		}
+
+		offset += int(hbinSize)
+	}
+}
+
 // GetBasicStats returns aggregate capacity and allocation totals without computing
 // detailed efficiency metrics or sorting. This is significantly faster than
 // GetEfficiencyStats() when you only need total wasted/allocated bytes.
@@ -1766,7 +1711,12 @@ func (fa *FastAllocator) PrintStats() {
 //
 // Returns (totalCapacity, totalAllocated) in bytes.
 func (fa *FastAllocator) GetBasicStats() (totalCapacity, totalAllocated int64) {
-	// hbinTracking is populated during initializeFreeLists, so no scan needed
+	// If hbinTracking is empty, scan the existing hive
+	if len(fa.hbinTracking) == 0 {
+		fa.scanHBINEfficiency()
+	}
+
+	// Sum totals without sorting or per-HBIN analysis
 	for _, hbin := range fa.hbinTracking {
 		totalCapacity += int64(hbin.initialSize)
 		totalAllocated += int64(hbin.bytesAllocated)
@@ -1781,7 +1731,10 @@ func (fa *FastAllocator) GetBasicStats() (totalCapacity, totalAllocated int64) {
 // k=20 (maxWorstHBINs). This is ~100x faster than the previous O(n²) bubble sort
 // for large hives with thousands of HBINs.
 func (fa *FastAllocator) GetEfficiencyStats() EfficiencyStats {
-	// hbinTracking is populated during initializeFreeLists, so no scan needed
+	// If hbinTracking is empty, scan the existing hive
+	if len(fa.hbinTracking) == 0 {
+		fa.scanHBINEfficiency()
+	}
 
 	const maxWorstHBINs = 20 // Number of worst HBINs to track
 
