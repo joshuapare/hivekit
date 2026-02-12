@@ -132,8 +132,16 @@ func NewSessionWithIndex(ctx context.Context, h *hive.Hive, idx index.Index, opt
 	// Create dirty tracker first (needed by allocator)
 	dt := dirty.NewTracker(h)
 
-	// Create allocator with dirty tracker (nil = use default config)
-	allocator, err := alloc.NewFast(h, dt, nil)
+	// Create allocator based on strategy
+	// StrategyAppend uses BumpAllocator (O(1) init, append-only)
+	// Other strategies use FastAllocator (free-list management for cell reuse)
+	var allocator alloc.Allocator
+	var err error
+	if opt.Strategy == StrategyAppend {
+		allocator, err = alloc.NewBump(h, dt)
+	} else {
+		allocator, err = alloc.NewFast(h, dt, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create allocator: %w", err)
 	}
@@ -897,8 +905,16 @@ func newNoIndexSession(ctx context.Context, h *hive.Hive, opt Options) (*Session
 	// Create dirty tracker
 	dt := dirty.NewTracker(h)
 
-	// Create allocator with dirty tracker
-	allocator, err := alloc.NewFast(h, dt, nil)
+	// Create allocator based on strategy
+	// StrategyAppend uses BumpAllocator (O(1) init, append-only)
+	// Other strategies use FastAllocator (free-list management)
+	var allocator alloc.Allocator
+	var err error
+	if opt.Strategy == StrategyAppend {
+		allocator, err = alloc.NewBump(h, dt)
+	} else {
+		allocator, err = alloc.NewFast(h, dt, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create allocator: %w", err)
 	}
@@ -924,6 +940,9 @@ func newNoIndexSession(ctx context.Context, h *hive.Hive, opt Options) (*Session
 // during a single DFS traversal of the tree, with subtree pruning to
 // skip irrelevant branches.
 //
+// For StrategyAppend, this uses the direct applier which performs direct
+// path lookups without building an index - matching hivex's optimal approach.
+//
 // Use this method when the session was created with IndexModeSinglePass
 // or when you explicitly want single-pass behavior regardless of session mode.
 //
@@ -946,9 +965,24 @@ func (s *Session) ApplyPlanDirect(ctx context.Context, plan *Plan) (Applied, err
 		return Applied{}, fmt.Errorf("begin: %w", err)
 	}
 
-	// Create walk-apply session and apply
-	was := newWalkApplySession(s.h, s.alloc, s.dt)
-	result, err := was.ApplyPlan(ctx, plan)
+	// Select applier based on strategy
+	// StrategyAppend uses directApplySession for optimal performance:
+	// - No index building
+	// - No tree walking
+	// - Direct path lookups with per-merge caching
+	var result Applied
+	var err error
+
+	if s.opt.Strategy == StrategyAppend {
+		// Direct applier: O(path_depth) per operation, no overhead
+		das := newDirectApplySession(s.h, s.alloc, s.dt)
+		result, err = das.ApplyPlan(ctx, plan)
+	} else {
+		// Walk applier: DFS traversal with index building
+		was := newWalkApplySession(s.h, s.alloc, s.dt)
+		result, err = was.ApplyPlan(ctx, plan)
+	}
+
 	if err != nil {
 		s.Rollback()
 		return result, fmt.Errorf("apply: %w", err)

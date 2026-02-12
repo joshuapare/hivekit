@@ -126,7 +126,11 @@ func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
 		return fmt.Errorf("parse and optimize: %w", err)
 	}
 
+	// Build internal merge options from public options
+	mergeOpts := merge.DefaultOptions()
+	mergeOpts.Strategy = opts.Strategy
+
 	// Apply optimized plan
-	_, err = merge.MergePlan(context.Background(), hivePath, plan, nil)
+	_, err = merge.MergePlan(context.Background(), hivePath, plan, &mergeOpts)
 	return err
 }

@@ -1,11 +1,39 @@
 package hive
 
 import (
+	"github.com/joshuapare/hivekit/hive/merge"
 	"github.com/joshuapare/hivekit/pkg/types"
+)
+
+// MergeStrategy selects the write strategy for merge operations.
+// Re-exported from hive/merge for public API convenience.
+type MergeStrategy = merge.StrategyKind
+
+// Strategy constants for merge operations.
+const (
+	// StrategyInPlace mutates cells in-place when they fit.
+	// Best for: Small updates, minimal fragmentation tolerance.
+	StrategyInPlace = merge.StrategyInPlace
+
+	// StrategyAppend always allocates new cells, never frees old ones.
+	// Best for: Append-only logs, crash recovery scenarios.
+	// Uses BumpAllocator for O(1) initialization.
+	StrategyAppend = merge.StrategyAppend
+
+	// StrategyHybrid uses heuristics to choose between in-place and append.
+	// Best for: General-purpose merges (default).
+	StrategyHybrid = merge.StrategyHybrid
 )
 
 // MergeOptions controls merge behavior.
 type MergeOptions struct {
+	// Strategy selects the write approach (InPlace, Append, or Hybrid).
+	// Default: StrategyHybrid
+	//
+	// StrategyAppend uses BumpAllocator for O(1) initialization,
+	// making it ideal for single-pass merge operations.
+	Strategy MergeStrategy
+
 	// Limits defines registry constraints for validation.
 	// Used by ValidateHive() to check registry constraints.
 	// Note: Not yet enforced during merge operations (future enhancement).

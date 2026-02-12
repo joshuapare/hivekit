@@ -175,14 +175,32 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 	// Apply all ops that target this exact path
 	keyDeleted := false
 	if indices, ok := wa.opsByPath[pathKey]; ok {
+		// Collect SetValue ops for batching
+		var setValueSpecs []edit.ValueSpec
 		for _, idx := range indices {
 			op := &wa.ops[idx]
+			if op.Type == OpSetValue {
+				setValueSpecs = append(setValueSpecs, edit.ValueSpec{
+					Name: op.ValueName,
+					Type: op.ValueType,
+					Data: op.Data,
+				})
+				continue
+			}
 			if err := wa.applyOpAtNode(ctx, nkOffset, op); err != nil {
 				return err
 			}
 			if op.Type == OpDeleteKey {
 				keyDeleted = true
 			}
+		}
+		// Batch apply SetValue ops
+		if len(setValueSpecs) > 0 {
+			count, err := wa.valEditor.UpsertValues(nkOffset, setValueSpecs)
+			if err != nil {
+				return err
+			}
+			wa.result.ValuesSet += count
 		}
 	}
 

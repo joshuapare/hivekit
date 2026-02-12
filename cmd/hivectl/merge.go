@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	mergeBackup bool
-	mergeDefrag bool
-	mergeLimits string
+	mergeBackup   bool
+	mergeDefrag   bool
+	mergeLimits   string
+	mergeStrategy string
 )
 
 func init() {
@@ -18,6 +19,7 @@ func init() {
 	cmd.Flags().BoolVarP(&mergeBackup, "backup", "b", true, "Create backup before merging")
 	cmd.Flags().BoolVar(&mergeDefrag, "defrag", false, "Defragment after merge")
 	cmd.Flags().StringVar(&mergeLimits, "limits", "default", "Limits preset (default, strict, relaxed)")
+	cmd.Flags().StringVar(&mergeStrategy, "strategy", "hybrid", "Write strategy (inplace, append, hybrid)")
 	rootCmd.AddCommand(cmd)
 }
 
@@ -65,8 +67,22 @@ func runMerge(args []string) error {
 		return fmt.Errorf("unknown limits preset: %s", mergeLimits)
 	}
 
+	// Get the strategy based on the flag
+	var strategy hive.MergeStrategy
+	switch mergeStrategy {
+	case "inplace":
+		strategy = hive.StrategyInPlace
+	case "append":
+		strategy = hive.StrategyAppend
+	case "hybrid":
+		strategy = hive.StrategyHybrid
+	default:
+		return fmt.Errorf("unknown strategy: %s (use inplace, append, or hybrid)", mergeStrategy)
+	}
+
 	// Prepare options
 	opts := &hive.MergeOptions{
+		Strategy:     strategy,
 		Limits:       limits,
 		CreateBackup: mergeBackup,
 		Defragment:   mergeDefrag,
@@ -90,6 +106,7 @@ func runMerge(args []string) error {
 		result := map[string]interface{}{
 			"hive":       hivePath,
 			"reg_files":  regFiles,
+			"strategy":   mergeStrategy,
 			"backup":     mergeBackup,
 			"defragment": mergeDefrag,
 			"success":    true,

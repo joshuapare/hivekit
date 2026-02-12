@@ -71,3 +71,19 @@ func (l *List) Find(vkRef uint32) int {
 
 	return -1
 }
+
+// AppendMany adds multiple VK references to the end of the list.
+func (l *List) AppendMany(vkRefs []uint32) *List {
+	if len(vkRefs) == 0 {
+		return l
+	}
+	if l == nil {
+		return &List{VKRefs: append([]uint32(nil), vkRefs...)}
+	}
+
+	newRefs := make([]uint32, len(l.VKRefs)+len(vkRefs))
+	copy(newRefs, l.VKRefs)
+	copy(newRefs[len(l.VKRefs):], vkRefs)
+
+	return &List{VKRefs: newRefs}
+}

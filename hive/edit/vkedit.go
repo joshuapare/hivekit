@@ -571,3 +571,125 @@ func (ve *valueEditor) markCellDirty(ref uint32) {
 	// Mark the entire cell (including header) as dirty
 	ve.dt.Add(offset, int(cellSize))
 }
+
+// UpsertValues creates or updates multiple values in a single batch operation.
+// This is O(N) vs O(N²) for calling UpsertValue N times, because it reads
+// and writes the value list only once for all new values.
+// Returns the count of values successfully upserted.
+func (ve *valueEditor) UpsertValues(nkRef NKRef, specs []ValueSpec) (int, error) {
+	if nkRef == 0 {
+		return 0, ErrInvalidRef
+	}
+	if len(specs) == 0 {
+		return 0, nil
+	}
+
+	// Fast path: single value, use regular UpsertValue
+	if len(specs) == 1 {
+		err := ve.UpsertValue(nkRef, specs[0].Name, specs[0].Type, specs[0].Data)
+		if err != nil {
+			return 0, err
+		}
+		return 1, nil
+	}
+
+	// Batch path: process updates vs creates separately
+	// Updates can use updateValue (which does in-place replacement)
+	// Creates are batched to minimize value list rewrites
+
+	var toCreate []ValueSpec
+	updatedCount := 0
+
+	// First pass: handle updates (existing values)
+	for _, spec := range specs {
+		existingRef, exists := ve.index.GetVK(nkRef, spec.Name)
+		if exists {
+			// Check if update is needed
+			needsUpdate, err := ve.needsUpdate(existingRef, spec.Type, spec.Data)
+			if err != nil {
+				return updatedCount, fmt.Errorf("check existing value %q: %w", spec.Name, err)
+			}
+			if needsUpdate {
+				if err := ve.updateValue(nkRef, existingRef, spec.Name, spec.Type, spec.Data); err != nil {
+					return updatedCount, fmt.Errorf("update value %q: %w", spec.Name, err)
+				}
+			}
+			updatedCount++
+		} else {
+			toCreate = append(toCreate, spec)
+		}
+	}
+
+	// Second pass: batch create new values
+	if len(toCreate) == 0 {
+		return updatedCount, nil
+	}
+
+	// Allocate all VK cells first (before reading value list)
+	newVKRefs := make([]VKRef, 0, len(toCreate))
+	for _, spec := range toCreate {
+		vkRef, err := ve.allocateVK(spec.Name, spec.Type, spec.Data)
+		if err != nil {
+			return updatedCount, fmt.Errorf("allocate VK %q: %w", spec.Name, err)
+		}
+		newVKRefs = append(newVKRefs, vkRef)
+	}
+
+	// Now read the value list once
+	nkPayload, err := ve.resolveCell(nkRef)
+	if err != nil {
+		return updatedCount, err
+	}
+
+	nk, err := hive.ParseNK(nkPayload)
+	if err != nil {
+		return updatedCount, err
+	}
+
+	// Read existing value list
+	var existingList *values.List
+	valueCount := nk.ValueCount()
+
+	if valueCount > 0 {
+		listRef := nk.ValueListOffsetRel()
+		if listRef != format.InvalidOffset {
+			existingList, err = values.Read(ve.h, nk)
+			if err != nil {
+				existingList = &values.List{VKRefs: []uint32{}}
+			}
+		} else {
+			existingList = &values.List{VKRefs: []uint32{}}
+		}
+	} else {
+		existingList = &values.List{VKRefs: []uint32{}}
+	}
+
+	// Append ALL new VKs at once
+	newList := existingList.AppendMany(newVKRefs)
+
+	// Write updated value list once
+	newListRef, err := values.Write(ve.h, ve.alloc, newList)
+	if err != nil {
+		return updatedCount, fmt.Errorf("write value list: %w", err)
+	}
+
+	// Re-resolve NK cell after values.Write() which may have grown the hive
+	nkPayload, err = ve.resolveCell(nkRef)
+	if err != nil {
+		return updatedCount, err
+	}
+
+	// Update NK's value count and list reference
+	format.PutU32(nkPayload, format.NKValueCountOffset, uint32(newList.Len()))
+	format.PutU32(nkPayload, format.NKValueListOffset, newListRef)
+
+	// Mark NK cell as dirty
+	ve.markCellDirty(nkRef)
+
+	// Register all new values in index
+	for i, spec := range toCreate {
+		ve.index.AddVK(nkRef, spec.Name, newVKRefs[i])
+	}
+
+	return updatedCount + len(toCreate), nil
+}

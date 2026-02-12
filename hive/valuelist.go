@@ -27,8 +27,9 @@ import (
 // inline, so the offsets are stored in a separate cell that the NK
 // references via ValueListOffsetRel().
 type ValueList struct {
-	buf []byte // raw list payload (4 * N bytes)
-	off int
+	buf   []byte // raw list payload (4 * N bytes)
+	off   int
+	count int // expected count from NK (not derived from buffer size!)
 }
 
 // ParseValueList parses a value list from cell payload.
@@ -55,13 +56,14 @@ func ParseValueList(payload []byte, expectedCount int) (ValueList, error) {
 		return ValueList{}, fmt.Errorf("hive: value list bounds: %w", err)
 	}
 
-	return ValueList{buf: payload, off: 0}, nil
+	return ValueList{buf: payload, off: 0, count: expectedCount}, nil
 }
 
 // Count returns the number of VK offsets in the list.
-// This is the byte length divided by 4 (sizeof uint32).
+// This returns the expected count from the NK, not the buffer size,
+// because cells may be larger than needed due to 8-byte alignment or reuse.
 func (vl ValueList) Count() int {
-	return len(vl.buf) / format.DWORDSize
+	return vl.count
 }
 
 // VKOffsetAt returns the HCELL_INDEX to the VK cell at position i.

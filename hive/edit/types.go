@@ -46,12 +46,24 @@ type KeyEditor interface {
 	FlushDeferredSubkeys() (int, error)
 }
 
+// ValueSpec describes a value to upsert (for batch operations).
+type ValueSpec struct {
+	Name string
+	Type ValueType
+	Data []byte
+}
+
 // ValueEditor provides operations for managing registry values.
 type ValueEditor interface {
 	// UpsertValue creates or updates a value under the given NK (case-insensitive name).
 	// Automatically chooses inline/external/DB storage based on data size.
 	// Empty name ("") is valid for the (Default) value.
 	UpsertValue(nk NKRef, name string, typ ValueType, data []byte) error
+
+	// UpsertValues creates or updates multiple values under the given NK in a single
+	// operation. This is O(N) vs O(N²) for calling UpsertValue N times, because it
+	// reads and writes the value list only once.
+	UpsertValues(nk NKRef, values []ValueSpec) (int, error)
 
 	// DeleteValue removes a value by name; idempotent if missing.
 	// Empty name ("") targets the (Default) value.
