@@ -1,5 +1,22 @@
 package merge
 
+import (
+	"strings"
+
+	"github.com/joshuapare/hivekit/hive/subkeys"
+)
+
+// computePathHashes pre-computes LH hashes for each component of a key path.
+// The hash is computed on the lowercased name, matching the Windows Registry
+// hash algorithm used in LH subkey list entries.
+func computePathHashes(keyPath []string) []uint32 {
+	hashes := make([]uint32, len(keyPath))
+	for i, component := range keyPath {
+		hashes[i] = subkeys.Hash(strings.ToLower(component))
+	}
+	return hashes
+}
+
 // Applied contains statistics about what was changed during plan application.
 type Applied struct {
 	KeysCreated   int
@@ -56,6 +73,10 @@ type Op struct {
 
 	// Data is the value data (for OpSetValue only)
 	Data []byte
+
+	// PathHashes contains pre-computed LH hashes for each component of KeyPath.
+	// Length matches KeyPath when populated. Zero value means "compute at use site."
+	PathHashes []uint32
 }
 
 // Plan represents a collection of operations to apply to a hive.
@@ -74,36 +95,40 @@ func NewPlan() *Plan {
 // AddEnsureKey adds an operation to ensure a key exists.
 func (p *Plan) AddEnsureKey(keyPath []string) {
 	p.Ops = append(p.Ops, Op{
-		Type:    OpEnsureKey,
-		KeyPath: keyPath,
+		Type:       OpEnsureKey,
+		KeyPath:    keyPath,
+		PathHashes: computePathHashes(keyPath),
 	})
 }
 
 // AddDeleteKey adds an operation to delete a key.
 func (p *Plan) AddDeleteKey(keyPath []string) {
 	p.Ops = append(p.Ops, Op{
-		Type:    OpDeleteKey,
-		KeyPath: keyPath,
+		Type:       OpDeleteKey,
+		KeyPath:    keyPath,
+		PathHashes: computePathHashes(keyPath),
 	})
 }
 
 // AddSetValue adds an operation to set a value.
 func (p *Plan) AddSetValue(keyPath []string, valueName string, valueType uint32, data []byte) {
 	p.Ops = append(p.Ops, Op{
-		Type:      OpSetValue,
-		KeyPath:   keyPath,
-		ValueName: valueName,
-		ValueType: valueType,
-		Data:      data,
+		Type:       OpSetValue,
+		KeyPath:    keyPath,
+		ValueName:  valueName,
+		ValueType:  valueType,
+		Data:       data,
+		PathHashes: computePathHashes(keyPath),
 	})
 }
 
 // AddDeleteValue adds an operation to delete a value.
 func (p *Plan) AddDeleteValue(keyPath []string, valueName string) {
 	p.Ops = append(p.Ops, Op{
-		Type:      OpDeleteValue,
-		KeyPath:   keyPath,
-		ValueName: valueName,
+		Type:       OpDeleteValue,
+		KeyPath:    keyPath,
+		ValueName:  valueName,
+		PathHashes: computePathHashes(keyPath),
 	})
 }
 

@@ -156,33 +156,37 @@ func convertEditOpToMergeOp(editOp types.EditOp) (*Op, error) {
 	case types.OpCreateKey:
 		pathParts := splitPath(op.Path)
 		return &Op{
-			Type:    OpEnsureKey,
-			KeyPath: pathParts,
+			Type:       OpEnsureKey,
+			KeyPath:    pathParts,
+			PathHashes: computePathHashes(pathParts),
 		}, nil
 
 	case types.OpSetValue:
 		pathParts := splitPath(op.Path)
 		return &Op{
-			Type:      OpSetValue,
-			KeyPath:   pathParts,
-			ValueName: op.Name,
-			ValueType: uint32(op.Type),
-			Data:      op.Data,
+			Type:       OpSetValue,
+			KeyPath:    pathParts,
+			ValueName:  op.Name,
+			ValueType:  uint32(op.Type),
+			Data:       op.Data,
+			PathHashes: computePathHashes(pathParts),
 		}, nil
 
 	case types.OpDeleteValue:
 		pathParts := splitPath(op.Path)
 		return &Op{
-			Type:      OpDeleteValue,
-			KeyPath:   pathParts,
-			ValueName: op.Name,
+			Type:       OpDeleteValue,
+			KeyPath:    pathParts,
+			ValueName:  op.Name,
+			PathHashes: computePathHashes(pathParts),
 		}, nil
 
 	case types.OpDeleteKey:
 		pathParts := splitPath(op.Path)
 		return &Op{
-			Type:    OpDeleteKey,
-			KeyPath: pathParts,
+			Type:       OpDeleteKey,
+			KeyPath:    pathParts,
+			PathHashes: computePathHashes(pathParts),
 		}, nil
 
 	default:

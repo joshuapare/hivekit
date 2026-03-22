@@ -200,7 +200,7 @@ func (ke *keyEditor) createKey(parentRef NKRef, name string) (NKRef, error) {
 	}
 
 	// Update parent's subkey list (subkey list uses lowercase for hash computation)
-	if insertErr := ke.insertIntoSubkeyList(parentRef, parentNK, nkRef, name); insertErr != nil {
+	if insertErr := ke.insertIntoSubkeyList(parentRef, parentNK, nkRef, name, 0); insertErr != nil {
 		return 0, fmt.Errorf("insert into subkey list: %w", insertErr)
 	}
 
@@ -298,14 +298,20 @@ func (ke *keyEditor) allocateNK(parentRef NKRef, name string) (NKRef, error) {
 // insertIntoSubkeyList updates the parent NK's subkey list to include the new child.
 // In deferred mode, accumulates children in memory for later flush.
 // In immediate mode, performs the traditional read-modify-write cycle.
+// precomputedHash is an optional pre-computed LH hash for childNameLower.
+// Pass 0 to compute the hash at call site (backwards compatible).
 func (ke *keyEditor) insertIntoSubkeyList(
 	parentRef NKRef,
 	parentNK hive.NK,
 	childRef NKRef,
 	childNameLower string,
+	precomputedHash uint32,
 ) error {
-	// Compute hash for the child name
-	hash := subkeys.Hash(childNameLower)
+	// Use pre-computed hash if available, otherwise compute it
+	hash := precomputedHash
+	if hash == 0 {
+		hash = subkeys.Hash(childNameLower)
+	}
 
 	// Create entry
 	newEntry := subkeys.Entry{
