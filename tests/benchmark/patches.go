@@ -524,10 +524,10 @@ func CollectExistingKeys(fixtureName string, count int, seed int64) [][]string {
 }
 
 // pickKey selects a random key path from the provided set.
-// Returns nil if keys is empty.
+// Panics if keys is empty — callers must provide a populated key set.
 func pickKey(rng *rand.Rand, keys [][]string) []string {
 	if len(keys) == 0 {
-		return nil
+		panic("pickKey: empty keys slice — caller must provide existing keys from CollectExistingKeys")
 	}
 	idx := rng.Intn(len(keys))
 	// Return a copy to avoid mutation.
