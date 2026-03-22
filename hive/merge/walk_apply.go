@@ -89,20 +89,39 @@ func newWalkApplier(
 	// Copy and normalize ops
 	copy(wa.ops, plan.Ops)
 
+	// Ensure every op has NormalizedPath populated.
+	// Plan.Add* methods set it, but ops constructed directly (e.g. in tests
+	// or convertEditOpToMergeOp) may not.
+	for i := range wa.ops {
+		if wa.ops[i].NormalizedPath == "" && len(wa.ops[i].KeyPath) > 0 {
+			wa.ops[i].NormalizedPath = normalizePath(wa.ops[i].KeyPath)
+		}
+	}
+
 	// Sort by path for efficient matching
 	// Use stable sort to preserve original order for same-path ops
 	slices.SortStableFunc(wa.ops, func(a, b Op) int {
-		return cmp.Compare(normalizePath(a.KeyPath), normalizePath(b.KeyPath))
+		return cmp.Compare(a.NormalizedPath, b.NormalizedPath)
 	})
 
-	// Build path index and childrenByParent map
+	// Build path index and childrenByParent map.
+	// Use pre-computed NormalizedPath for the full op path (zero extra allocs).
+	// For parent sub-paths, incrementally build the key by truncating the
+	// normalized path at each backslash boundary.
 	for i, op := range wa.ops {
-		pathKey := normalizePath(op.KeyPath)
-		wa.opsByPath[pathKey] = append(wa.opsByPath[pathKey], i)
+		wa.opsByPath[op.NormalizedPath] = append(wa.opsByPath[op.NormalizedPath], i)
 
-		// For each path segment, record the parent->child relationship
+		// For each path segment, record the parent->child relationship.
+		// We derive parent keys from the pre-computed NormalizedPath by
+		// finding backslash positions, avoiding normalizePath calls entirely.
+		np := op.NormalizedPath
+		pos := 0 // byte position in np after the current segment
+		parentKey := ""
 		for j := 0; j < len(op.KeyPath); j++ {
-			parentKey := normalizePath(op.KeyPath[:j])
+			if j > 0 {
+				// Skip past the backslash separator
+				pos++ // for '\\'
+			}
 			childName := toLowerASCII(op.KeyPath[j])
 
 			children := wa.childrenByParent[parentKey]
@@ -111,6 +130,10 @@ func newWalkApplier(
 				wa.childrenByParent[parentKey] = children
 			}
 			children[childName] = struct{}{}
+
+			// Advance parentKey to include this segment for next iteration
+			pos += len(op.KeyPath[j])
+			parentKey = np[:pos]
 		}
 	}
 
@@ -332,10 +355,10 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 			continue
 		}
 
-		pathKey := normalizePath(op.KeyPath)
+		pathKey := op.NormalizedPath
 
 		// Skip ops targeting a deleted key or any descendant of a deleted key.
-		if wa.isUnderDeletedPath(op.KeyPath) {
+		if wa.isUnderDeletedPath(op) {
 			continue
 		}
 
@@ -344,12 +367,18 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 
 		// If key doesn't exist, create it
 		if !keyExists {
-			// Find the deepest existing ancestor
+			// Find the deepest existing ancestor by walking prefix substrings
+			// of the pre-computed NormalizedPath.
 			var ancestorPath []string
 			var ancestorRef uint32 = wa.rootRef
 
+			pos := 0
 			for i := 1; i <= len(op.KeyPath); i++ {
-				partialPath := normalizePath(op.KeyPath[:i])
+				if i > 1 {
+					pos++ // skip '\\'
+				}
+				pos += len(op.KeyPath[i-1])
+				partialPath := pathKey[:pos]
 				if ref, ok := wa.visited[partialPath]; ok {
 					ancestorPath = op.KeyPath[:i]
 					ancestorRef = ref
@@ -372,10 +401,24 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 				// Mark the newly created path as visited
 				wa.visited[pathKey] = nkRef
 
-				// Also mark intermediate keys as visited
+				// Also mark intermediate keys as visited.
+				// Derive sub-path keys from the pre-computed NormalizedPath.
 				tempRef := ancestorRef
+				ancestorEnd := 0
+				if len(ancestorPath) > 0 {
+					for _, seg := range ancestorPath {
+						if ancestorEnd > 0 {
+							ancestorEnd++ // '\\'
+						}
+						ancestorEnd += len(seg)
+					}
+				}
 				for i := 1; i < len(remainingPath); i++ {
-					intermediatePath := normalizePath(append(ancestorPath, remainingPath[:i]...))
+					if ancestorEnd > 0 || i > 1 {
+						ancestorEnd++ // '\\'
+					}
+					ancestorEnd += len(remainingPath[i-1])
+					intermediatePath := pathKey[:ancestorEnd]
 					// Get the intermediate ref by walking up to it
 					if interRef, ok := wa.idx.GetNK(tempRef, remainingPath[i-1]); ok {
 						wa.visited[intermediatePath] = interRef
@@ -410,11 +453,18 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 	return nil
 }
 
-// isUnderDeletedPath returns true if the given path, or any ancestor of it,
-// was deleted during the walk phase.
-func (wa *walkApplier) isUnderDeletedPath(keyPath []string) bool {
-	for i := 1; i <= len(keyPath); i++ {
-		if _, ok := wa.deleted[normalizePath(keyPath[:i])]; ok {
+// isUnderDeletedPath returns true if the given op's path, or any ancestor of it,
+// was deleted during the walk phase. Uses the pre-computed NormalizedPath to
+// derive prefix substrings without allocating.
+func (wa *walkApplier) isUnderDeletedPath(op Op) bool {
+	np := op.NormalizedPath
+	pos := 0
+	for i := 1; i <= len(op.KeyPath); i++ {
+		if i > 1 {
+			pos++ // skip '\\'
+		}
+		pos += len(op.KeyPath[i-1])
+		if _, ok := wa.deleted[np[:pos]]; ok {
 			return true
 		}
 	}
