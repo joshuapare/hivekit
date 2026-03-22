@@ -59,8 +59,8 @@ func Test_MatchByHash_RealHive(t *testing.T) {
 	targetHash := Hash(targetName)
 
 	t.Run("single_target_match", func(t *testing.T) {
-		targets := map[uint32]string{
-			targetHash: targetName,
+		targets := map[uint32][]string{
+			targetHash: {targetName},
 		}
 
 		matched, err := MatchByHash(h, listRef, targets)
@@ -93,9 +93,9 @@ func Test_MatchByHash_RealHive(t *testing.T) {
 		hash0 := Hash(entry0.NameLower)
 		hash1 := Hash(entry1.NameLower)
 
-		targets := map[uint32]string{
-			hash0: entry0.NameLower,
-			hash1: entry1.NameLower,
+		targets := map[uint32][]string{
+			hash0: {entry0.NameLower},
+			hash1: {entry1.NameLower},
 		}
 
 		matched, err := MatchByHash(h, listRef, targets)
@@ -122,8 +122,8 @@ func Test_MatchByHash_RealHive(t *testing.T) {
 
 	t.Run("no_match", func(t *testing.T) {
 		// Use a hash that is unlikely to match anything
-		targets := map[uint32]string{
-			0xDEADBEEF: "nonexistent_key_name_xyz",
+		targets := map[uint32][]string{
+			0xDEADBEEF: {"nonexistent_key_name_xyz"},
 		}
 
 		matched, err := MatchByHash(h, listRef, targets)
@@ -137,7 +137,7 @@ func Test_MatchByHash_RealHive(t *testing.T) {
 	})
 
 	t.Run("empty_targets", func(t *testing.T) {
-		targets := map[uint32]string{}
+		targets := map[uint32][]string{}
 
 		matched, err := MatchByHash(h, listRef, targets)
 		if err != nil {
@@ -195,10 +195,10 @@ func Test_MatchByHash_ConsistentWithMatchNKs(t *testing.T) {
 
 	// Build target maps for both APIs
 	targetNames := make(map[string]struct{})
-	targetHashes := make(map[uint32]string)
+	targetHashes := make(map[uint32][]string)
 	for _, e := range targetEntries {
 		targetNames[e.NameLower] = struct{}{}
-		targetHashes[Hash(e.NameLower)] = e.NameLower
+		AddHashTarget(targetHashes, e.NameLower)
 	}
 
 	// Run old path: ReadOffsetsInto + MatchNKsFromOffsets
@@ -270,8 +270,8 @@ func Test_MatchByHash_InvalidListRef(t *testing.T) {
 	}
 	defer h.Close()
 
-	targets := map[uint32]string{
-		Hash("test"): "test",
+	targets := map[uint32][]string{
+		Hash("test"): {"test"},
 	}
 
 	t.Run("zero_ref", func(t *testing.T) {
@@ -336,8 +336,8 @@ func Test_MatchByHash_HashCollision(t *testing.T) {
 	realChild := fullList.Entries[0]
 	realHash := Hash(realChild.NameLower)
 
-	targets := map[uint32]string{
-		realHash: "completely_different_name_not_in_hive",
+	targets := map[uint32][]string{
+		realHash: {"completely_different_name_not_in_hive"},
 	}
 
 	matched, err := MatchByHash(h, listRef, targets)
@@ -354,18 +354,70 @@ func Test_MatchByHash_HashCollision(t *testing.T) {
 	}
 }
 
-// Test_MatchByHash_HashCollision_MultiTarget_Limitation documents a known limitation
-// of the map[uint32]string targets map when two wanted names share the same LH hash.
-func Test_MatchByHash_HashCollision_MultiTarget_Limitation(t *testing.T) {
-	// This test documents a known limitation: if two distinct target names
-	// produce the same LH hash, only one will be stored in the map[uint32]string
-	// targets map. The other will be silently dropped. This is acceptable
-	// because LH hash collisions are extremely rare (32-bit hash space) and
-	// missed targets fall back to Phase 2 (createMissingKeysAndApply).
-	//
-	// To fully fix this, MatchByHash would need map[uint32][]string.
-	// Tracked as known remaining work.
-	t.Skip("documents known limitation — map[uint32]string drops hash-colliding targets")
+// Test_MatchByHash_HashCollision_MultiTarget verifies that when two target names
+// are deliberately mapped to the same hash bucket, MatchByHash correctly finds
+// the one that exists in the hive and rejects the one that doesn't.
+func Test_MatchByHash_HashCollision_MultiTarget(t *testing.T) {
+	testHivePath := "../../testdata/large"
+	h, err := hive.Open(testHivePath)
+	if err != nil {
+		t.Skipf("Test hive not found: %v", err)
+	}
+	defer h.Close()
+
+	rootRef := h.RootCellOffset()
+	payload, err := h.ResolveCellPayload(rootRef)
+	if err != nil {
+		t.Fatalf("resolve root: %v", err)
+	}
+	nk, err := hive.ParseNK(payload)
+	if err != nil {
+		t.Fatalf("parse root NK: %v", err)
+	}
+
+	listRef := nk.SubkeyListOffsetRel()
+	if listRef == format.InvalidOffset {
+		t.Fatal("root has no subkey list")
+	}
+
+	fullList, err := Read(h, listRef)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if fullList.Len() == 0 {
+		t.Fatal("no subkeys")
+	}
+
+	// Pick a real child name and compute its hash.
+	realChild := fullList.Entries[0]
+	realHash := Hash(realChild.NameLower)
+	fakeName := "fake_collision_name_not_in_hive"
+
+	// Place both the real name and a fake name in the same hash bucket.
+	// This simulates a hash collision: two different target names sharing
+	// the same LH hash value.
+	targets := map[uint32][]string{
+		realHash: {realChild.NameLower, fakeName},
+	}
+
+	matched, err := MatchByHash(h, listRef, targets)
+	if err != nil {
+		t.Fatalf("MatchByHash: %v", err)
+	}
+
+	// Should find exactly 1 match: the real child name.
+	// The fake name shares the same hash bucket but doesn't exist in the hive,
+	// so it must be rejected by NK name verification.
+	if len(matched) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(matched))
+	}
+
+	if matched[0].NameLower != realChild.NameLower {
+		t.Errorf("expected match for %q, got %q", realChild.NameLower, matched[0].NameLower)
+	}
+	if matched[0].NKRef != realChild.NKRef {
+		t.Errorf("expected NKRef 0x%X, got 0x%X", realChild.NKRef, matched[0].NKRef)
+	}
 }
 
 // Test_matchDirectList_LI_SignatureParsing tests that matchDirectList correctly
@@ -379,8 +431,8 @@ func Test_matchDirectList_LI_SignatureParsing(t *testing.T) {
 	payload[1] = 'i'
 	binary.LittleEndian.PutUint16(payload[2:4], 0) // count = 0
 
-	targets := map[uint32]string{
-		Hash("test"): "test",
+	targets := map[uint32][]string{
+		Hash("test"): {"test"},
 	}
 
 	// matchDirectList with count=0 should return nil, nil without dereferencing anything.
@@ -400,8 +452,8 @@ func Test_matchDirectList_LH_EmptyList(t *testing.T) {
 	payload[1] = 'h'
 	binary.LittleEndian.PutUint16(payload[2:4], 0) // count = 0
 
-	targets := map[uint32]string{
-		Hash("test"): "test",
+	targets := map[uint32][]string{
+		Hash("test"): {"test"},
 	}
 
 	matched, err := matchDirectList(nil, payload, targets)
@@ -420,8 +472,8 @@ func Test_matchDirectList_InvalidSignature(t *testing.T) {
 	payload[1] = 'y'
 	binary.LittleEndian.PutUint16(payload[2:4], 1) // count=1 to reach signature check
 
-	targets := map[uint32]string{
-		Hash("test"): "test",
+	targets := map[uint32][]string{
+		Hash("test"): {"test"},
 	}
 
 	_, err := matchDirectList(nil, payload, targets)
@@ -520,11 +572,11 @@ func Benchmark_MatchByHash_vs_MatchNKsFromOffsets(b *testing.B) {
 	}
 
 	targetNames := make(map[string]struct{})
-	targetHashes := make(map[uint32]string)
+	targetHashes := make(map[uint32][]string)
 	nameList := make([]string, 0, len(targetEntries))
 	for _, e := range targetEntries {
 		targetNames[e.NameLower] = struct{}{}
-		targetHashes[Hash(e.NameLower)] = e.NameLower
+		AddHashTarget(targetHashes, e.NameLower)
 		nameList = append(nameList, e.NameLower)
 	}
 

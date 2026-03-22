@@ -44,7 +44,7 @@ type walkApplier struct {
 	// hashTargetsByParent maps each normalized parent path to the
 	// hash-keyed target map used by MatchByHash. Pre-computed once during
 	// initialization to avoid per-node hashing overhead.
-	hashTargetsByParent map[string]map[uint32]string
+	hashTargetsByParent map[string]map[uint32][]string
 
 	visited map[string]uint32  // normalized path -> nkOffset (for key creation)
 	deleted map[string]struct{} // normalized paths deleted during walk (skip in Phase 2)
@@ -79,7 +79,7 @@ func newWalkApplier(
 		ops:                 make([]Op, len(plan.Ops)),
 		opsByPath:           make(map[string][]int),
 		childrenByParent:    make(map[string]map[string]struct{}),
-		hashTargetsByParent: make(map[string]map[uint32]string),
+		hashTargetsByParent: make(map[string]map[uint32][]string),
 		visited:             make(map[string]uint32),
 		deleted:             make(map[string]struct{}),
 		rootRef:             h.RootCellOffset(),
@@ -138,17 +138,13 @@ func newWalkApplier(
 	}
 
 	// Pre-compute hash target maps for MatchByHash.
-	// Each parent path gets a map of LH-hash -> lowercase child name.
-	// On hash collision (two names with same 32-bit LH hash), the second name
-	// overwrites the first in the map — MatchByHash will only find one.
-	// This is acceptable because: (1) LH hash collisions are extremely rare
-	// among registry key names (<1 in 4 billion per pair), and (2) if a collision
-	// occurs, the missed child falls back to the Phase 2 path (createMissingKeysAndApply)
-	// which does not use hash-based matching.
+	// Each parent path gets a map of LH-hash -> []lowercase child names.
+	// Multiple names sharing the same hash are stored in the same bucket,
+	// so hash collisions are handled correctly.
 	for parentKey, children := range wa.childrenByParent {
-		targets := make(map[uint32]string, len(children))
+		targets := make(map[uint32][]string, len(children))
 		for childName := range children {
-			targets[subkeys.Hash(childName)] = childName
+			subkeys.AddHashTarget(targets, childName)
 		}
 		wa.hashTargetsByParent[parentKey] = targets
 	}

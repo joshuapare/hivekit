@@ -138,11 +138,10 @@ func partialDescend(h *hive.Hive, idx *index.NumericIndex, parentOffset uint32, 
 		return nil // invalid subkey list
 	}
 
-	// Build targets map for MatchByHash: LH hash -> lowercase name
-	targets := make(map[uint32]string, len(node.children))
+	// Build targets map for MatchByHash: LH hash -> []lowercase names
+	targets := make(map[uint32][]string, len(node.children))
 	for nameLower := range node.children {
-		lhHash := subkeys.Hash(nameLower)
-		targets[lhHash] = nameLower
+		subkeys.AddHashTarget(targets, nameLower)
 	}
 
 	// Use MatchByHash to efficiently find only the children we need
