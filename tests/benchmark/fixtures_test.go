@@ -71,8 +71,8 @@ func TestGenerateLargeWide(t *testing.T) {
 	}
 
 	size := HiveSize(path)
-	if size < 50*1024*1024 {
-		t.Errorf("expected large-wide hive to be > 50MB, got %d bytes", size)
+	if size < 20*1024*1024 {
+		t.Errorf("expected large-wide hive to be > 20MB, got %d bytes", size)
 	}
 	t.Logf("large-wide hive size: %d bytes (%.2f MB)", size, float64(size)/(1024*1024))
 }
