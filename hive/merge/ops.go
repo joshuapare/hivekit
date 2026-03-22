@@ -1,18 +1,16 @@
 package merge
 
 import (
-	"strings"
-
 	"github.com/joshuapare/hivekit/hive/subkeys"
 )
 
 // computePathHashes pre-computes LH hashes for each component of a key path.
-// The hash is computed on the lowercased name, matching the Windows Registry
-// hash algorithm used in LH subkey list entries.
+// subkeys.Hash already performs case-insensitive hashing (uppercases internally),
+// so no ToLower is needed here.
 func computePathHashes(keyPath []string) []uint32 {
 	hashes := make([]uint32, len(keyPath))
 	for i, component := range keyPath {
-		hashes[i] = subkeys.Hash(strings.ToLower(component))
+		hashes[i] = subkeys.Hash(component)
 	}
 	return hashes
 }

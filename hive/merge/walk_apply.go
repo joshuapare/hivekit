@@ -139,6 +139,12 @@ func newWalkApplier(
 
 	// Pre-compute hash target maps for MatchByHash.
 	// Each parent path gets a map of LH-hash -> lowercase child name.
+	// On hash collision (two names with same 32-bit LH hash), the second name
+	// overwrites the first in the map — MatchByHash will only find one.
+	// This is acceptable because: (1) LH hash collisions are extremely rare
+	// among registry key names (<1 in 4 billion per pair), and (2) if a collision
+	// occurs, the missed child falls back to the Phase 2 path (createMissingKeysAndApply)
+	// which does not use hash-based matching.
 	for parentKey, children := range wa.childrenByParent {
 		targets := make(map[uint32]string, len(children))
 		for childName := range children {

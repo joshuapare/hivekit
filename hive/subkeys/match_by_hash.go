@@ -103,7 +103,8 @@ func matchLH(h *hive.Hive, payload []byte, count uint16, targets map[uint32]stri
 
 		entryOffset := format.ListHeaderSize + int(i)*format.QWORDSize
 
-		// Read hash (bytes 4-7 of the entry) — cheap sequential read
+		// Read hash (bytes 4-7 of the entry) — cheap sequential read.
+		// Error discarded: bounds pre-validated by CheckListBounds above.
 		storedHash, _ := format.CheckedReadU32(payload, entryOffset+4)
 
 		// Check if hash matches any target
@@ -114,6 +115,7 @@ func matchLH(h *hive.Hive, payload []byte, count uint16, targets map[uint32]stri
 
 		// Hash matches — now dereference the NK cell to verify the name.
 		// This handles hash collisions correctly.
+		// Error discarded: bounds pre-validated by CheckListBounds above.
 		nkRef, _ := format.CheckedReadU32(payload, entryOffset)
 
 		nameLower, verified := verifyNKName(h, nkRef, targetName)
