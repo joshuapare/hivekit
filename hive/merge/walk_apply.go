@@ -41,7 +41,12 @@ type walkApplier struct {
 	// with O(1) lookups per parent.
 	childrenByParent map[string]map[string]struct{}
 
-	visited map[string]uint32 // normalized path -> nkOffset (for key creation)
+	// hashTargetsByParent maps each normalized parent path to the
+	// hash-keyed target map used by MatchByHash. Pre-computed once during
+	// initialization to avoid per-node hashing overhead.
+	hashTargetsByParent map[string]map[uint32]string
+
+	visited map[string]uint32  // normalized path -> nkOffset (for key creation)
 	deleted map[string]struct{} // normalized paths deleted during walk (skip in Phase 2)
 
 	// Index for lookup (used for key creation and deletion)
@@ -50,8 +55,9 @@ type walkApplier struct {
 	// Root cell offset
 	rootRef uint32
 
-	// Reusable buffer for ReadOffsetsInto
-	offsetBuf []uint32
+	// Cursor stack caches parsed NK/subkey-list data at each tree level.
+	// Avoids redundant hive reads when ascending from one child to a sibling.
+	cursor *cursorStack
 
 	// Results
 	result Applied
@@ -66,16 +72,18 @@ func newWalkApplier(
 	plan *Plan,
 ) *walkApplier {
 	wa := &walkApplier{
-		h:                h,
-		alloc:            a,
-		dt:               dt,
-		idx:              idx,
-		ops:              make([]Op, len(plan.Ops)),
-		opsByPath:        make(map[string][]int),
-		childrenByParent: make(map[string]map[string]struct{}),
-		visited:          make(map[string]uint32),
-		deleted:          make(map[string]struct{}),
-		rootRef:          h.RootCellOffset(),
+		h:                   h,
+		alloc:               a,
+		dt:                  dt,
+		idx:                 idx,
+		ops:                 make([]Op, len(plan.Ops)),
+		opsByPath:           make(map[string][]int),
+		childrenByParent:    make(map[string]map[string]struct{}),
+		hashTargetsByParent: make(map[string]map[uint32]string),
+		visited:             make(map[string]uint32),
+		deleted:             make(map[string]struct{}),
+		rootRef:             h.RootCellOffset(),
+		cursor:              newCursorStack(16),
 	}
 
 	// Copy and normalize ops
@@ -104,6 +112,16 @@ func newWalkApplier(
 			}
 			children[childName] = struct{}{}
 		}
+	}
+
+	// Pre-compute hash target maps for MatchByHash.
+	// Each parent path gets a map of LH-hash -> lowercase child name.
+	for parentKey, children := range wa.childrenByParent {
+		targets := make(map[uint32]string, len(children))
+		for childName := range children {
+			targets[subkeys.Hash(childName)] = childName
+		}
+		wa.hashTargetsByParent[parentKey] = targets
 	}
 
 	// Create editors with index
@@ -140,8 +158,9 @@ func (wa *walkApplier) Apply(ctx context.Context) (Applied, error) {
 }
 
 // walkAndApply recursively walks the tree, indexes nodes, and applies matching ops.
-// It uses childrenByParent for O(1) pruning and ReadOffsetsInto + MatchNKsFromOffsets
-// for targeted child selection (avoids decoding all sibling names).
+// It uses childrenByParent for O(1) pruning and MatchByHash for hash-first child
+// selection (avoids dereferencing all sibling NK cells). The cursor stack caches
+// parsed NK data at each level so sibling descents skip redundant hive reads.
 func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parentRef uint32, currentPath []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -159,6 +178,13 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 	if err != nil {
 		return nil // Can't parse, skip
 	}
+
+	// Push cursor entry for this level
+	wa.cursor.push(cursorEntry{
+		nkCellIdx:   nkOffset,
+		subkeyCount: nk.SubkeyCount(),
+	})
+	defer wa.cursor.pop()
 
 	// Index this node (root is already seeded in newWalkApplySession)
 	if len(currentPath) > 0 {
@@ -206,8 +232,7 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 	}
 
 	// Check if any children are needed at this level
-	neededChildren, hasNeeded := wa.childrenByParent[pathKey]
-	if !hasNeeded || nk.SubkeyCount() == 0 {
+	if _, hasNeeded := wa.childrenByParent[pathKey]; !hasNeeded || nk.SubkeyCount() == 0 {
 		return nil
 	}
 
@@ -216,14 +241,17 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 		return nil
 	}
 
-	// Read child offsets into reusable buffer
-	wa.offsetBuf, err = subkeys.ReadOffsetsInto(wa.h, subkeyListRef, wa.offsetBuf)
-	if err != nil {
-		return nil
+	// Cache the subkey list ref in the cursor for potential sibling reuse
+	if ce := wa.cursor.peekPtr(); ce != nil {
+		ce.lhListRef = subkeyListRef
+		ce.subkeyCount = nk.SubkeyCount()
 	}
 
-	// Match only needed children using cheap name comparison
-	matched, err := subkeys.MatchNKsFromOffsets(wa.h, wa.offsetBuf, neededChildren)
+	// Use hash-first matching: scan LH list entries by hash and only
+	// dereference NK cells on hash match. For a parent with 200 children
+	// and 3 targets, this reduces ~200 random reads to ~3.
+	targets := wa.hashTargetsByParent[pathKey]
+	matched, err := subkeys.MatchByHash(wa.h, subkeyListRef, targets)
 	if err != nil {
 		return nil
 	}
