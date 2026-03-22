@@ -173,11 +173,15 @@ func GenerateDeleteKeysSubtree(count int, seed int64) []merge.Op {
 	rng := rand.New(rand.NewSource(seed))
 	ops := make([]merge.Op, 0, count)
 
+	// Use prefixes that match real fixture naming conventions.
+	fixtureRoots := []string{"Parent0", "Parent1", "Parent2", "Parent3",
+		"Root", "Software", "System", "Hardware", "Network", "Security"}
+
 	for range count {
-		// Generate a path at moderate depth where a subtree might exist.
-		depth := 2 + rng.Intn(3) // 2-4 levels (subtree root, not leaf)
+		root := fixtureRoots[rng.Intn(len(fixtureRoots))]
+		depth := 2 + rng.Intn(3)
 		path := make([]string, depth)
-		path[0] = fmt.Sprintf("Subtree%d", rng.Intn(count*5))
+		path[0] = root
 		for j := 1; j < depth; j++ {
 			path[j] = fmt.Sprintf("Branch%d", rng.Intn(50))
 		}
@@ -186,7 +190,6 @@ func GenerateDeleteKeysSubtree(count int, seed int64) []merge.Op {
 			KeyPath: path,
 		})
 	}
-
 	return ops
 }
 
@@ -516,8 +519,8 @@ func pickKey(rng *rand.Rand, keys [][]string) []string {
 	return result
 }
 
-// encodeUTF16LE converts a Go string to null-terminated UTF-16LE bytes,
-// matching the Windows registry REG_SZ encoding.
+// encodeUTF16LE encodes an ASCII string as NUL-terminated UTF-16LE.
+// Only handles ASCII characters. Sufficient for benchmark fixture generation.
 func encodeUTF16LE(s string) []byte {
 	// Simple ASCII-to-UTF16LE: each byte becomes 2 bytes (low, 0x00).
 	// Add null terminator (2 bytes).

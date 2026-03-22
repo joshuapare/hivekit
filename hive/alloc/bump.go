@@ -94,7 +94,8 @@ func (fa *FastAllocator) FinalizeBumpMode() error {
 		fa.insertFreeCell(trailOff, remaining)
 	}
 	// If remaining < minCellSize and > 0, the space is wasted but this is
-	// acceptable — it's at most 4 bytes and avoids creating an illegal cell.
+	// acceptable — it's at most minCellSize-1 bytes (7 bytes) and avoids creating
+	// an undersized cell.
 
 	fa.bump = bumpState{} // reset all fields, active = false
 	return nil

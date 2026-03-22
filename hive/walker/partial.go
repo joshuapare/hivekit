@@ -245,7 +245,7 @@ func partialIndexValues(h *hive.Hive, idx *index.NumericIndex, nkOffset uint32, 
 			continue
 		}
 
-		nameBytes := vkPayload[20 : 20+nameLen]
+		nameBytes := vkPayload[format.VKFixedHeaderSize : format.VKFixedHeaderSize+nameLen]
 
 		if flags&0x0001 != 0 {
 			// Compressed (ASCII) - use hash fast path

@@ -2,7 +2,6 @@ package benchmark
 
 import (
 	"os"
-	"runtime"
 	"testing"
 )
 
@@ -31,13 +30,12 @@ func HiveSize(path string) int64 {
 	return info.Size()
 }
 
-// ReportMemStats reports memory allocation metrics as custom benchmark metrics.
+// ReportMemStats enables per-iteration allocation reporting via the testing framework.
+// b.ReportAllocs() is used instead of runtime.MemStats.TotalAlloc, which is
+// cumulative across the process and not meaningful on a per-iteration basis.
 func ReportMemStats(b *testing.B) {
 	b.Helper()
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	b.ReportMetric(float64(m.TotalAlloc), "total-bytes")
-	b.ReportMetric(float64(m.NumGC), "gc-cycles")
+	b.ReportAllocs()
 }
 
 // NOTE on testing.TB compatibility:

@@ -11,6 +11,7 @@ import (
 // Test_MatchByHash_LH_Synthetic tests MatchByHash with a synthetic LH list payload.
 // This tests the core hash-filtering logic without needing a real hive.
 func Test_MatchByHash_LH_Synthetic(t *testing.T) {
+	t.Skip("synthetic LH payload helper not implemented")
 	// We test with a real hive since MatchByHash needs to resolve cells.
 	// See Test_MatchByHash_RealHive below.
 }
@@ -351,6 +352,20 @@ func Test_MatchByHash_HashCollision(t *testing.T) {
 			t.Logf("  false match: name=%q nkRef=0x%X", m.NameLower, m.NKRef)
 		}
 	}
+}
+
+// Test_MatchByHash_HashCollision_MultiTarget_Limitation documents a known limitation
+// of the map[uint32]string targets map when two wanted names share the same LH hash.
+func Test_MatchByHash_HashCollision_MultiTarget_Limitation(t *testing.T) {
+	// This test documents a known limitation: if two distinct target names
+	// produce the same LH hash, only one will be stored in the map[uint32]string
+	// targets map. The other will be silently dropped. This is acceptable
+	// because LH hash collisions are extremely rare (32-bit hash space) and
+	// missed targets fall back to Phase 2 (createMissingKeysAndApply).
+	//
+	// To fully fix this, MatchByHash would need map[uint32][]string.
+	// Tracked as known remaining work.
+	t.Skip("documents known limitation — map[uint32]string drops hash-colliding targets")
 }
 
 // Test_matchDirectList_LI_SignatureParsing tests that matchDirectList correctly

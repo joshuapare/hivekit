@@ -65,9 +65,7 @@ type ValueEditor interface {
 	// Empty name ("") targets the (Default) value.
 	DeleteValue(nk NKRef, name string) error
 
-	// UpsertValues applies multiple value operations to a single key in one pass.
-	// This groups operations by key to reduce redundant value list reads/rebuilds.
-	// For a key gaining N new values, the list is read once and rebuilt once (N→N+N)
-	// instead of N separate read-modify-write cycles.
+	// UpsertValues applies multiple value operations to a single key.
+	// For ValueOps with Delete=true, the value is removed and Type/Data are ignored.
 	UpsertValues(nk NKRef, ops []ValueOp) error
 }
