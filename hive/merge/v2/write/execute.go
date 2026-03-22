@@ -49,6 +49,22 @@ type executor struct {
 
 // processNode recursively processes a trie node and its children.
 func (ex *executor) processNode(node *trie.Node) error {
+	// Count new children BEFORE processing them, because createNewKey sets
+	// child.Exists = true. We need the original count to know whether the
+	// parent's subkey list must be rebuilt.
+	newChildCount := 0
+	hasDeletedChild := false
+	if node.Exists {
+		for _, child := range node.Children {
+			if !child.Exists {
+				newChildCount++
+			}
+			if child.DeleteKey {
+				hasDeletedChild = true
+			}
+		}
+	}
+
 	// Process children first (bottom-up for subkey list builds).
 	// We need to process children before the parent so that child NK cell
 	// references are available when building the parent's subkey list.
@@ -65,18 +81,10 @@ func (ex *executor) processNode(node *trie.Node) error {
 		}
 	}
 
-	// Rebuild subkey list if this existing node has new children.
-	if node.Exists {
-		newChildCount := 0
-		for _, child := range node.Children {
-			if !child.Exists {
-				newChildCount++
-			}
-		}
-		if newChildCount > 0 {
-			if err := ex.rebuildSubkeyList(node); err != nil {
-				return fmt.Errorf("subkey list for %q: %w", node.Name, err)
-			}
+	// Rebuild subkey list if this existing node has new or deleted children.
+	if node.Exists && (newChildCount > 0 || hasDeletedChild) {
+		if err := ex.rebuildSubkeyList(node); err != nil {
+			return fmt.Errorf("subkey list for %q: %w", node.Name, err)
 		}
 	}
 
@@ -135,12 +143,8 @@ func (ex *executor) createNewKey(parent, node *trie.Node) error {
 
 	ex.stats.KeysCreated++
 
-	// Process values for this newly created key.
-	if len(node.Values) > 0 {
-		if err := ex.processValues(node); err != nil {
-			return fmt.Errorf("values for new key %q: %w", node.Name, err)
-		}
-	}
+	// Note: values for this newly created key are handled by processNode
+	// after processChild returns, since Exists is now true.
 
 	return nil
 }
