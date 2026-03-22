@@ -221,17 +221,51 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 	// Record this node as visited
 	wa.visited[pathKey] = nkOffset
 
-	// Apply all ops that target this exact path
+	// Apply all ops that target this exact path.
+	// Value ops (SetValue, DeleteValue) are batched into a single UpsertValues call
+	// to reduce redundant value list reads/rebuilds.
 	keyDeleted := false
 	if indices, ok := wa.opsByPath[pathKey]; ok {
+		var valueOps []edit.ValueOp
 		for _, idx := range indices {
 			op := &wa.ops[idx]
-			if err := wa.applyOpAtNode(ctx, nkOffset, op); err != nil {
+			switch op.Type {
+			case OpSetValue:
+				valueOps = append(valueOps, edit.ValueOp{
+					Name: op.ValueName,
+					Type: op.ValueType,
+					Data: op.Data,
+				})
+			case OpDeleteValue:
+				valueOps = append(valueOps, edit.ValueOp{
+					Name:   op.ValueName,
+					Delete: true,
+				})
+			default:
+				// Flush any pending value ops before applying a non-value op
+				if len(valueOps) > 0 {
+					if err := wa.applyValueOps(ctx, nkOffset, valueOps); err != nil {
+						return err
+					}
+					wa.result.ValuesSet += countSetOps(valueOps)
+					wa.result.ValuesDeleted += countDeleteOps(valueOps)
+					valueOps = valueOps[:0]
+				}
+				if err := wa.applyOpAtNode(ctx, nkOffset, op); err != nil {
+					return err
+				}
+				if op.Type == OpDeleteKey {
+					keyDeleted = true
+				}
+			}
+		}
+		// Flush remaining value ops
+		if len(valueOps) > 0 && !keyDeleted {
+			if err := wa.applyValueOps(ctx, nkOffset, valueOps); err != nil {
 				return err
 			}
-			if op.Type == OpDeleteKey {
-				keyDeleted = true
-			}
+			wa.result.ValuesSet += countSetOps(valueOps)
+			wa.result.ValuesDeleted += countDeleteOps(valueOps)
 		}
 	}
 
@@ -342,16 +376,53 @@ func (wa *walkApplier) applyOpAtNode(ctx context.Context, nkOffset uint32, op *O
 	return nil
 }
 
+// applyValueOps applies a batch of value operations to a single key.
+func (wa *walkApplier) applyValueOps(ctx context.Context, nkOffset uint32, ops []edit.ValueOp) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return wa.valEditor.UpsertValues(nkOffset, ops)
+}
+
+// countSetOps returns the number of non-delete ops in a ValueOp slice.
+func countSetOps(ops []edit.ValueOp) int {
+	n := 0
+	for i := range ops {
+		if !ops[i].Delete {
+			n++
+		}
+	}
+	return n
+}
+
+// countDeleteOps returns the number of delete ops in a ValueOp slice.
+func countDeleteOps(ops []edit.ValueOp) int {
+	n := 0
+	for i := range ops {
+		if ops[i].Delete {
+			n++
+		}
+	}
+	return n
+}
+
 // createMissingKeysAndApply creates keys that don't exist and applies ops to them.
 // This handles the case where EnsureKey or SetValue targets a non-existent path.
+// SetValue ops for the same path are batched into a single UpsertValues call.
 func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
-	for _, op := range wa.ops {
+	// Group ops by path for batching. Ops are already sorted by NormalizedPath,
+	// so we can process consecutive runs of same-path SetValue ops together.
+	i := 0
+	for i < len(wa.ops) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
+		op := wa.ops[i]
+
 		// Only EnsureKey and SetValue can create keys
 		if op.Type != OpEnsureKey && op.Type != OpSetValue {
+			i++
 			continue
 		}
 
@@ -359,98 +430,123 @@ func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
 
 		// Skip ops targeting a deleted key or any descendant of a deleted key.
 		if wa.isUnderDeletedPath(op) {
+			i++
 			continue
 		}
 
-		// Check if key was already visited (exists)
-		nkRef, keyExists := wa.visited[pathKey]
+		// Ensure the key exists (create if missing)
+		nkRef := wa.ensureKeyForPhase2(op, pathKey)
 
-		// If key doesn't exist, create it
-		if !keyExists {
-			// Find the deepest existing ancestor by walking prefix substrings
-			// of the pre-computed NormalizedPath.
-			var ancestorPath []string
-			var ancestorRef uint32 = wa.rootRef
-
-			pos := 0
-			for i := 1; i <= len(op.KeyPath); i++ {
-				if i > 1 {
-					pos++ // skip '\\'
-				}
-				pos += len(op.KeyPath[i-1])
-				partialPath := pathKey[:pos]
-				if ref, ok := wa.visited[partialPath]; ok {
-					ancestorPath = op.KeyPath[:i]
-					ancestorRef = ref
-				} else {
-					break
-				}
+		// Collect all consecutive SetValue ops for this same path
+		var valueOps []edit.ValueOp
+		for i < len(wa.ops) {
+			cur := wa.ops[i]
+			if cur.NormalizedPath != pathKey {
+				break
 			}
-
-			// Create the remaining path segments
-			remainingPath := op.KeyPath[len(ancestorPath):]
-			if len(remainingPath) > 0 {
-				var keysCreated int
-				var err error
-				nkRef, keysCreated, err = wa.keyEditor.EnsureKeyPath(ancestorRef, remainingPath)
-				if err != nil {
-					return fmt.Errorf("create key path %v: %w", op.KeyPath, err)
-				}
-				wa.result.KeysCreated += keysCreated
-
-				// Mark the newly created path as visited
-				wa.visited[pathKey] = nkRef
-
-				// Also mark intermediate keys as visited.
-				// Derive sub-path keys from the pre-computed NormalizedPath.
-				tempRef := ancestorRef
-				ancestorEnd := 0
-				if len(ancestorPath) > 0 {
-					for _, seg := range ancestorPath {
-						if ancestorEnd > 0 {
-							ancestorEnd++ // '\\'
-						}
-						ancestorEnd += len(seg)
-					}
-				}
-				for i := 1; i < len(remainingPath); i++ {
-					if ancestorEnd > 0 || i > 1 {
-						ancestorEnd++ // '\\'
-					}
-					ancestorEnd += len(remainingPath[i-1])
-					intermediatePath := pathKey[:ancestorEnd]
-					// Get the intermediate ref by walking up to it
-					if interRef, ok := wa.idx.GetNK(tempRef, remainingPath[i-1]); ok {
-						wa.visited[intermediatePath] = interRef
-						tempRef = interRef
-					}
-				}
-			} else {
-				// Key already exists at ancestor level
-				nkRef = ancestorRef
-				wa.visited[pathKey] = nkRef
+			if cur.Type == OpSetValue {
+				valueOps = append(valueOps, edit.ValueOp{
+					Name: cur.ValueName,
+					Type: cur.ValueType,
+					Data: cur.Data,
+				})
 			}
+			i++
 		}
 
-		// Now apply the op if it's SetValue (EnsureKey is done)
-		if op.Type == OpSetValue {
-			if nkRef == 0 {
-				// Should not happen, but get it from index as fallback
-				if ref, ok := index.WalkPath(wa.idx, wa.rootRef, op.KeyPath...); ok {
-					nkRef = ref
-				}
+		// Apply batched value ops
+		if len(valueOps) > 0 && nkRef != 0 {
+			if err := wa.valEditor.UpsertValues(nkRef, valueOps); err != nil {
+				return fmt.Errorf("set values at %v: %w", op.KeyPath, err)
 			}
-			if nkRef != 0 {
-				err := wa.valEditor.UpsertValue(nkRef, op.ValueName, op.ValueType, op.Data)
-				if err != nil {
-					return fmt.Errorf("set value at %v: %w", op.KeyPath, err)
-				}
-				wa.result.ValuesSet++
-			}
+			wa.result.ValuesSet += len(valueOps)
 		}
 	}
 
 	return nil
+}
+
+// ensureKeyForPhase2 ensures a key exists for phase 2, creating it if necessary.
+// Returns the NK reference for the key.
+func (wa *walkApplier) ensureKeyForPhase2(op Op, pathKey string) uint32 {
+	// Check if key was already visited (exists)
+	nkRef, keyExists := wa.visited[pathKey]
+
+	if !keyExists {
+		// Find the deepest existing ancestor by walking prefix substrings
+		// of the pre-computed NormalizedPath.
+		var ancestorPath []string
+		var ancestorRef uint32 = wa.rootRef
+
+		pos := 0
+		for i := 1; i <= len(op.KeyPath); i++ {
+			if i > 1 {
+				pos++ // skip '\\'
+			}
+			pos += len(op.KeyPath[i-1])
+			partialPath := pathKey[:pos]
+			if ref, ok := wa.visited[partialPath]; ok {
+				ancestorPath = op.KeyPath[:i]
+				ancestorRef = ref
+			} else {
+				break
+			}
+		}
+
+		// Create the remaining path segments
+		remainingPath := op.KeyPath[len(ancestorPath):]
+		if len(remainingPath) > 0 {
+			var keysCreated int
+			var err error
+			nkRef, keysCreated, err = wa.keyEditor.EnsureKeyPath(ancestorRef, remainingPath)
+			if err != nil {
+				// Can't return error from here; caller checks nkRef == 0
+				return 0
+			}
+			wa.result.KeysCreated += keysCreated
+
+			// Mark the newly created path as visited
+			wa.visited[pathKey] = nkRef
+
+			// Also mark intermediate keys as visited.
+			// Derive sub-path keys from the pre-computed NormalizedPath.
+			tempRef := ancestorRef
+			ancestorEnd := 0
+			if len(ancestorPath) > 0 {
+				for _, seg := range ancestorPath {
+					if ancestorEnd > 0 {
+						ancestorEnd++ // '\\'
+					}
+					ancestorEnd += len(seg)
+				}
+			}
+			for i := 1; i < len(remainingPath); i++ {
+				if ancestorEnd > 0 || i > 1 {
+					ancestorEnd++ // '\\'
+				}
+				ancestorEnd += len(remainingPath[i-1])
+				intermediatePath := pathKey[:ancestorEnd]
+				// Get the intermediate ref by walking up to it
+				if interRef, ok := wa.idx.GetNK(tempRef, remainingPath[i-1]); ok {
+					wa.visited[intermediatePath] = interRef
+					tempRef = interRef
+				}
+			}
+		} else {
+			// Key already exists at ancestor level
+			nkRef = ancestorRef
+			wa.visited[pathKey] = nkRef
+		}
+	}
+
+	if nkRef == 0 {
+		// Should not happen, but get it from index as fallback
+		if ref, ok := index.WalkPath(wa.idx, wa.rootRef, op.KeyPath...); ok {
+			nkRef = ref
+		}
+	}
+
+	return nkRef
 }
 
 // isUnderDeletedPath returns true if the given op's path, or any ancestor of it,
