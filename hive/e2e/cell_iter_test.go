@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -283,7 +284,11 @@ func TestCell_Iterator_Comprehensive(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			h, err := hive.Open(filepath.Join("..", "..", "testdata", tc.Path))
+			hivePath := filepath.Join("..", "..", "testdata", tc.Path)
+			if _, statErr := os.Stat(hivePath); os.IsNotExist(statErr) {
+				t.Skipf("Suite fixture not found: %s", hivePath)
+			}
+			h, err := hive.Open(hivePath)
 			require.NoError(t, err, "failed to open hive")
 
 			// Iterate through all HBINs and their cells
@@ -484,7 +489,11 @@ func TestCell_Iterator_Alignment(t *testing.T) {
 
 	for _, path := range cases {
 		t.Run(path, func(t *testing.T) {
-			h, err := hive.Open(filepath.Join("..", "..", "testdata", path))
+			hivePath := filepath.Join("..", "..", "testdata", path)
+			if _, statErr := os.Stat(hivePath); os.IsNotExist(statErr) {
+				t.Skipf("Suite fixture not found: %s", hivePath)
+			}
+			h, err := hive.Open(hivePath)
 			require.NoError(t, err)
 
 			hbinIter := h.NewHBINIterator()
@@ -540,7 +549,11 @@ func TestCell_Iterator_Alignment(t *testing.T) {
 // TestCell_Iterator_SignatureValidation validates that recognized cell types
 // have valid signatures and structures.
 func TestCell_Iterator_SignatureValidation(t *testing.T) {
-	h, err := hive.Open(filepath.Join("..", "..", "testdata", "suite", "windows-xp-system"))
+	hivePath := filepath.Join("..", "..", "testdata", "suite", "windows-xp-system")
+	if _, statErr := os.Stat(hivePath); os.IsNotExist(statErr) {
+		t.Skipf("Suite fixture not found: %s", hivePath)
+	}
+	h, err := hive.Open(hivePath)
 	require.NoError(t, err)
 
 	hbinIter := h.NewHBINIterator()

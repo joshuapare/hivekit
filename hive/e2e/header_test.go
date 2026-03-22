@@ -312,6 +312,9 @@ func TestREGF_EndToEnd_FromFiles(t *testing.T) {
 			}
 
 			raw, err := loadHiveFile(tc.Path)
+			if os.IsNotExist(err) {
+				t.Skipf("Fixture not found: %s", tc.Path)
+			}
 			require.NoError(t, err, "unable to read %s", tc.Path)
 
 			bb, perr := hive.ParseBaseBlock(raw)

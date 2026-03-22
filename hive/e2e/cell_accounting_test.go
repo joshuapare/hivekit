@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -34,7 +35,11 @@ func TestCell_Accounting(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h, err := hive.Open(filepath.Join("..", "..", "testdata", tc.path))
+			hivePath := filepath.Join("..", "..", "testdata", tc.path)
+			if _, statErr := os.Stat(hivePath); os.IsNotExist(statErr) {
+				t.Skipf("Suite fixture not found: %s", hivePath)
+			}
+			h, err := hive.Open(hivePath)
 			require.NoError(t, err)
 
 			// Step 1: Walk all reachable cells from root
@@ -134,7 +139,11 @@ func TestCell_Accounting_CompareToLinearIteration(t *testing.T) {
 // TestCell_Walker_NoInfiniteLoops validates that the walker doesn't get stuck
 // in cycles (e.g., SK Flink/Blink circular lists).
 func TestCell_Walker_NoInfiniteLoops(t *testing.T) {
-	h, err := hive.Open(filepath.Join("..", "..", "testdata", "suite", "windows-xp-system"))
+	hivePath := filepath.Join("..", "..", "testdata", "suite", "windows-xp-system")
+	if _, statErr := os.Stat(hivePath); os.IsNotExist(statErr) {
+		t.Skipf("Suite fixture not found: %s", hivePath)
+	}
+	h, err := hive.Open(hivePath)
 	require.NoError(t, err)
 
 	visitCount := 0
@@ -156,7 +165,11 @@ func TestCell_Walker_NoInfiniteLoops(t *testing.T) {
 // TestCell_Walker_VisitOrder validates that the walker visits cells in a
 // reasonable order (depth-first from root).
 func TestCell_Walker_VisitOrder(t *testing.T) {
-	h, err := hive.Open(filepath.Join("..", "..", "testdata", "suite", "windows-xp-system"))
+	hivePath := filepath.Join("..", "..", "testdata", "suite", "windows-xp-system")
+	if _, statErr := os.Stat(hivePath); os.IsNotExist(statErr) {
+		t.Skipf("Suite fixture not found: %s", hivePath)
+	}
+	h, err := hive.Open(hivePath)
 	require.NoError(t, err)
 
 	var visitedOffsets []uint32
@@ -178,7 +191,11 @@ func TestCell_Walker_VisitOrder(t *testing.T) {
 
 // TestCell_Walker_ErrorHandling validates that the walker propagates errors correctly.
 func TestCell_Walker_ErrorHandling(t *testing.T) {
-	h, err := hive.Open(filepath.Join("..", "..", "testdata", "suite", "windows-xp-system"))
+	hivePath := filepath.Join("..", "..", "testdata", "suite", "windows-xp-system")
+	if _, statErr := os.Stat(hivePath); os.IsNotExist(statErr) {
+		t.Skipf("Suite fixture not found: %s", hivePath)
+	}
+	h, err := hive.Open(hivePath)
 	require.NoError(t, err)
 
 	// Test that visitor errors are propagated

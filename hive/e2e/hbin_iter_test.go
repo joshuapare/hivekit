@@ -3,6 +3,7 @@ package e2e
 import (
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -128,7 +129,11 @@ func TestHBIN_Iterator_Basics(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			h, err := hive.Open(filepath.Join("..", "..", "testdata", tc.Path))
+			hivePath := filepath.Join("..", "..", "testdata", tc.Path)
+			if _, statErr := os.Stat(hivePath); os.IsNotExist(statErr) {
+				t.Skipf("Suite fixture not found: %s", hivePath)
+			}
+			h, err := hive.Open(hivePath)
 			require.NoError(t, err)
 
 			it := h.NewHBINIterator()

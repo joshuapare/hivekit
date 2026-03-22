@@ -23,6 +23,13 @@ func TestAnalyzeHiveSize(t *testing.T) {
 	origPath := "../../testdata/suite/windows-2003-server-system"
 	regPath := "../../testdata/suite/windows-2003-server-system.reg"
 
+	if _, err := os.Stat(regPath); os.IsNotExist(err) {
+		t.Skipf("Suite fixture not found: %s", regPath)
+	}
+	if _, err := os.Stat(origPath); os.IsNotExist(err) {
+		t.Skipf("Suite fixture not found: %s", origPath)
+	}
+
 	// Remove existing file to start fresh
 	os.Remove(builtPath)
 
@@ -57,6 +64,10 @@ func TestHiveEfficiency(t *testing.T) {
 
 	builtPath := "/tmp/analyze-built.hive"
 	regPath := "../../testdata/suite/windows-2003-server-system.reg"
+
+	if _, err := os.Stat(regPath); os.IsNotExist(err) {
+		t.Skipf("Suite fixture not found: %s", regPath)
+	}
 
 	// Remove existing file to start fresh
 	os.Remove(builtPath)
@@ -116,6 +127,10 @@ func TestHiveEfficiency(t *testing.T) {
 // TestWindowsHiveEfficiency analyzes the efficiency of a Windows-generated hive.
 func TestWindowsHiveEfficiency(t *testing.T) {
 	origPath := "../../testdata/suite/windows-2003-server-system"
+
+	if _, err := os.Stat(origPath); os.IsNotExist(err) {
+		t.Skipf("Suite fixture not found: %s", origPath)
+	}
 
 	// Open the Windows-generated hive for analysis
 	h, err := hive.Open(origPath)
