@@ -9,13 +9,19 @@ import (
 )
 
 // requireSuiteHive skips the test if the external hive fixture is not found.
+// Reports a fatal error for non-existence errors (permissions, I/O).
 func requireSuiteHive(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join("..", "testdata", "suite", name)
-	if _, err := os.Stat(path); err != nil {
+	_, err := os.Stat(path)
+	if err == nil {
+		return path
+	}
+	if os.IsNotExist(err) {
 		t.Skipf("External fixture %q not found", path)
 	}
-	return path
+	t.Fatalf("Failed to stat fixture %q: %v", path, err)
+	return ""
 }
 
 // ============================================================================

@@ -15,11 +15,17 @@ import (
 const suiteHiveBase = "../../testdata/suite/windows-2003-server-system"
 
 // requireSuiteHive skips the test if the suite hive fixture is not present.
+// Reports a fatal error for non-existence errors (permissions, I/O).
 func requireSuiteHive(t testing.TB) {
 	t.Helper()
-	if _, err := os.Stat(suiteHiveBase); errors.Is(err, os.ErrNotExist) {
+	_, err := os.Stat(suiteHiveBase)
+	if err == nil {
+		return
+	}
+	if errors.Is(err, os.ErrNotExist) {
 		t.Skipf("Suite fixture not found: %s", suiteHiveBase)
 	}
+	t.Fatalf("Failed to stat suite fixture %s: %v", suiteHiveBase, err)
 }
 
 // Test_MergePlan_OneLiner tests the simple one-liner API for applying plans.

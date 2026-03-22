@@ -2,6 +2,7 @@ package alloc
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/joshuapare/hivekit/internal/format"
 )
@@ -33,6 +34,9 @@ var (
 func (fa *FastAllocator) EnableBumpMode(totalNeeded int32) error {
 	if fa.bump.active {
 		return errBumpAlreadyActive
+	}
+	if totalNeeded <= 0 {
+		return fmt.Errorf("bump mode requires positive totalNeeded, got %d", totalNeeded)
 	}
 
 	// Align to 8-byte boundary — cells must be 8-aligned.

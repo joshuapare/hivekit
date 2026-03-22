@@ -2,6 +2,7 @@ package subkeys
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/internal/buf"
@@ -16,9 +17,12 @@ type MatchedEntry struct {
 }
 
 // AddHashTarget adds a name to the hash-bucketed target map, handling collisions.
+// The name is lowercased before storing, since MatchByHash verifies names
+// case-insensitively against lowercase expectations.
 func AddHashTarget(targets map[uint32][]string, name string) {
-	h := Hash(name)
-	targets[h] = append(targets[h], name)
+	lower := strings.ToLower(name)
+	h := Hash(lower)
+	targets[h] = append(targets[h], lower)
 }
 
 // HashTargetCount returns the total number of target names across all hash buckets.
@@ -164,14 +168,6 @@ func matchLFLIFallback(h *hive.Hive, payload []byte, count uint16, entrySize int
 		return nil, ErrTruncated
 	}
 
-	// Build reverse map: lowercase name -> hash for output.
-	nameToHash := make(map[string]uint32, HashTargetCount(targets))
-	for hash, names := range targets {
-		for _, name := range names {
-			nameToHash[name] = hash
-		}
-	}
-
 	matched := make([]MatchedEntry, 0, len(targets))
 	remaining := HashTargetCount(targets)
 
@@ -264,12 +260,12 @@ func matchRIList(h *hive.Hive, payload []byte, targets map[uint32][]string) ([]M
 
 		subPayload, subErr := resolveCell(h, subListRef)
 		if subErr != nil {
-			continue
+			continue // individual cell corruption — try remaining sub-lists
 		}
 
 		subMatched, subReadErr := matchDirectList(h, subPayload, targets)
 		if subReadErr != nil {
-			continue
+			return nil, fmt.Errorf("ri sub-list %d (ref 0x%X): %w", i, subListRef, subReadErr)
 		}
 
 		allMatched = append(allMatched, subMatched...)
