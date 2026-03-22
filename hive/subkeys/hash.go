@@ -12,12 +12,30 @@ const (
 // This hash is used in LH (Leaf-Hash) subkey list entries.
 //
 // Algorithm: hash = 0; for each char: hash = hash * 37 + toupper(char)
-// Note: The input name should already be lowercased, but the hash
-// algorithm uppercases each character during computation.
+//
+// Uses a fast ASCII path for the common case (99%+ of registry key names).
+// Falls back to unicode.ToUpper for non-ASCII characters.
 func Hash(name string) uint32 {
 	var hash uint32
+	for i := 0; i < len(name); i++ {
+		b := name[i]
+		if b > 0x7F {
+			// Non-ASCII byte encountered; fall back to full Unicode path
+			// which re-hashes from the beginning using rune iteration.
+			return hashUnicode(name)
+		}
+		if b >= 'a' && b <= 'z' {
+			b -= 32
+		}
+		hash = hash*hashMultiplier + uint32(b)
+	}
+	return hash
+}
+
+// hashUnicode is the fallback for names containing non-ASCII characters.
+func hashUnicode(name string) uint32 {
+	var hash uint32
 	for _, r := range name {
-		// Windows uses uppercase characters for hashing
 		hash = hash*hashMultiplier + uint32(unicode.ToUpper(r))
 	}
 	return hash
