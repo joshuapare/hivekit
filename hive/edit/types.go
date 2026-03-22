@@ -46,6 +46,14 @@ type KeyEditor interface {
 	FlushDeferredSubkeys() (int, error)
 }
 
+// ValueOp describes a single value operation within a batch.
+type ValueOp struct {
+	Name   string
+	Type   ValueType // registry value type (REG_SZ, REG_DWORD, etc.)
+	Data   []byte
+	Delete bool // true = delete this value, false = set/update
+}
+
 // ValueEditor provides operations for managing registry values.
 type ValueEditor interface {
 	// UpsertValue creates or updates a value under the given NK (case-insensitive name).
@@ -56,4 +64,8 @@ type ValueEditor interface {
 	// DeleteValue removes a value by name; idempotent if missing.
 	// Empty name ("") targets the (Default) value.
 	DeleteValue(nk NKRef, name string) error
+
+	// UpsertValues applies multiple value operations to a single key.
+	// For ValueOps with Delete=true, the value is removed and Type/Data are ignored.
+	UpsertValues(nk NKRef, ops []ValueOp) error
 }

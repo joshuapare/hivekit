@@ -339,6 +339,9 @@ func runMergeTest(t *testing.T, tc MergeTestCase) {
 	tempHivePath := filepath.Join(tempDir, "test-hive")
 
 	baseHivePath := filepath.Join("../../testdata/suite", tc.BaseHive)
+	if _, err := os.Stat(baseHivePath); os.IsNotExist(err) {
+		t.Skipf("Suite fixture not found: %s", baseHivePath)
+	}
 	if err := copyFile(baseHivePath, tempHivePath); err != nil {
 		t.Fatalf("Failed to copy base hive: %v", err)
 	}

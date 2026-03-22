@@ -828,10 +828,15 @@ func (s *Session) Close(ctx context.Context) error {
 	return nil
 }
 
+// PartialIndexUpperThreshold is the ops count above which Auto mode switches
+// from partial index to full index. Plans with >= this many ops use full index.
+const PartialIndexUpperThreshold = 5000
+
 // NewSessionForPlan creates a session optimized for the given plan.
 //
 // Based on the plan size and Options.IndexMode, this selects between:
 //   - Single-pass walk-apply (no index build) for small plans
+//   - Partial index (only plan-touched subtrees) for medium plans
 //   - Full index build for large plans
 //
 // Parameters:
@@ -859,11 +864,15 @@ func NewSessionForPlan(ctx context.Context, h *hive.Hive, plan *Plan, opt Option
 		threshold = DefaultIndexThreshold
 	}
 
-	// Auto mode: use single-pass for small plans
+	// Auto mode: select strategy based on plan size
 	if mode == IndexModeAuto && plan != nil {
-		if len(plan.Ops) < threshold {
+		opCount := len(plan.Ops)
+		switch {
+		case opCount < threshold:
 			mode = IndexModeSinglePass
-		} else {
+		case opCount < PartialIndexUpperThreshold:
+			mode = IndexModePartial
+		default:
 			mode = IndexModeFull
 		}
 	}
@@ -871,9 +880,59 @@ func NewSessionForPlan(ctx context.Context, h *hive.Hive, plan *Plan, opt Option
 	switch mode {
 	case IndexModeSinglePass:
 		return newNoIndexSession(ctx, h, opt)
+	case IndexModePartial:
+		return newPartialIndexSession(ctx, h, plan, opt)
 	default:
 		return NewSession(ctx, h, opt) // builds full index
 	}
+}
+
+// newPartialIndexSession creates a session with a partial index built from
+// the plan's key paths. Only subtrees touched by the plan are indexed.
+func newPartialIndexSession(ctx context.Context, h *hive.Hive, plan *Plan, opt Options) (*Session, error) {
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// Extract unique paths from plan operations
+	paths := extractPlanPaths(plan)
+
+	// Build partial index
+	idx, _, err := walker.BuildPartial(h, paths)
+	if err != nil {
+		return nil, fmt.Errorf("build partial index: %w", err)
+	}
+
+	return NewSessionWithIndex(ctx, h, idx, opt)
+}
+
+// extractPlanPaths extracts unique key paths from plan operations.
+// Returns deduplicated paths for use with walker.BuildPartial.
+func extractPlanPaths(plan *Plan) [][]string {
+	if plan == nil || len(plan.Ops) == 0 {
+		return nil
+	}
+
+	// Use a map keyed by joined path for deduplication
+	seen := make(map[string]struct{}, len(plan.Ops))
+	paths := make([][]string, 0, len(plan.Ops))
+
+	for i := range plan.Ops {
+		op := &plan.Ops[i]
+		if len(op.KeyPath) == 0 {
+			continue
+		}
+
+		key := strings.Join(op.KeyPath, "\\")
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		paths = append(paths, op.KeyPath)
+	}
+
+	return paths
 }
 
 // newNoIndexSession creates a session without building a full index.

@@ -65,9 +65,10 @@ func decodeName(nameBytes []byte, compressed bool) string {
 // deferredParent tracks pending children for a parent key in deferred mode.
 type deferredParent struct {
 	children      []subkeys.Entry
-	oldListRef    uint32          // Existing list reference (if any) to free during flush
-	deletedNKRefs map[uint32]bool // NKRefs to exclude during flush (for deferred deletions)
-	loaded        bool            // True if children have been loaded from disk
+	rawChildren   []subkeys.RawEntry // Existing children loaded via ReadRaw (insert-only optimization)
+	oldListRef    uint32             // Existing list reference (if any) to free during flush
+	deletedNKRefs map[uint32]bool    // NKRefs to exclude during flush (for deferred deletions)
+	loaded        bool               // True if children have been loaded from disk
 }
 
 // keyEditor implements KeyEditor interface.
@@ -200,7 +201,7 @@ func (ke *keyEditor) createKey(parentRef NKRef, name string) (NKRef, error) {
 	}
 
 	// Update parent's subkey list (subkey list uses lowercase for hash computation)
-	if insertErr := ke.insertIntoSubkeyList(parentRef, parentNK, nkRef, name); insertErr != nil {
+	if insertErr := ke.insertIntoSubkeyList(parentRef, parentNK, nkRef, name, 0); insertErr != nil {
 		return 0, fmt.Errorf("insert into subkey list: %w", insertErr)
 	}
 
@@ -298,14 +299,20 @@ func (ke *keyEditor) allocateNK(parentRef NKRef, name string) (NKRef, error) {
 // insertIntoSubkeyList updates the parent NK's subkey list to include the new child.
 // In deferred mode, accumulates children in memory for later flush.
 // In immediate mode, performs the traditional read-modify-write cycle.
+// precomputedHash is an optional pre-computed LH hash for childNameLower.
+// Pass 0 to compute the hash at call site (backwards compatible).
 func (ke *keyEditor) insertIntoSubkeyList(
 	parentRef NKRef,
 	parentNK hive.NK,
 	childRef NKRef,
 	childNameLower string,
+	precomputedHash uint32,
 ) error {
-	// Compute hash for the child name
-	hash := subkeys.Hash(childNameLower)
+	// Use pre-computed hash if available, otherwise compute it
+	hash := precomputedHash
+	if hash == 0 {
+		hash = subkeys.Hash(childNameLower)
+	}
 
 	// Create entry
 	newEntry := subkeys.Entry{
@@ -328,36 +335,36 @@ func (ke *keyEditor) insertDeferredChild(parentRef NKRef, parentNK hive.NK, entr
 	// Get or create deferred parent
 	dp, exists := ke.deferredParents[parentRef]
 	if !exists {
-		// First child for this parent in current deferred batch
-		// CRITICAL: Read existing children to merge with new ones.
-		// This handles the case where AutoFlushThreshold causes multiple flush cycles
-		// and a parent gets children across different cycles.
+		// First child for this parent in current deferred batch.
+		// OPTIMIZATION: Use ReadRaw instead of Read to avoid decoding NK names
+		// for all existing children. Names are only decoded at flush time for
+		// the entries that need comparison during merge-sort.
 		var oldListRef uint32 = format.InvalidOffset
-		existingChildren := []subkeys.Entry{}
+
+		dp = &deferredParent{
+			oldListRef: oldListRef,
+			loaded:     true,
+		}
 
 		if parentNK.SubkeyCount() > 0 {
 			oldListRef = parentNK.SubkeyListOffsetRel()
+			dp.oldListRef = oldListRef
 
-			// Read existing subkey list to preserve children from previous flushes
+			// Read existing subkey list as raw entries (no NK name decoding)
 			if oldListRef != format.InvalidOffset {
-				existingList, err := subkeys.Read(ke.h, oldListRef)
+				rawEntries, err := subkeys.ReadRaw(ke.h, oldListRef)
 				if err == nil {
-					existingChildren = existingList.Entries
+					dp.rawChildren = rawEntries
 				}
-				// If read fails, start with empty list (degrades to overwriting)
+				// If read fails, start with empty (degrades to overwriting)
 			}
 		}
 
-		dp = &deferredParent{
-			children:   existingChildren, // Start with existing children!
-			oldListRef: oldListRef,
-			loaded:     true, // We've loaded the children
-		}
 		ke.deferredParents[parentRef] = dp
 	} else if !dp.loaded {
 		// Parent exists but children not loaded yet (was created by removeDeferredChild).
-		// We need to load existing children now before appending, otherwise
-		// flushDeferredParent will overwrite our new entry when it loads children.
+		// Since deletions are involved, fall back to full Read() to get names
+		// needed for correct sorting after filtering.
 		if parentNK.SubkeyCount() > 0 {
 			oldListRef := parentNK.SubkeyListOffsetRel()
 			if oldListRef != format.InvalidOffset {
@@ -495,6 +502,37 @@ func (ke *keyEditor) flushDeferredParent(parentRef uint32) error {
 		return nil
 	}
 
+	// OPTIMIZATION: Insert-only path with raw-loaded existing children.
+	// When rawChildren is set, existing entries were loaded via ReadRaw (no NK name decoding).
+	// We merge new entries (with names) into the sorted raw list using lazy name decoding,
+	// only resolving NK names at merge comparison points.
+	if dp.rawChildren != nil && len(dp.deletedNKRefs) == 0 {
+		merged, mergeErr := ke.mergeRawAndNewEntries(dp.rawChildren, dp.children)
+		if mergeErr != nil {
+			return fmt.Errorf("merge raw+new for parent 0x%X: %w", parentRef, mergeErr)
+		}
+
+		// Free old list before allocating new one
+		if dp.oldListRef != format.InvalidOffset {
+			if err := ke.freeSubkeyList(dp.oldListRef); err != nil {
+				_ = err // Log but continue
+			}
+		}
+
+		// Write merged raw entries
+		newListRef, err := subkeys.WriteRaw(ke.h, ke.alloc, merged)
+		if err != nil {
+			return fmt.Errorf("write raw subkey list for parent 0x%X: %w", parentRef, err)
+		}
+
+		if err := ke.updateParentNK(parentRef, uint32(len(merged)), newListRef); err != nil {
+			return fmt.Errorf("update parent NK 0x%X: %w", parentRef, err)
+		}
+
+		delete(ke.deferredParents, parentRef)
+		return nil
+	}
+
 	// Standard path: children already loaded by insertDeferredChild.
 	// (Delete-only parents take the raw path above, so if we reach here, loaded must be true.)
 
@@ -570,7 +608,9 @@ func (ke *keyEditor) FlushDeferredSubkeys() (int, error) {
 	for _, parentRef := range parents {
 		dp := ke.deferredParents[parentRef]
 		if dp.oldListRef != format.InvalidOffset {
-			// Sort entries now so they're ready for pass 2
+			// Sort new entries now so they're ready for pass 2.
+			// For raw-loaded parents, dp.children only contains new entries.
+			// For standard parents, dp.children contains existing + new entries.
 			sortEntries(dp.children)
 
 			// Free the old list - this makes space available for new allocations
@@ -616,6 +656,123 @@ func sortEntries(entries []subkeys.Entry) {
 			return entries[i].NameLower < entries[j].NameLower
 		})
 	}
+}
+
+// mergeRawAndNewEntries merges sorted raw entries (from disk) with sorted new entries.
+// Raw entries are already in name-sorted order from disk but don't have decoded names.
+// New entries have decoded names for comparison. The merge decodes NK names lazily
+// from raw entries only at comparison points, saving O(raw_count - comparisons) decodes.
+//
+// Preconditions:
+//   - rawEntries is sorted by name (as stored on disk)
+//   - newEntries is sorted by NameLower (caller must sort before calling)
+//
+// Returns merged []RawEntry in correct name-sorted order.
+func (ke *keyEditor) mergeRawAndNewEntries(rawEntries []subkeys.RawEntry, newEntries []subkeys.Entry) ([]subkeys.RawEntry, error) {
+	if len(newEntries) == 0 {
+		// No new entries, just return raw as-is
+		return rawEntries, nil
+	}
+	if len(rawEntries) == 0 {
+		// No existing entries, convert new to raw
+		result := make([]subkeys.RawEntry, len(newEntries))
+		for i, e := range newEntries {
+			result[i] = subkeys.RawEntry{NKRef: e.NKRef, Hash: e.Hash}
+		}
+		return result, nil
+	}
+
+	// For small numbers of new entries relative to existing, use insertion-point approach.
+	// Find insertion points for each new entry using binary search with lazy NK name decoding.
+	// This decodes O(newCount * log2(rawCount)) names instead of O(rawCount).
+	//
+	// For each new entry, find where it goes in the raw list.
+	type insertion struct {
+		pos   int             // Position in raw list to insert before
+		entry subkeys.RawEntry // The new entry as RawEntry
+	}
+
+	insertions := make([]insertion, 0, len(newEntries))
+
+	// Cache decoded names for raw entries to avoid redundant NK lookups.
+	// Binary search may compare the same raw entry multiple times across different new entries.
+	nameCache := make(map[uint32]string, len(newEntries)*8) // Rough capacity estimate
+
+	for _, newEntry := range newEntries {
+		// Binary search for insertion point
+		pos, searchErr := ke.binarySearchRawEntries(rawEntries, newEntry.NameLower, nameCache)
+		if searchErr != nil {
+			return nil, fmt.Errorf("binary search failed: %w", searchErr)
+		}
+		insertions = append(insertions, insertion{
+			pos:   pos,
+			entry: subkeys.RawEntry{NKRef: newEntry.NKRef, Hash: newEntry.Hash},
+		})
+	}
+
+	// Build merged result by interleaving raw entries with insertions.
+	// insertions are already in order since newEntries was pre-sorted.
+	result := make([]subkeys.RawEntry, 0, len(rawEntries)+len(newEntries))
+	insertIdx := 0
+	for ri := 0; ri <= len(rawEntries); ri++ {
+		// Insert all new entries that go at position ri
+		for insertIdx < len(insertions) && insertions[insertIdx].pos == ri {
+			result = append(result, insertions[insertIdx].entry)
+			insertIdx++
+		}
+		// Append the raw entry at position ri (if not past the end)
+		if ri < len(rawEntries) {
+			result = append(result, rawEntries[ri])
+		}
+	}
+
+	return result, nil
+}
+
+// binarySearchRawEntries finds the insertion position for a name in the sorted raw entries.
+// Uses lazy NK name decoding with caching: only decodes names at binary search comparison points.
+// Returns the index where the name should be inserted (0 to len(rawEntries)).
+func (ke *keyEditor) binarySearchRawEntries(
+	rawEntries []subkeys.RawEntry,
+	nameLower string,
+	nameCache map[uint32]string,
+) (int, error) {
+	lo, hi := 0, len(rawEntries)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		midName, err := ke.resolveRawEntryName(rawEntries[mid], nameCache)
+		if err != nil {
+			return 0, err
+		}
+		if midName < nameLower {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo, nil
+}
+
+// resolveRawEntryName decodes the NK name for a raw entry, using the cache to avoid
+// redundant NK cell lookups. This is the lazy-decode function used during merge-sort.
+func (ke *keyEditor) resolveRawEntryName(entry subkeys.RawEntry, nameCache map[uint32]string) (string, error) {
+	if cached, ok := nameCache[entry.NKRef]; ok {
+		return cached, nil
+	}
+
+	payload, err := ke.resolveCell(entry.NKRef)
+	if err != nil {
+		return "", fmt.Errorf("resolve NK 0x%X: %w", entry.NKRef, err)
+	}
+
+	nk, err := hive.ParseNK(payload)
+	if err != nil {
+		return "", fmt.Errorf("parse NK 0x%X: %w", entry.NKRef, err)
+	}
+
+	name := decodeName(nk.Name(), nk.IsCompressedName())
+	nameCache[entry.NKRef] = name
+	return name, nil
 }
 
 // freeSubkeyList frees a subkey list and all its associated structures.

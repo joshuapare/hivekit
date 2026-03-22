@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -95,6 +96,9 @@ func TestHBIN_ParseHBINAt_Table(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			raw, err := loadHiveFile(filepath.Join("testdata", tc.Path))
+			if os.IsNotExist(err) {
+				t.Skipf("Suite fixture not found: testdata/%s", tc.Path)
+			}
 			require.NoError(t, err, "unable to read test hive")
 
 			// in-memory mutate (does not touch disk)

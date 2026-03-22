@@ -126,6 +126,24 @@ benchmark-quick: ## Run quick benchmarks
 benchmark-list: ## List benchmark categories
 	@./scripts/run_benchmarks.sh --list
 
+# --- Merge optimization benchmarks ---
+BENCH_OPTIMIZE_OUT ?= testdata/bench
+
+bench-optimize-baseline: ## Run full merge optimization benchmark matrix, save baseline
+	@mkdir -p $(BENCH_OPTIMIZE_OUT)
+	go test ./tests/benchmark/ -bench 'BenchmarkMergeE2E' -benchmem -count=6 -timeout=3600s \
+		| tee $(BENCH_OPTIMIZE_OUT)/baseline.txt
+	@echo "Baseline saved to $(BENCH_OPTIMIZE_OUT)/baseline.txt"
+
+bench-optimize-compare: ## Run benchmarks and compare against baseline
+	@mkdir -p $(BENCH_OPTIMIZE_OUT)
+	go test ./tests/benchmark/ -bench 'BenchmarkMergeE2E' -benchmem -count=6 -timeout=3600s \
+		| tee $(BENCH_OPTIMIZE_OUT)/current.txt
+	benchstat $(BENCH_OPTIMIZE_OUT)/baseline.txt $(BENCH_OPTIMIZE_OUT)/current.txt
+
+bench-optimize-quick: ## Quick smoke test (1 iteration, small fixtures only)
+	go test ./tests/benchmark/ -run=^$$ -bench 'BenchmarkMergeE2E/small' -benchmem -benchtime=1x -timeout=300s
+
 ##@ Documentation
 
 update-readme: ## Update README with tool help outputs and benchmarks
@@ -165,4 +183,5 @@ ci: check-go build test lint ## Run CI pipeline
 .PHONY: check-go decompress-hives install-python-deps setup test test-unit test-integration test-hiveexplorer test-coverage
 .PHONY: build build-hiveexplorer install-hiveexplorer lint lint-fix fmt
 .PHONY: benchmark benchmark-compare benchmark-quick benchmark-list
+.PHONY: bench-optimize-baseline bench-optimize-compare bench-optimize-quick
 .PHONY: update-readme clean clean-hives list-hives ci

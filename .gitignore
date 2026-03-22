@@ -11,5 +11,7 @@ tests/integration/output/
 benchmarks/reports/*
 benchmarks/graphs/*
 
+testdata/bench/
+
 bin/
 *.log

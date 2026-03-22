@@ -1,11 +1,28 @@
 package hive
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// requireSuiteHive skips the test if the external hive fixture is not found.
+// Reports a fatal error for non-existence errors (permissions, I/O).
+func requireSuiteHive(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join("..", "testdata", "suite", name)
+	_, err := os.Stat(path)
+	if err == nil {
+		return path
+	}
+	if os.IsNotExist(err) {
+		t.Skipf("External fixture %q not found", path)
+	}
+	t.Fatalf("Failed to stat fixture %q: %v", path, err)
+	return ""
+}
 
 // ============================================================================
 // NK Resolver Method Tests
@@ -14,7 +31,8 @@ import (
 func TestNK_ResolveSubkeyList_OnRealHive(t *testing.T) {
 	// Why this test: Validates that ResolveSubkeyList works on a real hive file.
 	// Uses windows-xp-system which has a well-formed structure with LH lists.
-	h, err := Open(filepath.Join("..", "testdata", "suite", "windows-xp-system"))
+	hivePath := requireSuiteHive(t, "windows-xp-system")
+	h, err := Open(hivePath)
 	require.NoError(t, err)
 
 	// Get root NK
@@ -42,7 +60,8 @@ func TestNK_ResolveSubkeyList_OnRealHive(t *testing.T) {
 func TestNK_ResolveSubkeyList_NoSubkeys(t *testing.T) {
 	// Why this test: Validates error handling when NK has no subkeys.
 	// Need to find an NK with 0 subkeys in a real hive.
-	h, err := Open(filepath.Join("..", "testdata", "suite", "windows-xp-system"))
+	hivePath := requireSuiteHive(t, "windows-xp-system")
+	h, err := Open(hivePath)
 	require.NoError(t, err)
 
 	// Walk the tree to find an NK with no subkeys (leaf key)
@@ -58,7 +77,8 @@ func TestNK_ResolveSubkeyList_NoSubkeys(t *testing.T) {
 
 func TestNK_ResolveValueList_OnRealHive(t *testing.T) {
 	// Why this test: Validates that ResolveValueList works on a real hive file.
-	h, err := Open(filepath.Join("..", "testdata", "suite", "windows-xp-system"))
+	hivePath := requireSuiteHive(t, "windows-xp-system")
+	h, err := Open(hivePath)
 	require.NoError(t, err)
 
 	// Find an NK with values
@@ -87,7 +107,8 @@ func TestNK_ResolveValueList_OnRealHive(t *testing.T) {
 
 func TestNK_ResolveValueList_NoValues(t *testing.T) {
 	// Why this test: Validates error handling when NK has no values.
-	h, err := Open(filepath.Join("..", "testdata", "suite", "windows-xp-system"))
+	hivePath := requireSuiteHive(t, "windows-xp-system")
+	h, err := Open(hivePath)
 	require.NoError(t, err)
 
 	// Find an NK without values
@@ -103,7 +124,8 @@ func TestNK_ResolveValueList_NoValues(t *testing.T) {
 
 func TestNK_ResolveSecurity_OnRealHive(t *testing.T) {
 	// Why this test: Validates that ResolveSecurity works on a real hive file.
-	h, err := Open(filepath.Join("..", "testdata", "suite", "windows-xp-system"))
+	hivePath := requireSuiteHive(t, "windows-xp-system")
+	h, err := Open(hivePath)
 	require.NoError(t, err)
 
 	// Get root NK
@@ -126,7 +148,8 @@ func TestNK_ResolveSecurity_OnRealHive(t *testing.T) {
 func TestNK_ResolveClassName_OnRealHive(t *testing.T) {
 	// Why this test: Validates ResolveClassName when a class name exists.
 	// Note: Class names are rare in real hives. This test may not find one.
-	h, err := Open(filepath.Join("..", "testdata", "suite", "windows-xp-system"))
+	hivePath := requireSuiteHive(t, "windows-xp-system")
+	h, err := Open(hivePath)
 	require.NoError(t, err)
 
 	// Walk the tree to find an NK with a class name
@@ -145,7 +168,8 @@ func TestNK_ResolveClassName_OnRealHive(t *testing.T) {
 
 func TestNK_ResolveClassName_NoClassName(t *testing.T) {
 	// Why this test: Validates error handling when NK has no class name.
-	h, err := Open(filepath.Join("..", "testdata", "suite", "windows-xp-system"))
+	hivePath := requireSuiteHive(t, "windows-xp-system")
+	h, err := Open(hivePath)
 	require.NoError(t, err)
 
 	// Most NKs don't have class names

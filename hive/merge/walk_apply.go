@@ -41,7 +41,12 @@ type walkApplier struct {
 	// with O(1) lookups per parent.
 	childrenByParent map[string]map[string]struct{}
 
-	visited map[string]uint32 // normalized path -> nkOffset (for key creation)
+	// hashTargetsByParent maps each normalized parent path to the
+	// hash-keyed target map used by MatchByHash. Pre-computed once during
+	// initialization to avoid per-node hashing overhead.
+	hashTargetsByParent map[string]map[uint32][]string
+
+	visited map[string]uint32  // normalized path -> nkOffset (for key creation)
 	deleted map[string]struct{} // normalized paths deleted during walk (skip in Phase 2)
 
 	// Index for lookup (used for key creation and deletion)
@@ -50,8 +55,9 @@ type walkApplier struct {
 	// Root cell offset
 	rootRef uint32
 
-	// Reusable buffer for ReadOffsetsInto
-	offsetBuf []uint32
+	// Cursor stack caches parsed NK/subkey-list data at each tree level.
+	// Avoids redundant hive reads when ascending from one child to a sibling.
+	cursor *cursorStack
 
 	// Results
 	result Applied
@@ -66,35 +72,56 @@ func newWalkApplier(
 	plan *Plan,
 ) *walkApplier {
 	wa := &walkApplier{
-		h:                h,
-		alloc:            a,
-		dt:               dt,
-		idx:              idx,
-		ops:              make([]Op, len(plan.Ops)),
-		opsByPath:        make(map[string][]int),
-		childrenByParent: make(map[string]map[string]struct{}),
-		visited:          make(map[string]uint32),
-		deleted:          make(map[string]struct{}),
-		rootRef:          h.RootCellOffset(),
+		h:                   h,
+		alloc:               a,
+		dt:                  dt,
+		idx:                 idx,
+		ops:                 make([]Op, len(plan.Ops)),
+		opsByPath:           make(map[string][]int),
+		childrenByParent:    make(map[string]map[string]struct{}),
+		hashTargetsByParent: make(map[string]map[uint32][]string),
+		visited:             make(map[string]uint32),
+		deleted:             make(map[string]struct{}),
+		rootRef:             h.RootCellOffset(),
+		cursor:              newCursorStack(16),
 	}
 
 	// Copy and normalize ops
 	copy(wa.ops, plan.Ops)
 
+	// Ensure every op has NormalizedPath populated.
+	// Plan.Add* methods set it, but ops constructed directly (e.g. in tests
+	// or convertEditOpToMergeOp) may not.
+	for i := range wa.ops {
+		if wa.ops[i].NormalizedPath == "" && len(wa.ops[i].KeyPath) > 0 {
+			wa.ops[i].NormalizedPath = normalizePath(wa.ops[i].KeyPath)
+		}
+	}
+
 	// Sort by path for efficient matching
 	// Use stable sort to preserve original order for same-path ops
 	slices.SortStableFunc(wa.ops, func(a, b Op) int {
-		return cmp.Compare(normalizePath(a.KeyPath), normalizePath(b.KeyPath))
+		return cmp.Compare(a.NormalizedPath, b.NormalizedPath)
 	})
 
-	// Build path index and childrenByParent map
+	// Build path index and childrenByParent map.
+	// Use pre-computed NormalizedPath for the full op path (zero extra allocs).
+	// For parent sub-paths, incrementally build the key by truncating the
+	// normalized path at each backslash boundary.
 	for i, op := range wa.ops {
-		pathKey := normalizePath(op.KeyPath)
-		wa.opsByPath[pathKey] = append(wa.opsByPath[pathKey], i)
+		wa.opsByPath[op.NormalizedPath] = append(wa.opsByPath[op.NormalizedPath], i)
 
-		// For each path segment, record the parent->child relationship
+		// For each path segment, record the parent->child relationship.
+		// We derive parent keys from the pre-computed NormalizedPath by
+		// finding backslash positions, avoiding normalizePath calls entirely.
+		np := op.NormalizedPath
+		pos := 0 // byte position in np after the current segment
+		parentKey := ""
 		for j := 0; j < len(op.KeyPath); j++ {
-			parentKey := normalizePath(op.KeyPath[:j])
+			if j > 0 {
+				// Skip past the backslash separator
+				pos++ // for '\\'
+			}
 			childName := toLowerASCII(op.KeyPath[j])
 
 			children := wa.childrenByParent[parentKey]
@@ -103,7 +130,23 @@ func newWalkApplier(
 				wa.childrenByParent[parentKey] = children
 			}
 			children[childName] = struct{}{}
+
+			// Advance parentKey to include this segment for next iteration
+			pos += len(op.KeyPath[j])
+			parentKey = np[:pos]
 		}
+	}
+
+	// Pre-compute hash target maps for MatchByHash.
+	// Each parent path gets a map of LH-hash -> []lowercase child names.
+	// Multiple names sharing the same hash are stored in the same bucket,
+	// so hash collisions are handled correctly.
+	for parentKey, children := range wa.childrenByParent {
+		targets := make(map[uint32][]string, len(children))
+		for childName := range children {
+			subkeys.AddHashTarget(targets, childName)
+		}
+		wa.hashTargetsByParent[parentKey] = targets
 	}
 
 	// Create editors with index
@@ -140,8 +183,9 @@ func (wa *walkApplier) Apply(ctx context.Context) (Applied, error) {
 }
 
 // walkAndApply recursively walks the tree, indexes nodes, and applies matching ops.
-// It uses childrenByParent for O(1) pruning and ReadOffsetsInto + MatchNKsFromOffsets
-// for targeted child selection (avoids decoding all sibling names).
+// It uses childrenByParent for O(1) pruning and MatchByHash for hash-first child
+// selection (avoids dereferencing all sibling NK cells). The cursor stack caches
+// parsed NK data at each level so sibling descents skip redundant hive reads.
 func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parentRef uint32, currentPath []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -160,6 +204,13 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 		return nil // Can't parse, skip
 	}
 
+	// Push cursor entry for this level
+	wa.cursor.push(cursorEntry{
+		nkCellIdx:   nkOffset,
+		subkeyCount: nk.SubkeyCount(),
+	})
+	defer wa.cursor.pop()
+
 	// Index this node (root is already seeded in newWalkApplySession)
 	if len(currentPath) > 0 {
 		name := currentPath[len(currentPath)-1]
@@ -172,17 +223,51 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 	// Record this node as visited
 	wa.visited[pathKey] = nkOffset
 
-	// Apply all ops that target this exact path
+	// Apply all ops that target this exact path.
+	// Value ops (SetValue, DeleteValue) are batched into a single UpsertValues call
+	// to reduce redundant value list reads/rebuilds.
 	keyDeleted := false
 	if indices, ok := wa.opsByPath[pathKey]; ok {
+		var valueOps []edit.ValueOp
 		for _, idx := range indices {
 			op := &wa.ops[idx]
-			if err := wa.applyOpAtNode(ctx, nkOffset, op); err != nil {
+			switch op.Type {
+			case OpSetValue:
+				valueOps = append(valueOps, edit.ValueOp{
+					Name: op.ValueName,
+					Type: op.ValueType,
+					Data: op.Data,
+				})
+			case OpDeleteValue:
+				valueOps = append(valueOps, edit.ValueOp{
+					Name:   op.ValueName,
+					Delete: true,
+				})
+			default:
+				// Flush any pending value ops before applying a non-value op
+				if len(valueOps) > 0 {
+					if err := wa.applyValueOps(ctx, nkOffset, valueOps); err != nil {
+						return err
+					}
+					wa.result.ValuesSet += countSetOps(valueOps)
+					wa.result.ValuesDeleted += countDeleteOps(valueOps)
+					valueOps = valueOps[:0]
+				}
+				if err := wa.applyOpAtNode(ctx, nkOffset, op); err != nil {
+					return err
+				}
+				if op.Type == OpDeleteKey {
+					keyDeleted = true
+				}
+			}
+		}
+		// Flush remaining value ops
+		if len(valueOps) > 0 && !keyDeleted {
+			if err := wa.applyValueOps(ctx, nkOffset, valueOps); err != nil {
 				return err
 			}
-			if op.Type == OpDeleteKey {
-				keyDeleted = true
-			}
+			wa.result.ValuesSet += countSetOps(valueOps)
+			wa.result.ValuesDeleted += countDeleteOps(valueOps)
 		}
 	}
 
@@ -206,8 +291,7 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 	}
 
 	// Check if any children are needed at this level
-	neededChildren, hasNeeded := wa.childrenByParent[pathKey]
-	if !hasNeeded || nk.SubkeyCount() == 0 {
+	if _, hasNeeded := wa.childrenByParent[pathKey]; !hasNeeded || nk.SubkeyCount() == 0 {
 		return nil
 	}
 
@@ -216,14 +300,17 @@ func (wa *walkApplier) walkAndApply(ctx context.Context, nkOffset uint32, parent
 		return nil
 	}
 
-	// Read child offsets into reusable buffer
-	wa.offsetBuf, err = subkeys.ReadOffsetsInto(wa.h, subkeyListRef, wa.offsetBuf)
-	if err != nil {
-		return nil
+	// Cache the subkey list ref in the cursor for potential sibling reuse
+	if ce := wa.cursor.peekPtr(); ce != nil {
+		ce.lhListRef = subkeyListRef
+		ce.subkeyCount = nk.SubkeyCount()
 	}
 
-	// Match only needed children using cheap name comparison
-	matched, err := subkeys.MatchNKsFromOffsets(wa.h, wa.offsetBuf, neededChildren)
+	// Use hash-first matching: scan LH list entries by hash and only
+	// dereference NK cells on hash match. For a parent with 200 children
+	// and 3 targets, this reduces ~200 random reads to ~3.
+	targets := wa.hashTargetsByParent[pathKey]
+	matched, err := subkeys.MatchByHash(wa.h, subkeyListRef, targets)
 	if err != nil {
 		return nil
 	}
@@ -291,102 +378,191 @@ func (wa *walkApplier) applyOpAtNode(ctx context.Context, nkOffset uint32, op *O
 	return nil
 }
 
+// applyValueOps applies a batch of value operations to a single key.
+func (wa *walkApplier) applyValueOps(ctx context.Context, nkOffset uint32, ops []edit.ValueOp) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return wa.valEditor.UpsertValues(nkOffset, ops)
+}
+
+// countSetOps returns the number of non-delete ops in a ValueOp slice.
+func countSetOps(ops []edit.ValueOp) int {
+	n := 0
+	for i := range ops {
+		if !ops[i].Delete {
+			n++
+		}
+	}
+	return n
+}
+
+// countDeleteOps returns the number of delete ops in a ValueOp slice.
+func countDeleteOps(ops []edit.ValueOp) int {
+	n := 0
+	for i := range ops {
+		if ops[i].Delete {
+			n++
+		}
+	}
+	return n
+}
+
 // createMissingKeysAndApply creates keys that don't exist and applies ops to them.
 // This handles the case where EnsureKey or SetValue targets a non-existent path.
+// SetValue ops for the same path are batched into a single UpsertValues call.
 func (wa *walkApplier) createMissingKeysAndApply(ctx context.Context) error {
-	for _, op := range wa.ops {
+	// Group ops by path for batching. Ops are already sorted by NormalizedPath,
+	// so we can process consecutive runs of same-path SetValue ops together.
+	i := 0
+	for i < len(wa.ops) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
+		op := wa.ops[i]
+
 		// Only EnsureKey and SetValue can create keys
 		if op.Type != OpEnsureKey && op.Type != OpSetValue {
+			i++
 			continue
 		}
 
-		pathKey := normalizePath(op.KeyPath)
+		pathKey := op.NormalizedPath
 
 		// Skip ops targeting a deleted key or any descendant of a deleted key.
-		if wa.isUnderDeletedPath(op.KeyPath) {
+		if wa.isUnderDeletedPath(op) {
+			i++
 			continue
 		}
 
-		// Check if key was already visited (exists)
-		nkRef, keyExists := wa.visited[pathKey]
+		// Ensure the key exists (create if missing)
+		nkRef := wa.ensureKeyForPhase2(op, pathKey)
 
-		// If key doesn't exist, create it
-		if !keyExists {
-			// Find the deepest existing ancestor
-			var ancestorPath []string
-			var ancestorRef uint32 = wa.rootRef
-
-			for i := 1; i <= len(op.KeyPath); i++ {
-				partialPath := normalizePath(op.KeyPath[:i])
-				if ref, ok := wa.visited[partialPath]; ok {
-					ancestorPath = op.KeyPath[:i]
-					ancestorRef = ref
-				} else {
-					break
-				}
+		// Collect all consecutive SetValue ops for this same path
+		var valueOps []edit.ValueOp
+		for i < len(wa.ops) {
+			cur := wa.ops[i]
+			if cur.NormalizedPath != pathKey {
+				break
 			}
-
-			// Create the remaining path segments
-			remainingPath := op.KeyPath[len(ancestorPath):]
-			if len(remainingPath) > 0 {
-				var keysCreated int
-				var err error
-				nkRef, keysCreated, err = wa.keyEditor.EnsureKeyPath(ancestorRef, remainingPath)
-				if err != nil {
-					return fmt.Errorf("create key path %v: %w", op.KeyPath, err)
-				}
-				wa.result.KeysCreated += keysCreated
-
-				// Mark the newly created path as visited
-				wa.visited[pathKey] = nkRef
-
-				// Also mark intermediate keys as visited
-				tempRef := ancestorRef
-				for i := 1; i < len(remainingPath); i++ {
-					intermediatePath := normalizePath(append(ancestorPath, remainingPath[:i]...))
-					// Get the intermediate ref by walking up to it
-					if interRef, ok := wa.idx.GetNK(tempRef, remainingPath[i-1]); ok {
-						wa.visited[intermediatePath] = interRef
-						tempRef = interRef
-					}
-				}
-			} else {
-				// Key already exists at ancestor level
-				nkRef = ancestorRef
-				wa.visited[pathKey] = nkRef
+			if cur.Type == OpSetValue {
+				valueOps = append(valueOps, edit.ValueOp{
+					Name: cur.ValueName,
+					Type: cur.ValueType,
+					Data: cur.Data,
+				})
 			}
+			i++
 		}
 
-		// Now apply the op if it's SetValue (EnsureKey is done)
-		if op.Type == OpSetValue {
-			if nkRef == 0 {
-				// Should not happen, but get it from index as fallback
-				if ref, ok := index.WalkPath(wa.idx, wa.rootRef, op.KeyPath...); ok {
-					nkRef = ref
-				}
+		// Apply batched value ops
+		if len(valueOps) > 0 && nkRef != 0 {
+			if err := wa.valEditor.UpsertValues(nkRef, valueOps); err != nil {
+				return fmt.Errorf("set values at %v: %w", op.KeyPath, err)
 			}
-			if nkRef != 0 {
-				err := wa.valEditor.UpsertValue(nkRef, op.ValueName, op.ValueType, op.Data)
-				if err != nil {
-					return fmt.Errorf("set value at %v: %w", op.KeyPath, err)
-				}
-				wa.result.ValuesSet++
-			}
+			wa.result.ValuesSet += len(valueOps)
 		}
 	}
 
 	return nil
 }
 
-// isUnderDeletedPath returns true if the given path, or any ancestor of it,
-// was deleted during the walk phase.
-func (wa *walkApplier) isUnderDeletedPath(keyPath []string) bool {
-	for i := 1; i <= len(keyPath); i++ {
-		if _, ok := wa.deleted[normalizePath(keyPath[:i])]; ok {
+// ensureKeyForPhase2 ensures a key exists for phase 2, creating it if necessary.
+// Returns the NK reference for the key.
+func (wa *walkApplier) ensureKeyForPhase2(op Op, pathKey string) uint32 {
+	// Check if key was already visited (exists)
+	nkRef, keyExists := wa.visited[pathKey]
+
+	if !keyExists {
+		// Find the deepest existing ancestor by walking prefix substrings
+		// of the pre-computed NormalizedPath.
+		var ancestorPath []string
+		var ancestorRef uint32 = wa.rootRef
+
+		pos := 0
+		for i := 1; i <= len(op.KeyPath); i++ {
+			if i > 1 {
+				pos++ // skip '\\'
+			}
+			pos += len(op.KeyPath[i-1])
+			partialPath := pathKey[:pos]
+			if ref, ok := wa.visited[partialPath]; ok {
+				ancestorPath = op.KeyPath[:i]
+				ancestorRef = ref
+			} else {
+				break
+			}
+		}
+
+		// Create the remaining path segments
+		remainingPath := op.KeyPath[len(ancestorPath):]
+		if len(remainingPath) > 0 {
+			var keysCreated int
+			var err error
+			nkRef, keysCreated, err = wa.keyEditor.EnsureKeyPath(ancestorRef, remainingPath)
+			if err != nil {
+				// Can't return error from here; caller checks nkRef == 0
+				return 0
+			}
+			wa.result.KeysCreated += keysCreated
+
+			// Mark the newly created path as visited
+			wa.visited[pathKey] = nkRef
+
+			// Also mark intermediate keys as visited.
+			// Derive sub-path keys from the pre-computed NormalizedPath.
+			tempRef := ancestorRef
+			ancestorEnd := 0
+			if len(ancestorPath) > 0 {
+				for _, seg := range ancestorPath {
+					if ancestorEnd > 0 {
+						ancestorEnd++ // '\\'
+					}
+					ancestorEnd += len(seg)
+				}
+			}
+			for i := 1; i < len(remainingPath); i++ {
+				if ancestorEnd > 0 || i > 1 {
+					ancestorEnd++ // '\\'
+				}
+				ancestorEnd += len(remainingPath[i-1])
+				intermediatePath := pathKey[:ancestorEnd]
+				// Get the intermediate ref by walking up to it
+				if interRef, ok := wa.idx.GetNK(tempRef, remainingPath[i-1]); ok {
+					wa.visited[intermediatePath] = interRef
+					tempRef = interRef
+				}
+			}
+		} else {
+			// Key already exists at ancestor level
+			nkRef = ancestorRef
+			wa.visited[pathKey] = nkRef
+		}
+	}
+
+	if nkRef == 0 {
+		// Should not happen, but get it from index as fallback
+		if ref, ok := index.WalkPath(wa.idx, wa.rootRef, op.KeyPath...); ok {
+			nkRef = ref
+		}
+	}
+
+	return nkRef
+}
+
+// isUnderDeletedPath returns true if the given op's path, or any ancestor of it,
+// was deleted during the walk phase. Uses the pre-computed NormalizedPath to
+// derive prefix substrings without allocating.
+func (wa *walkApplier) isUnderDeletedPath(op Op) bool {
+	np := op.NormalizedPath
+	pos := 0
+	for i := 1; i <= len(op.KeyPath); i++ {
+		if i > 1 {
+			pos++ // skip '\\'
+		}
+		pos += len(op.KeyPath[i-1])
+		if _, ok := wa.deleted[np[:pos]]; ok {
 			return true
 		}
 	}

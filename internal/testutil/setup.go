@@ -100,6 +100,37 @@ func SetupTestHiveWithAllocatorFrom(
 	return h, allocator, cleanup
 }
 
+// RequireSuiteHive locates an external test hive fixture by name and returns its path.
+// If the fixture is not found, the test is skipped with a descriptive message.
+// Use this to guard tests that depend on external testdata/suite/ hive files.
+//
+// Example:
+//
+//	path := testutil.RequireSuiteHive(t, "windows-2003-server-system")
+func RequireSuiteHive(t testing.TB, name string) string {
+	t.Helper()
+	return resolveTestPathTB(t, "testdata/suite/"+name)
+}
+
+// resolveTestPathTB is like resolveTestPath but accepts testing.TB (works with both T and B).
+func resolveTestPathTB(t testing.TB, relativePath string) string {
+	t.Helper()
+	candidates := []string{
+		relativePath,
+		"../../" + relativePath,
+		"../../../" + relativePath,
+		"../../../../" + relativePath,
+		"../../../../../" + relativePath,
+	}
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	t.Skipf("External fixture %q not found — run 'make download-hives' to enable", relativePath)
+	return ""
+}
+
 // resolveTestPath attempts to find the test hive file by trying multiple path resolutions.
 // This handles the fact that tests may be run from different working directories.
 func resolveTestPath(t *testing.T, relativePath string) string {

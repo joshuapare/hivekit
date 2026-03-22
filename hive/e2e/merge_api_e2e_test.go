@@ -2,6 +2,8 @@ package e2e
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -10,12 +12,30 @@ import (
 	"github.com/joshuapare/hivekit/internal/format"
 )
 
+const suiteHiveBase = "../../testdata/suite/windows-2003-server-system"
+
+// requireSuiteHive skips the test if the suite hive fixture is not present.
+// Reports a fatal error for non-existence errors (permissions, I/O).
+func requireSuiteHive(t testing.TB) {
+	t.Helper()
+	_, err := os.Stat(suiteHiveBase)
+	if err == nil {
+		return
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skipf("Suite fixture not found: %s", suiteHiveBase)
+	}
+	t.Fatalf("Failed to stat suite fixture %s: %v", suiteHiveBase, err)
+}
+
 // Test_MergePlan_OneLiner tests the simple one-liner API for applying plans.
 func Test_MergePlan_OneLiner(t *testing.T) {
+	requireSuiteHive(t)
+
 	// Setup: Copy test hive to temp location
 	tempDir := t.TempDir()
 	hivePath := filepath.Join(tempDir, "test.hive")
-	if err := copyFile("../../testdata/suite/windows-2003-server-system", hivePath); err != nil {
+	if err := copyFile(suiteHiveBase, hivePath); err != nil {
 		t.Fatalf("Failed to copy test hive: %v", err)
 	}
 
@@ -68,10 +88,12 @@ func Test_MergePlan_OneLiner(t *testing.T) {
 
 // Test_MergeRegText_OneLiner tests parsing .reg text and applying it.
 func Test_MergeRegText_OneLiner(t *testing.T) {
+	requireSuiteHive(t)
+
 	// Setup: Copy test hive to temp location
 	tempDir := t.TempDir()
 	hivePath := filepath.Join(tempDir, "test.hive")
-	if err := copyFile("../../testdata/suite/windows-2003-server-system", hivePath); err != nil {
+	if err := copyFile(suiteHiveBase, hivePath); err != nil {
 		t.Fatalf("Failed to copy test hive: %v", err)
 	}
 
@@ -134,10 +156,12 @@ func Test_MergeRegText_OneLiner(t *testing.T) {
 
 // Test_WithSession_MultipleOps tests the callback pattern for multiple operations.
 func Test_WithSession_MultipleOps(t *testing.T) {
+	requireSuiteHive(t)
+
 	// Setup: Copy test hive to temp location
 	tempDir := t.TempDir()
 	hivePath := filepath.Join(tempDir, "test.hive")
-	if err := copyFile("../../testdata/suite/windows-2003-server-system", hivePath); err != nil {
+	if err := copyFile(suiteHiveBase, hivePath); err != nil {
 		t.Fatalf("Failed to copy test hive: %v", err)
 	}
 
@@ -316,9 +340,10 @@ func Test_MergePlan_ErrorHandling(t *testing.T) {
 	}
 
 	// Test 2: Malformed .reg text
+	requireSuiteHive(t)
 	tempDir := t.TempDir()
 	hivePath := filepath.Join(tempDir, "test.hive")
-	if copyErr := copyFile("../../testdata/suite/windows-2003-server-system", hivePath); copyErr != nil {
+	if copyErr := copyFile(suiteHiveBase, hivePath); copyErr != nil {
 		t.Fatalf("Failed to copy test hive: %v", copyErr)
 	}
 
@@ -331,10 +356,12 @@ func Test_MergePlan_ErrorHandling(t *testing.T) {
 
 // Test_MergePlan_LargeValue tests that large values work with the API.
 func Test_MergePlan_LargeValue(t *testing.T) {
+	requireSuiteHive(t)
+
 	// Setup: Copy test hive to temp location
 	tempDir := t.TempDir()
 	hivePath := filepath.Join(tempDir, "test.hive")
-	if err := copyFile("../../testdata/suite/windows-2003-server-system", hivePath); err != nil {
+	if err := copyFile(suiteHiveBase, hivePath); err != nil {
 		t.Fatalf("Failed to copy test hive: %v", err)
 	}
 

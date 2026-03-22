@@ -38,6 +38,29 @@ func NewValueEditor(
 	}
 }
 
+// UpsertValues applies multiple value operations to a single key in one pass.
+// This is a thin wrapper that loops through ops and calls the existing
+// UpsertValue/DeleteValue methods. The main performance win comes from the
+// caller (walk_apply) grouping ops per key rather than making individual calls
+// interleaved with other key processing.
+func (ve *valueEditor) UpsertValues(nk NKRef, ops []ValueOp) error {
+	if nk == 0 {
+		return ErrInvalidRef
+	}
+	for _, op := range ops {
+		var err error
+		if op.Delete {
+			err = ve.DeleteValue(nk, op.Name)
+		} else {
+			err = ve.UpsertValue(nk, op.Name, op.Type, op.Data)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UpsertValue creates or updates a value under the given NK (case-insensitive name).
 // Automatically chooses inline/external/DB storage based on data size.
 func (ve *valueEditor) UpsertValue(nk NKRef, name string, typ ValueType, data []byte) error {

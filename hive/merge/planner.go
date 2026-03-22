@@ -44,7 +44,8 @@ func ParseJSONPatch(data []byte) (*Plan, error) {
 // convertPatchOp converts a PatchOperation to an Op.
 func convertPatchOp(patchOp *PatchOperation) (*Op, error) {
 	op := &Op{
-		KeyPath: patchOp.KeyPath,
+		KeyPath:        patchOp.KeyPath,
+		NormalizedPath: normalizePath(patchOp.KeyPath),
 	}
 
 	// Parse operation type

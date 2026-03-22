@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/joshuapare/hivekit/hive"
@@ -288,6 +289,85 @@ func Test_RealHive_MultipleValues(t *testing.T) {
 		if !ok {
 			t.Errorf("Value %s not found in index", v.name)
 		}
+	}
+}
+
+// Test_RealHive_UpsertValues_Batch tests applying multiple value operations in a single batch.
+func Test_RealHive_UpsertValues_Batch(t *testing.T) {
+	h, allocator, idx, _, cleanup := setupRealHive(t)
+	defer cleanup()
+
+	dt := dirty.NewTracker(h)
+	keyEditor := NewKeyEditor(h, allocator, idx, dt)
+	rootRef := h.RootCellOffset()
+	keyRef, _, err := keyEditor.EnsureKeyPath(rootRef, []string{"_HivekitTest_Batch"})
+	if err != nil {
+		t.Fatalf("Failed to create test key: %v", err)
+	}
+
+	valEditor := NewValueEditor(h, allocator, idx, dt)
+
+	// Batch-create several values of different types
+	ops := []ValueOp{
+		{Name: "Dword1", Type: format.REGDWORD, Data: []byte{0x01, 0x00, 0x00, 0x00}},
+		{Name: "Dword2", Type: format.REGDWORD, Data: []byte{0x02, 0x00, 0x00, 0x00}},
+		{Name: "StringVal", Type: format.REGSZ, Data: []byte("hello\x00")},
+		{Name: "BinaryVal", Type: format.REGBinary, Data: bytes.Repeat([]byte{0xAB}, 100)},
+	}
+
+	err = valEditor.UpsertValues(keyRef, ops)
+	if err != nil {
+		t.Fatalf("UpsertValues failed: %v", err)
+	}
+
+	// Verify all values exist in the index
+	for _, op := range ops {
+		vkRef, ok := idx.GetVK(keyRef, strings.ToLower(op.Name))
+		if !ok {
+			t.Errorf("Value %q not found in index after batch upsert", op.Name)
+		}
+		if vkRef == 0 {
+			t.Errorf("Expected non-zero VK reference for %q", op.Name)
+		}
+	}
+
+	// Now test batch with a delete mixed in: update Dword1, delete Dword2, add new
+	ops2 := []ValueOp{
+		{Name: "Dword1", Type: format.REGDWORD, Data: []byte{0xFF, 0x00, 0x00, 0x00}},
+		{Name: "Dword2", Delete: true},
+		{Name: "NewValue", Type: format.REGDWORD, Data: []byte{0x03, 0x00, 0x00, 0x00}},
+	}
+
+	err = valEditor.UpsertValues(keyRef, ops2)
+	if err != nil {
+		t.Fatalf("UpsertValues (second batch) failed: %v", err)
+	}
+
+	// Dword1 should still exist (updated)
+	if _, ok := idx.GetVK(keyRef, "dword1"); !ok {
+		t.Error("Dword1 should still exist after update")
+	}
+
+	// Dword2 should be gone
+	if _, ok := idx.GetVK(keyRef, "dword2"); ok {
+		t.Error("Dword2 should be deleted")
+	}
+
+	// NewValue should exist
+	if _, ok := idx.GetVK(keyRef, "newvalue"); !ok {
+		t.Error("NewValue should exist after batch creation")
+	}
+
+	// Verify zero-ref guard
+	err = valEditor.UpsertValues(0, ops)
+	if !errors.Is(err, ErrInvalidRef) {
+		t.Errorf("Expected ErrInvalidRef for zero nk, got %v", err)
+	}
+
+	// Verify empty ops is a no-op (no error)
+	err = valEditor.UpsertValues(keyRef, nil)
+	if err != nil {
+		t.Errorf("UpsertValues with nil ops should succeed, got %v", err)
 	}
 }
 

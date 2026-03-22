@@ -77,6 +77,9 @@ type FastAllocator struct {
 
 	// Test hook: called before Grow() for test instrumentation (nil in production)
 	onGrow func(int32)
+
+	// Bump allocation state for batch merges (see bump.go)
+	bump bumpState
 }
 
 // hbinRange represents HBIN boundaries for binary search.
@@ -299,6 +302,14 @@ func (fa *FastAllocator) Alloc(need int32, cls Class) (CellRef, []byte, error) {
 			originalNeed,
 			need,
 		)
+	}
+
+	// Try bump allocation first (O(1) if active)
+	if fa.bump.active {
+		if ref, buf, ok := fa.bumpAlloc(need); ok {
+			return ref, buf, nil
+		}
+		// Bump exhausted — fall through to normal allocator
 	}
 
 	// Determine size class
