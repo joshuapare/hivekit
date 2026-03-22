@@ -174,8 +174,15 @@ func GenerateDeleteKeysSubtree(count int, seed int64) []merge.Op {
 	ops := make([]merge.Op, 0, count)
 
 	// Use prefixes that match real fixture naming conventions.
-	fixtureRoots := []string{"Parent0", "Parent1", "Parent2", "Parent3",
-		"Root", "Software", "System", "Hardware", "Network", "Security"}
+	// small-flat: Parent0..Parent9, small-deep: Root0..Root199,
+	// medium-mixed: Software, large-wide: Wide0..Wide199,
+	// large-realistic: Microsoft, Software
+	fixtureRoots := []string{
+		"Parent0", "Parent1", "Parent2", "Parent3", "Parent4",
+		"Root0", "Root1", "Root2", "Root3",
+		"Wide0", "Wide1", "Wide2", "Wide3",
+		"Software", "Microsoft",
+	}
 
 	for range count {
 		root := fixtureRoots[rng.Intn(len(fixtureRoots))]
@@ -353,35 +360,31 @@ func GenerateWorstCaseFragmented(count int, seed int64) []merge.Op {
 	rng := rand.New(rand.NewSource(seed))
 	ops := make([]merge.Op, 0, count)
 
-	// First half: alternating create/delete cycles on shared paths.
+	// First half: paired create/delete cycles on the same paths.
+	// Each pair is 2 ops (EnsureKey + DeleteKey on the same path).
 	half := count / 2
-	cyclePaths := make([][]string, half)
-	for i := range half {
+	pairCount := half / 2
+	cyclePaths := make([][]string, pairCount)
+	for i := range pairCount {
 		depth := 2 + rng.Intn(3)
 		path := make([]string, depth)
-		path[0] = fmt.Sprintf("Frag%d", rng.Intn(half*5))
+		path[0] = fmt.Sprintf("Frag%d", rng.Intn(pairCount*5))
 		for j := 1; j < depth; j++ {
 			path[j] = fmt.Sprintf("Cycle%d", rng.Intn(30))
 		}
 		cyclePaths[i] = path
 	}
 
-	for i := range half {
-		if i%2 == 0 {
-			ops = append(ops, merge.Op{
-				Type:    merge.OpEnsureKey,
-				KeyPath: cyclePaths[i],
-			})
-		} else {
-			ops = append(ops, merge.Op{
-				Type:    merge.OpDeleteKey,
-				KeyPath: cyclePaths[i],
-			})
-		}
+	// Emit paired create+delete on the same path to produce fragmentation.
+	for i := range pairCount {
+		ops = append(ops,
+			merge.Op{Type: merge.OpEnsureKey, KeyPath: cyclePaths[i]},
+			merge.Op{Type: merge.OpDeleteKey, KeyPath: cyclePaths[i]},
+		)
 	}
 
 	// Second half: new creates into fragmented space.
-	remaining := count - half
+	remaining := count - pairCount*2
 	for range remaining {
 		depth := 2 + rng.Intn(4)
 		path := make([]string, depth)

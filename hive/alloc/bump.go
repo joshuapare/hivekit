@@ -11,10 +11,11 @@ import (
 // When active, allocations are O(1) pointer bumps into a pre-grown
 // contiguous region, bypassing the free-list search and heap operations.
 type bumpState struct {
-	active   bool  // true while bump allocation is in effect
-	startOff int32 // absolute cell offset where the bump region starts
-	capacity int32 // total usable bytes in the bump region
-	cursor   int32 // bytes consumed so far (next alloc starts at startOff + cursor)
+	active    bool  // true while bump allocation is in effect
+	startOff  int32 // absolute cell offset where the bump region starts
+	capacity  int32 // total usable bytes in the bump region
+	cursor    int32 // bytes consumed so far (next alloc starts at startOff + cursor)
+	hbinStart int32 // absolute offset of the HBIN containing the bump region (cached to avoid findHBINBounds per alloc)
 }
 
 var (
@@ -59,10 +60,11 @@ func (fa *FastAllocator) EnableBumpMode(totalNeeded int32) error {
 	bumpCapacity := hbinSize - format.HBINHeaderSize
 
 	fa.bump = bumpState{
-		active:   true,
-		startOff: bumpStart,
-		capacity: bumpCapacity,
-		cursor:   0,
+		active:    true,
+		startOff:  bumpStart,
+		capacity:  bumpCapacity,
+		cursor:    0,
+		hbinStart: fileEnd, // cache HBIN start to avoid findHBINBounds per allocation
 	}
 
 	return nil
@@ -136,14 +138,11 @@ func (fa *FastAllocator) bumpAlloc(need int32) (CellRef, []byte, bool) {
 	fa.stats.AllocFastPath++
 	fa.stats.BytesAllocated += int64(aligned)
 
-	// Track HBIN stats.
-	if hbinStart, _, found := fa.findHBINBounds(int(off)); found {
-		start := int32(hbinStart)
-		if stats, ok := fa.hbinTracking[start]; ok {
-			stats.allocCount++
-			stats.bytesAllocated += aligned
-			fa.lastAllocHBIN = start
-		}
+	// Track HBIN stats using the cached HBIN start (avoids findHBINBounds search).
+	if stats, ok := fa.hbinTracking[fa.bump.hbinStart]; ok {
+		stats.allocCount++
+		stats.bytesAllocated += aligned
+		fa.lastAllocHBIN = fa.bump.hbinStart
 	}
 
 	// Build payload slice: starts after the 4-byte cell header.
