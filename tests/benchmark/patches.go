@@ -166,35 +166,45 @@ func GenerateDeleteKeysLeaf(count int, leafKeys [][]string, seed int64) []merge.
 	return ops
 }
 
-// GenerateDeleteKeysSubtree generates OpDeleteKey ops targeting keys that
-// would have 10-50 descendants each. These paths are synthetic (not drawn from
-// existingKeys) and exercise recursive subtree deletion.
+// GenerateDeleteKeysSubtree generates OpDeleteKey ops targeting subtree roots
+// that match real fixture key structures. The paths use fixture naming
+// conventions so deletes target keys with actual descendants.
 func GenerateDeleteKeysSubtree(count int, seed int64) []merge.Op {
 	rng := rand.New(rand.NewSource(seed))
 	ops := make([]merge.Op, 0, count)
 
-	// Use prefixes that match real fixture naming conventions.
-	// small-flat: Parent0..Parent9, small-deep: Root0..Root199,
-	// medium-mixed: Software, large-wide: Wide0..Wide199,
-	// large-realistic: Microsoft, Software
-	fixtureRoots := []string{
-		"Parent0", "Parent1", "Parent2", "Parent3", "Parent4",
-		"Root0", "Root1", "Root2", "Root3",
-		"Wide0", "Wide1", "Wide2", "Wide3",
-		"Software", "Microsoft",
+	// Subtree paths that match actual fixture structures.
+	// Each entry is a path to a key known to have children in a fixture.
+	subtreeRoots := [][]string{
+		// small-flat: Parent*/Child* have Sub* children
+		{"Parent0", "Child0"},
+		{"Parent1", "Child5"},
+		{"Parent2", "Child10"},
+		// small-deep: Root*/Level* chains
+		{"Root0"},
+		{"Root1"},
+		// medium-mixed: Software/Application*/Component*
+		{"Software", "Application0"},
+		{"Software", "Application1"},
+		{"Software", "Vendor0"},
+		// large-wide: Wide*/Child* (leaf, but Wide* has many children)
+		{"Wide0"},
+		{"Wide1"},
+		{"Wide2"},
+		// large-realistic: Microsoft/Product*
+		{"Microsoft", "Windows"},
+		{"Microsoft", "Office"},
+		{"Software", "Vendor0", "Product0"},
 	}
 
 	for range count {
-		root := fixtureRoots[rng.Intn(len(fixtureRoots))]
-		depth := 2 + rng.Intn(3)
-		path := make([]string, depth)
-		path[0] = root
-		for j := 1; j < depth; j++ {
-			path[j] = fmt.Sprintf("Branch%d", rng.Intn(50))
-		}
+		path := subtreeRoots[rng.Intn(len(subtreeRoots))]
+		// Copy to avoid mutation
+		pathCopy := make([]string, len(path))
+		copy(pathCopy, path)
 		ops = append(ops, merge.Op{
 			Type:    merge.OpDeleteKey,
-			KeyPath: path,
+			KeyPath: pathCopy,
 		})
 	}
 	return ops

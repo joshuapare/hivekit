@@ -3,6 +3,7 @@ package alloc
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/joshuapare/hivekit/internal/format"
 )
@@ -43,6 +44,11 @@ func (fa *FastAllocator) EnableBumpMode(totalNeeded int32) error {
 	// Align to 8-byte boundary — cells must be 8-aligned.
 	totalNeeded = format.Align8I32(totalNeeded)
 
+	// Guard against int32 overflow: totalNeeded + HBINHeaderSize must fit in int32.
+	if int64(totalNeeded)+int64(format.HBINHeaderSize) > math.MaxInt32 {
+		return fmt.Errorf("bump mode totalNeeded %d too large (would overflow int32)", totalNeeded)
+	}
+
 	// Calculate HBIN size: must hold HBIN header + requested bytes.
 	// Round up to 4KB page alignment.
 	hbinSize := format.AlignHBINI32(totalNeeded + format.HBINHeaderSize)
@@ -76,8 +82,8 @@ func (fa *FastAllocator) EnableBumpMode(totalNeeded int32) error {
 //
 // If the remaining space is large enough (>= minCellSize), it is written
 // as a free cell and inserted into the free lists for future reuse.
-// If the remaining space is too small for a valid cell, it is absorbed
-// into the last allocated cell.
+// If the remaining space is too small for a valid cell, it is discarded
+// (wasted). See the comment below for the upper bound on waste.
 func (fa *FastAllocator) FinalizeBumpMode() error {
 	if !fa.bump.active {
 		return errBumpNotActive
