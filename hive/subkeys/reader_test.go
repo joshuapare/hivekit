@@ -281,6 +281,21 @@ func Test_CompressedNameEqualsLower(t *testing.T) {
 	}
 }
 
+// TestCompressedNameEqualsLower_Win1252 tests the Win-1252 slow path for
+// non-ASCII bytes (0x80-0x9F range) that must be lowercased before comparison.
+func TestCompressedNameEqualsLower_Win1252(t *testing.T) {
+	// 0x8A = Š (Latin capital S with caron) in Windows-1252
+	// Should match "š" (lowercase) via CompressedNameEqualsLower
+	nameBytes := []byte{0x8A}
+	if !CompressedNameEqualsLower(nameBytes, "š") {
+		t.Error("CompressedNameEqualsLower(0x8A, \"š\") = false, want true")
+	}
+	// Should NOT match uppercase
+	if CompressedNameEqualsLower(nameBytes, "Š") {
+		t.Error("CompressedNameEqualsLower(0x8A, \"Š\") = true, want false (target should be lowercase)")
+	}
+}
+
 // Test_utf16NameEqualsLower tests targeted name matching for UTF-16LE names.
 func Test_utf16NameEqualsLower(t *testing.T) {
 	tests := []struct {

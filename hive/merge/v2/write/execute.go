@@ -323,7 +323,16 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 		}
 	}
 
-	merged := MergeRawWithInserts(oldRaw, parent.Children, deletedRefs)
+	var merged []subkeys.RawEntry
+	if CanPositionalMerge(oldRaw, parent.Children) {
+		merged = MergeRawWithInserts(oldRaw, parent.Children, deletedRefs)
+	} else {
+		var mergeErr error
+		merged, mergeErr = ex.mergeWithNameResolution(oldRaw, parent.Children, deletedRefs)
+		if mergeErr != nil {
+			return fmt.Errorf("name-resolving merge: %w", mergeErr)
+		}
+	}
 
 	if len(merged) == 0 {
 		ex.queueNKSubkeyListUpdate(parent, format.InvalidOffset, 0)
@@ -341,6 +350,97 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 	return nil
 }
 
+// mergeWithNameResolution falls back to name-based merge when positional
+// merge has no anchors. Resolves NK cell names for old entries.
+func (ex *executor) mergeWithNameResolution(
+	oldRaw []subkeys.RawEntry,
+	trieChildren []*trie.Node,
+	deletedRefs map[uint32]bool,
+) ([]subkeys.RawEntry, error) {
+	oldEntries := make([]subkeys.Entry, 0, len(oldRaw))
+	for _, r := range oldRaw {
+		if deletedRefs != nil && deletedRefs[r.NKRef] {
+			continue
+		}
+		nameLower, err := ex.resolveNKNameLower(r.NKRef)
+		if err != nil {
+			return nil, fmt.Errorf("resolve NK name for ref 0x%X: %w", r.NKRef, err)
+		}
+		oldEntries = append(oldEntries, subkeys.Entry{
+			NameLower: nameLower,
+			NKRef:     r.NKRef,
+			Hash:      r.Hash,
+		})
+	}
+
+	var newEntries []subkeys.Entry
+	oldRefSet := make(map[uint32]bool, len(oldRaw))
+	for _, r := range oldRaw {
+		oldRefSet[r.NKRef] = true
+	}
+	for _, child := range trieChildren {
+		if child.DeleteKey || child.CellIdx == format.InvalidOffset {
+			continue
+		}
+		if oldRefSet[child.CellIdx] {
+			continue // already in old list
+		}
+		hash := child.Hash
+		if hash == 0 {
+			hash = subkeys.Hash(child.Name)
+		}
+		newEntries = append(newEntries, subkeys.Entry{
+			NameLower: child.NameLower,
+			NKRef:     child.CellIdx,
+			Hash:      hash,
+		})
+	}
+
+	merged := MergeSortedEntries(oldEntries, newEntries, nil)
+
+	result := make([]subkeys.RawEntry, len(merged))
+	for i, e := range merged {
+		result[i] = subkeys.RawEntry{NKRef: e.NKRef, Hash: e.Hash}
+	}
+	return result, nil
+}
+
+// resolveNKNameLower reads the name from an NK cell and returns it lowercased.
+// For compressed (ASCII/Win-1252) names, uses subkeys.DecodeCompressedNameLower
+// which correctly handles Win-1252 bytes 0x80-0x9F via the win1252Table.
+// For UTF-16LE names, decodes and lowercases via strings.ToLower.
+func (ex *executor) resolveNKNameLower(nkRef uint32) (string, error) {
+	payload, err := ex.h.ResolveCellPayload(nkRef)
+	if err != nil {
+		return "", err
+	}
+	nk, err := hive.ParseNK(payload)
+	if err != nil {
+		return "", err
+	}
+	nameBytes := nk.Name()
+	if nameBytes == nil {
+		return "", nil
+	}
+	if nk.IsCompressedName() {
+		decoded, err := subkeys.DecodeCompressedNameLower(nameBytes)
+		if err != nil {
+			// Fallback for any decode error: raw string (best effort)
+			return strings.ToLower(string(nameBytes)), nil
+		}
+		return decoded, nil
+	}
+	// UTF-16LE name
+	if len(nameBytes)%2 != 0 {
+		return "", fmt.Errorf("UTF-16LE name has odd byte count: %d", len(nameBytes))
+	}
+	u16s := make([]uint16, len(nameBytes)/2)
+	for i := range u16s {
+		u16s[i] = binary.LittleEndian.Uint16(nameBytes[i*2 : i*2+2])
+	}
+	return strings.ToLower(string(utf16.Decode(u16s))), nil
+}
+
 // categorySKRefcount matches flush.CategorySKRefcount. Defined here to avoid
 // a circular import (write cannot import flush).
 const categorySKRefcount = 1
@@ -348,13 +448,34 @@ const categorySKRefcount = 1
 // categoryCellFree matches flush.CategoryCellFree.
 const categoryCellFree = 2
 
-// queueCellFree queues an InPlaceUpdate that writes a positive (freed) size
-// marker at the cell's absolute file offset, marking it as free.
-//
-// NOTE: For RI subkey lists, this only frees the RI header cell, not the
-// LH leaf cells it references. RI lists are rare (>1012 subkeys per parent).
-// Full RI leaf freeing is deferred as a follow-up.
+// queueCellFree queues InPlaceUpdates to free a cell. For RI subkey list
+// cells, it also frees all referenced LH/LI leaf cells before freeing the
+// RI header itself. RI lists are at most one level deep (RI -> LH leaves).
 func (ex *executor) queueCellFree(cellRef uint32) {
+	if cellRef == format.InvalidOffset {
+		return
+	}
+
+	// Check if this is an RI cell — if so, free leaf cells first.
+	payload, err := ex.h.ResolveCellPayload(cellRef)
+	if err == nil && len(payload) >= 4 && payload[0] == 'r' && payload[1] == 'i' {
+		count := int(binary.LittleEndian.Uint16(payload[2:4]))
+		for i := 0; i < count; i++ {
+			off := 4 + i*4
+			if off+4 > len(payload) {
+				break
+			}
+			leafRef := binary.LittleEndian.Uint32(payload[off : off+4])
+			ex.freeSingleCell(leafRef)
+		}
+	}
+
+	ex.freeSingleCell(cellRef)
+}
+
+// freeSingleCell queues an InPlaceUpdate that writes a positive (freed) size
+// marker at the cell's absolute file offset, marking it as free.
+func (ex *executor) freeSingleCell(cellRef uint32) {
 	if cellRef == format.InvalidOffset {
 		return
 	}

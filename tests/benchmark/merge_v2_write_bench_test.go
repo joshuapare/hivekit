@@ -17,9 +17,9 @@ import (
 func BenchmarkRebuildSubkeyList(b *testing.B) {
 	fixPath := ensureFixture(b, "large-wide")
 	ops := GenerateCreateSparse(5, 9999)
+	tmpDir := BenchTempDir(b)
 	b.ResetTimer()
 	b.ReportAllocs()
-	tmpDir := BenchTempDir(b)
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		iterPath := copyHiveFile(b, fixPath, tmpDir, fmt.Sprintf("rebuild-%d", i))
@@ -66,9 +66,9 @@ func BenchmarkProcessValues(b *testing.B) {
 	fixPath := ensureFixture(b, "large-wide")
 	existingKeys := CollectExistingKeys("large-wide", 50, 8888)
 	ops := GenerateDeleteValues(50, existingKeys, 8888)
+	tmpDir := BenchTempDir(b)
 	b.ResetTimer()
 	b.ReportAllocs()
-	tmpDir := BenchTempDir(b)
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		iterPath := copyHiveFile(b, fixPath, tmpDir, fmt.Sprintf("values-%d", i))

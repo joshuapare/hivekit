@@ -3,6 +3,7 @@ package write
 import (
 	"testing"
 
+	"github.com/joshuapare/hivekit/hive/merge/v2/trie"
 	"github.com/joshuapare/hivekit/hive/subkeys"
 )
 
@@ -147,6 +148,119 @@ func TestMergeSortedRawEntries_WithDeletes(t *testing.T) {
 	}
 	if result[0].NKRef != 100 || result[1].NKRef != 300 {
 		t.Errorf("unexpected entries: %v", result)
+	}
+}
+
+// TestCanPositionalMerge_NewEntryAmongOld verifies that CanPositionalMerge
+// returns false when new entries need insertion among existing old entries.
+// This triggers the name-resolving fallback in rebuildSubkeyList.
+func TestCanPositionalMerge_NewEntryAmongOld(t *testing.T) {
+	oldRaw := []subkeys.RawEntry{
+		{NKRef: 10, Hash: 0x1}, // "a"
+		{NKRef: 20, Hash: 0x2}, // "b"
+		{NKRef: 30, Hash: 0x3}, // "c"
+		{NKRef: 40, Hash: 0x4}, // "d"
+	}
+	bbNode := &trie.Node{
+		Name: "BB", NameLower: "bb", Hash: 0xBB,
+		CellIdx: 99, Exists: true,
+	}
+	trieChildren := []*trie.Node{bbNode}
+
+	// Must return false: BB (ref=99) is not in oldRaw, so it's a new entry.
+	if CanPositionalMerge(oldRaw, trieChildren) {
+		t.Fatal("CanPositionalMerge should return false when new entries need insertion among old entries")
+	}
+
+	// The fallback (MergeSortedEntries) produces correct order.
+	oldEntries := []subkeys.Entry{
+		{NameLower: "a", NKRef: 10, Hash: 0x1},
+		{NameLower: "b", NKRef: 20, Hash: 0x2},
+		{NameLower: "c", NKRef: 30, Hash: 0x3},
+		{NameLower: "d", NKRef: 40, Hash: 0x4},
+	}
+	newEntries := []subkeys.Entry{
+		{NameLower: "bb", NKRef: 99, Hash: 0xBB},
+	}
+
+	merged := MergeSortedEntries(oldEntries, newEntries, nil)
+
+	if len(merged) != 5 {
+		t.Fatalf("expected 5 merged entries, got %d", len(merged))
+	}
+	expectedRefs := []uint32{10, 20, 99, 30, 40}
+	for i, e := range merged {
+		if e.NKRef != expectedRefs[i] {
+			t.Errorf("merged[%d].NKRef = %d, want %d", i, e.NKRef, expectedRefs[i])
+		}
+	}
+}
+
+// TestCanPositionalMerge_AnchorWithNewEntry verifies that CanPositionalMerge
+// returns false even when some trie children ARE anchors, if there is also
+// a new entry that needs insertion. This is the gap-misordering bug:
+// oldRaw=[A,C,E], trie=[A(exists),D(new),E(exists)] would produce [A,D,C,E]
+// via positional merge instead of correct [A,C,D,E].
+func TestCanPositionalMerge_AnchorWithNewEntry(t *testing.T) {
+	oldRaw := []subkeys.RawEntry{
+		{NKRef: 10, Hash: 0x1}, // "A"
+		{NKRef: 30, Hash: 0x3}, // "C"
+		{NKRef: 50, Hash: 0x5}, // "E"
+	}
+	trieChildren := []*trie.Node{
+		{Name: "A", NameLower: "a", CellIdx: 10, Exists: true},  // anchor
+		{Name: "D", NameLower: "d", CellIdx: 99, Exists: true},  // NEW - not in oldRaw
+		{Name: "E", NameLower: "e", CellIdx: 50, Exists: true},  // anchor
+	}
+
+	// Must return false: D (ref=99) is not in oldRaw.
+	if CanPositionalMerge(oldRaw, trieChildren) {
+		t.Fatal("CanPositionalMerge should return false when new entry D exists among anchors")
+	}
+}
+
+// TestCanPositionalMerge_DeleteOnly verifies positional merge is safe when
+// trie only has delete operations (no new entries to position).
+func TestCanPositionalMerge_DeleteOnly(t *testing.T) {
+	oldRaw := []subkeys.RawEntry{
+		{NKRef: 10, Hash: 0x1},
+		{NKRef: 20, Hash: 0x2},
+	}
+	trieChildren := []*trie.Node{
+		{Name: "X", NameLower: "x", CellIdx: 50, DeleteKey: true},
+	}
+
+	if !CanPositionalMerge(oldRaw, trieChildren) {
+		t.Error("CanPositionalMerge should return true for delete-only trie children")
+	}
+}
+
+// TestCanPositionalMerge_AllAnchors verifies positional merge is safe when
+// all non-deleted trie children exist in the old list (pure anchor case).
+func TestCanPositionalMerge_AllAnchors(t *testing.T) {
+	oldRaw := []subkeys.RawEntry{
+		{NKRef: 10, Hash: 0x1},
+		{NKRef: 20, Hash: 0x2},
+	}
+	trieChildren := []*trie.Node{
+		{Name: "Existing", NameLower: "existing", CellIdx: 10, Exists: true},
+	}
+
+	if !CanPositionalMerge(oldRaw, trieChildren) {
+		t.Error("CanPositionalMerge should return true when all children are anchors")
+	}
+}
+
+// TestCanPositionalMerge_EmptyOldRaw verifies positional merge is safe
+// when there are no existing entries (new parent, only new children).
+func TestCanPositionalMerge_EmptyOldRaw(t *testing.T) {
+	var oldRaw []subkeys.RawEntry
+	trieChildren := []*trie.Node{
+		{Name: "New", NameLower: "new", CellIdx: 99, Exists: true},
+	}
+
+	if !CanPositionalMerge(oldRaw, trieChildren) {
+		t.Error("CanPositionalMerge should return true when oldRaw is empty")
 	}
 }
 

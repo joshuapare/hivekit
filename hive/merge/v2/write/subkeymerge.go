@@ -211,6 +211,35 @@ func MergeRawWithInserts(oldRaw []subkeys.RawEntry, trieChildren []*trie.Node, d
 	return result
 }
 
+// CanPositionalMerge checks whether MergeRawWithInserts can produce correctly
+// ordered output. The positional merge is safe when:
+//   - oldRaw is empty (only new entries, trie order is correct)
+//   - No new entries to insert (all non-deleted trie children exist in oldRaw)
+//
+// It is NOT safe when new entries must be inserted among existing old entries,
+// because the positional merge cannot determine where new entries sort relative
+// to untouched old entries between anchors. In that case the caller must fall
+// back to name-resolving merge.
+func CanPositionalMerge(oldRaw []subkeys.RawEntry, trieChildren []*trie.Node) bool {
+	if len(oldRaw) == 0 {
+		return true // no old entries, trie order is correct
+	}
+
+	oldRefSet := make(map[uint32]bool, len(oldRaw))
+	for _, r := range oldRaw {
+		oldRefSet[r.NKRef] = true
+	}
+	for _, child := range trieChildren {
+		if child.DeleteKey || child.CellIdx == format.InvalidOffset {
+			continue
+		}
+		if !oldRefSet[child.CellIdx] {
+			return false // new entry needs insertion among existing entries
+		}
+	}
+	return true // all non-deleted children are in the old list (anchors or no-ops)
+}
+
 func filterDeleted(old []subkeys.RawEntry, deleted map[uint32]bool) []subkeys.RawEntry {
 	if len(deleted) == 0 {
 		return old

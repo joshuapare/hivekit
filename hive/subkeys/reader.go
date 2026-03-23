@@ -655,6 +655,15 @@ func readNKEntry(h *hive.Hive, nkRef uint32) (Entry, error) {
 	}, nil
 }
 
+// DecodeCompressedNameLower decodes an ASCII/Windows-1252 compressed name
+// and returns the lowercase string. Uses the same decode path as
+// CompressedNameEqualsLower, correctly handling Win-1252 bytes 0x80-0x9F
+// via the win1252Table.
+func DecodeCompressedNameLower(data []byte) (string, error) {
+	decoded, _, _, err := decodeCompressedNameLowerWithHashes(data)
+	return decoded, err
+}
+
 // CompressedNameEqualsLower checks if an ASCII/Windows-1252 encoded NK name
 // equals the given lowercase target string, without allocating or fully decoding.
 //
@@ -987,6 +996,7 @@ func decodeCompressedNameLowerWithHashes(data []byte) (string, uint32, uint32, e
 		} else {
 			r = win1252Table[int(c-0x80)]
 		}
+		r = unicode.ToLower(r)
 		buf = appendRuneUTF8(buf, r)
 
 		// regHash uses uppercase version of the decoded rune
