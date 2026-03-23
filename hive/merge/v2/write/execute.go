@@ -3,6 +3,7 @@ package write
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf16"
 
@@ -369,12 +370,15 @@ func (ex *executor) flushSKRefcounts() error {
 		)
 		newRefcount := currentRefcount + increment
 
-		absOffset := int32(format.HeaderSize) + int32(skRef) + int32(format.CellHeaderSize)
+		absOffset := int64(format.HeaderSize) + int64(skRef) + int64(format.CellHeaderSize) + int64(format.SKReferenceCountOffset)
+		if absOffset < 0 || absOffset > int64(math.MaxInt32) {
+			return fmt.Errorf("SK cell at 0x%X: computed offset %d overflows int32", skRef, absOffset)
+		}
 
 		var buf [4]byte
 		binary.LittleEndian.PutUint32(buf[:], newRefcount)
 		ex.updates = append(ex.updates, InPlaceUpdate{
-			Offset:   absOffset + int32(format.SKReferenceCountOffset),
+			Offset:   int32(absOffset),
 			Data:     buf[:],
 			Category: categorySKRefcount,
 		})

@@ -35,7 +35,11 @@ const (
 // categorize returns the UpdateCategory for an InPlaceUpdate.
 // The category is set at creation time by the write phase.
 func categorize(u *write.InPlaceUpdate) UpdateCategory {
-	return UpdateCategory(u.Category)
+	cat := UpdateCategory(u.Category)
+	if cat < CategoryNKField || cat > CategoryCellFree {
+		return CategoryNKField
+	}
+	return cat
 }
 
 // Apply applies in-place updates to the hive and finalizes the base block header.
