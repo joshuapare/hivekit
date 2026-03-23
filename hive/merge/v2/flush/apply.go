@@ -120,48 +120,22 @@ func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator,
 // finalizeHeader updates the base block header fields and recomputes the
 // checksum using the delta XOR method (O(1) instead of O(127)).
 func finalizeHeader(h *hive.Hive, data []byte, dt dirty.DirtyTracker) error {
-	// Snapshot old values for delta checksum computation.
+	// Update header fields before checksum recompute.
 	oldSeq1 := format.ReadU32(data, format.REGFPrimarySeqOffset)
-	oldSeq2 := format.ReadU32(data, format.REGFSecondarySeqOffset)
-	oldTSLo := format.ReadU32(data, format.REGFTimeStampOffset)
-	oldTSHi := format.ReadU32(data, format.REGFTimeStampOffset+4)
-	oldLen := format.ReadU32(data, format.REGFDataSizeOffset)
-	oldChecksum := format.ReadU32(data, format.REGFCheckSumOffset)
-
-	// Compute new field values.
 	newSeq1 := oldSeq1 + 1
 	newLen := uint32(len(data) - format.HeaderSize)
 	nowFT := format.TimeToFiletime(time.Now())
-	newTSLo := uint32(nowFT & 0xFFFFFFFF)
-	newTSHi := uint32(nowFT >> 32)
 
-	// Write Sequence1 (write-in-progress marker).
-	format.PutU32(data, format.REGFPrimarySeqOffset, newSeq1)
+	format.PutU32(data, format.REGFPrimarySeqOffset, newSeq1)       // Sequence1 (write-in-progress)
+	format.PutU64(data, format.REGFTimeStampOffset, nowFT)           // TimeStamp
+	format.PutU32(data, format.REGFDataSizeOffset, newLen)           // Length
+	format.PutU32(data, format.REGFSecondarySeqOffset, newSeq1)      // Sequence2 = Sequence1 (write-complete)
 
-	// Write TimeStamp.
-	format.PutU64(data, format.REGFTimeStampOffset, nowFT)
-
-	// Write Length (DataSize = total hive data bytes, excluding the 4KB header).
-	format.PutU32(data, format.REGFDataSizeOffset, newLen)
-
-	// Write Sequence2 = Sequence1 (write-complete marker).
-	newSeq2 := newSeq1
-	format.PutU32(data, format.REGFSecondarySeqOffset, newSeq2)
-
-	// Compute new checksum via delta XOR.
-	cs := oldChecksum
-	cs = DeltaChecksum(cs, format.REGFPrimarySeqOffset, oldSeq1, newSeq1)
-	cs = DeltaChecksum(cs, format.REGFSecondarySeqOffset, oldSeq2, newSeq2)
-	cs = DeltaChecksum(cs, format.REGFTimeStampOffset, oldTSLo, newTSLo)
-	cs = DeltaChecksum(cs, format.REGFTimeStampOffset+4, oldTSHi, newTSHi)
-	cs = DeltaChecksum(cs, format.REGFDataSizeOffset, oldLen, newLen)
-
-	// Apply special-case remapping.
-	if cs == 0 {
-		cs = 1
-	} else if cs == 0xFFFFFFFF {
-		cs = 0xFFFFFFFE
-	}
+	// Recompute checksum over the updated header. Full recompute (127 XORs)
+	// is used instead of delta XOR because the stored checksum may have been
+	// remapped (0→1 or 0xFFFFFFFF→0xFFFFFFFE), making the delta base
+	// ambiguous. 127 XORs is negligible cost.
+	cs := ComputeFullChecksum(data[:508])
 
 	format.PutU32(data, format.REGFCheckSumOffset, cs)
 

@@ -82,6 +82,12 @@ func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result
 	// so HiveGrowth accurately reflects total growth.
 	hiveSizeBefore := h.Size()
 
+	// Last cancellation check before mutation begins. After EnableBumpMode
+	// grows the file, we must finish the merge to leave the hive consistent.
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+
 	if spacePlan.TotalNewBytes > 0 {
 		if err := fa.EnableBumpMode(spacePlan.TotalNewBytes); err != nil {
 			return Result{}, fmt.Errorf("v2: enable bump mode: %w", err)
@@ -97,9 +103,7 @@ func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result
 	result.PhaseTiming.Plan = time.Since(phaseStart)
 
 	// ── Phase 4: Write ──────────────────────────────────────────────────────
-	if err := ctx.Err(); err != nil {
-		return Result{}, err
-	}
+	// No ctx.Err() check here — mutation has begun, must finish for consistency.
 	phaseStart = time.Now()
 
 	updates, stats, err := write.Execute(h, root, spacePlan, fa)
@@ -114,9 +118,7 @@ func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result
 	result.PhaseTiming.Write = time.Since(phaseStart)
 
 	// ── Phase 5: Flush ──────────────────────────────────────────────────────
-	if err := ctx.Err(); err != nil {
-		return Result{}, err
-	}
+	// No ctx.Err() check — must flush to complete the mutation consistently.
 	phaseStart = time.Now()
 
 	if err := flush.Apply(h, updates, fa, dt); err != nil {
