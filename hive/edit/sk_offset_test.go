@@ -122,13 +122,15 @@ func TestSKOffset_MatchesAllocatorRef(t *testing.T) {
 
 	// Find the SK allocation.
 	var skAllocRef uint32
+	foundSK := false
 	for _, a := range tracker.allocs {
 		if a.class == alloc.ClassSK {
 			skAllocRef = a.ref
+			foundSK = true
 			break
 		}
 	}
-	require.NotEqual(t, uint32(0), skAllocRef, "should have seen an SK allocation")
+	require.True(t, foundSK, "should have seen an SK allocation")
 
 	// Read the NK cell's stored SK offset.
 	childPayload, err := h.ResolveCellPayload(childRef)
