@@ -30,6 +30,10 @@ import (
 //
 // Each phase checks ctx.Err() for cancellation between phases.
 func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result, error) {
+	if h == nil {
+		return Result{}, fmt.Errorf("v2: nil hive passed to Merge")
+	}
+
 	var result Result
 	totalStart := time.Now()
 

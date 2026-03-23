@@ -57,8 +57,14 @@ func categorize(_ *write.InPlaceUpdate) UpdateCategory {
 //   - Length (DataSize) is updated to the new hive size
 //   - TimeStamp is set to now
 //   - Sequence2 is set to match Sequence1 (write-complete marker)
-//   - CheckSum is updated via delta XOR (O(1): XOR out old values, XOR in new)
+//   - CheckSum is fully recomputed over the 508-byte header region (O(127 XORs))
 func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator, dt dirty.DirtyTracker) error {
+	if h == nil {
+		return fmt.Errorf("flush: nil hive passed to Apply")
+	}
+	if fa == nil {
+		return fmt.Errorf("flush: nil allocator passed to Apply")
+	}
 	data := h.Bytes()
 	if len(data) < format.HeaderSize {
 		return fmt.Errorf("flush: hive data too small (%d bytes)", len(data))
