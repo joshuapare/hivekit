@@ -170,6 +170,9 @@ func (ex *executor) createNewKey(parent, node *trie.Node) error {
 // replaced by the new one.
 // For nodes with any value changes, it rebuilds the value list.
 func (ex *executor) processValues(node *trie.Node) error {
+	// Save old value list ref before it gets overwritten.
+	oldValueListRef := node.ValueListRef
+
 	// Build a set of value names being modified (set or deleted).
 	// These names will be removed from the existing value list to avoid
 	// duplicates (for replacements) or stale entries (for deletes).
@@ -221,6 +224,7 @@ func (ex *executor) processValues(node *trie.Node) error {
 
 	// Filter existing refs: remove any whose name matches a deleted or
 	// replaced value so we don't produce duplicates or keep stale entries.
+	// Free old VK and data cells for replaced/deleted values.
 	var filteredRefs []uint32
 	for _, ref := range existingRefs {
 		name, resolveErr := ex.resolveVKName(ref)
@@ -228,6 +232,8 @@ func (ex *executor) processValues(node *trie.Node) error {
 			return fmt.Errorf("resolve VK name for ref 0x%X: %w", ref, resolveErr)
 		}
 		if modifiedNames[strings.ToLower(name)] {
+			// Free the old VK cell and its external data cell (if any).
+			ex.freeVKAndData(ref)
 			continue // skip: this value is being replaced or deleted
 		}
 		filteredRefs = append(filteredRefs, ref)
@@ -238,6 +244,7 @@ func (ex *executor) processValues(node *trie.Node) error {
 	if len(allRefs) == 0 {
 		// All values were deleted; clear the value list.
 		ex.queueNKValueListUpdate(node, format.InvalidOffset, 0)
+		ex.queueCellFree(oldValueListRef)
 		return nil
 	}
 
@@ -255,12 +262,20 @@ func (ex *executor) processValues(node *trie.Node) error {
 	// Queue in-place update to the parent NK to point to the new value list.
 	ex.queueNKValueListUpdate(node, vlistRef, uint32(len(allRefs)))
 
+	// Free the old value list cell now that the NK points to the new one.
+	ex.queueCellFree(oldValueListRef)
+
 	return nil
 }
 
 // rebuildSubkeyList reads the existing subkey list, merges in new children,
 // and allocates a new LH list cell. Queues an in-place update to the parent NK.
+// The old subkey list cell is freed after the new one is wired in.
 func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
+	// Save old list ref before it gets overwritten — we'll free it after
+	// the new list is wired in.
+	oldListRef := parent.SubKeyListRef
+
 	// Read existing entries.
 	var oldEntries []subkeys.Entry
 	if parent.SubKeyListRef != format.InvalidOffset && parent.SubKeyCount > 0 {
@@ -324,6 +339,7 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 	if len(merged) == 0 {
 		// All children were deleted; set subkey list to InvalidOffset.
 		ex.queueNKSubkeyListUpdate(parent, format.InvalidOffset, 0)
+		ex.queueCellFree(oldListRef)
 		return nil
 	}
 
@@ -346,12 +362,49 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 	// Queue in-place update to the parent NK.
 	ex.queueNKSubkeyListUpdate(parent, listRef, uint32(len(merged)))
 
+	// Free the old subkey list cell now that the NK points to the new one.
+	ex.queueCellFree(oldListRef)
+
 	return nil
 }
 
 // categorySKRefcount matches flush.CategorySKRefcount. Defined here to avoid
 // a circular import (write cannot import flush).
 const categorySKRefcount = 1
+
+// categoryCellFree matches flush.CategoryCellFree. Defined here to avoid
+// a circular import (write cannot import flush).
+const categoryCellFree = 2
+
+// queueCellFree queues an InPlaceUpdate that writes a positive size marker at
+// the cell's absolute offset, marking it as free. The cell size is read from
+// the cell header (a negative int32 for allocated cells).
+func (ex *executor) queueCellFree(cellRef uint32) {
+	if cellRef == format.InvalidOffset {
+		return
+	}
+	data := ex.h.Bytes()
+	offset := int(format.HeaderSize) + int(cellRef)
+	if offset+format.CellHeaderSize > len(data) {
+		return // out of bounds; skip silently
+	}
+
+	// Read the cell size header (negative = allocated).
+	cellSize := int32(format.ReadU32(data, offset))
+	if cellSize >= 0 {
+		return // already free
+	}
+
+	// Write positive size to mark as free.
+	freeSize := uint32(-cellSize)
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], freeSize)
+	ex.updates = append(ex.updates, InPlaceUpdate{
+		Offset:   int32(offset),
+		Data:     buf[:],
+		Category: categoryCellFree,
+	})
+}
 
 // flushSKRefcounts reads the current refcount for each SK cell that gained
 // references and queues an InPlaceUpdate to write the incremented value.
@@ -384,6 +437,26 @@ func (ex *executor) flushSKRefcounts() error {
 		})
 	}
 	return nil
+}
+
+// freeVKAndData frees an old VK cell and its external data cell (if any).
+func (ex *executor) freeVKAndData(vkRef uint32) {
+	if vkRef == format.InvalidOffset {
+		return
+	}
+
+	// Read the VK cell to find the data cell ref.
+	payload, err := ex.h.ResolveCellPayload(vkRef)
+	if err == nil {
+		vk, parseErr := hive.ParseVK(payload)
+		if parseErr == nil && !vk.IsSmallData() && vk.DataLen() > 0 {
+			dataRef := vk.DataOffsetRel()
+			ex.queueCellFree(dataRef)
+		}
+	}
+
+	// Free the VK cell itself.
+	ex.queueCellFree(vkRef)
 }
 
 // readExistingValueList reads the current value list offsets from an NK cell.
