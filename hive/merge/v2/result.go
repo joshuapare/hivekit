@@ -3,9 +3,9 @@ package v2
 import "time"
 
 // Options configures the v2 merge pipeline.
+// Currently a placeholder for future configuration (e.g., concurrency limits,
+// dry-run mode). Merge() accepts it for forward compatibility.
 type Options struct {
-	// ParseOptions controls regtext parsing behavior (for MergeRegText).
-	// Currently unused for Merge() which takes pre-built ops.
 }
 
 // Result contains statistics from a completed merge.

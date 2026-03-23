@@ -193,7 +193,7 @@ func stripHiveRootAndSplit(path string) []string {
 	}
 
 	for _, prefix := range prefixes {
-		if strings.HasPrefix(path, prefix) {
+		if len(path) >= len(prefix) && strings.EqualFold(path[:len(prefix)], prefix) {
 			path = path[len(prefix):]
 			break
 		}

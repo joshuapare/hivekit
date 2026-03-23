@@ -16,6 +16,12 @@ import (
 //   - Current time as last write timestamp
 //   - Specified parent, SK, subkey list, value list references
 //   - Zero subkey/value counts (caller updates these separately)
+//
+// Limitation: name is assumed to be ASCII-representable. The KEY_COMP_NAME
+// flag is always set and the name bytes are copied as-is. Non-ASCII key
+// names (which require UTF-16LE encoding without the compressed flag)
+// are not supported yet. In practice, Windows registry key names are
+// overwhelmingly ASCII. Full UTF-16LE support can be added when needed.
 func WriteNK(buf []byte, name string, parentRef, skRef uint32) {
 	// Signature.
 	buf[0] = 'n'

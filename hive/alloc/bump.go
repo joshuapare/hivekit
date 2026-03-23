@@ -21,7 +21,6 @@ type bumpState struct {
 
 var (
 	errBumpAlreadyActive = errors.New("alloc: bump mode already active")
-	errBumpNotActive     = errors.New("alloc: bump mode not active")
 )
 
 // EnableBumpMode pre-grows the hive by adding a new HBIN large enough to hold
@@ -86,7 +85,7 @@ func (fa *FastAllocator) EnableBumpMode(totalNeeded int32) error {
 // (wasted). See the comment below for the upper bound on waste.
 func (fa *FastAllocator) FinalizeBumpMode() error {
 	if !fa.bump.active {
-		return errBumpNotActive
+		return ErrBumpNotActive
 	}
 
 	remaining := fa.bump.capacity - fa.bump.cursor

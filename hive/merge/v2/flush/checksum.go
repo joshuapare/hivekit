@@ -4,6 +4,7 @@ package flush
 
 import (
 	"encoding/binary"
+	"fmt"
 )
 
 // DeltaChecksum updates a base block XOR checksum by XOR-ing out the old
@@ -13,7 +14,7 @@ import (
 // fieldOffset must be 4-byte aligned and within the checksum region (0..507).
 // If the field is outside the checksum region, the current checksum is returned unchanged.
 func DeltaChecksum(currentChecksum uint32, fieldOffset int, oldValue, newValue uint32) uint32 {
-	if fieldOffset%4 != 0 || fieldOffset >= 508 {
+	if fieldOffset < 0 || fieldOffset%4 != 0 || fieldOffset >= 508 {
 		return currentChecksum
 	}
 	return currentChecksum ^ oldValue ^ newValue
@@ -26,6 +27,9 @@ func DeltaChecksum(currentChecksum uint32, fieldOffset int, oldValue, newValue u
 //   - If XOR result is 0x00000000, returns 0x00000001.
 //   - If XOR result is 0xFFFFFFFF, returns 0xFFFFFFFE.
 func ComputeFullChecksum(header []byte) uint32 {
+	if len(header) < 508 {
+		panic(fmt.Sprintf("flush: ComputeFullChecksum requires at least 508 bytes, got %d", len(header)))
+	}
 	var sum uint32
 	for i := 0; i < 508; i += 4 {
 		sum ^= binary.LittleEndian.Uint32(header[i : i+4])

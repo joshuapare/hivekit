@@ -1,8 +1,10 @@
 package write
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/alloc"
@@ -151,8 +153,19 @@ func (ex *executor) createNewKey(parent, node *trie.Node) error {
 
 // processValues handles value operations (set/delete) on a node.
 // For set operations, it allocates VK and data cells.
-// For nodes with new values, it also rebuilds the value list.
+// For delete operations, existing VK refs with the matching name are removed.
+// For set operations on existing names (replacements), the old VK ref is
+// replaced by the new one.
+// For nodes with any value changes, it rebuilds the value list.
 func (ex *executor) processValues(node *trie.Node) error {
+	// Build a set of value names being modified (set or deleted).
+	// These names will be removed from the existing value list to avoid
+	// duplicates (for replacements) or stale entries (for deletes).
+	modifiedNames := make(map[string]bool, len(node.Values))
+	for _, vop := range node.Values {
+		modifiedNames[strings.ToLower(vop.Name)] = true
+	}
+
 	var newVKRefs []uint32
 
 	for _, vop := range node.Values {
@@ -188,17 +201,33 @@ func (ex *executor) processValues(node *trie.Node) error {
 		ex.stats.ValuesSet++
 	}
 
-	if len(newVKRefs) == 0 {
-		return nil
-	}
-
-	// Read existing value list and merge.
+	// Read existing value list.
 	existingRefs, err := ex.readExistingValueList(node)
 	if err != nil {
 		return fmt.Errorf("read value list: %w", err)
 	}
 
-	allRefs := append(existingRefs, newVKRefs...)
+	// Filter existing refs: remove any whose name matches a deleted or
+	// replaced value so we don't produce duplicates or keep stale entries.
+	var filteredRefs []uint32
+	for _, ref := range existingRefs {
+		name, resolveErr := ex.resolveVKName(ref)
+		if resolveErr != nil {
+			return fmt.Errorf("resolve VK name for ref 0x%X: %w", ref, resolveErr)
+		}
+		if modifiedNames[strings.ToLower(name)] {
+			continue // skip: this value is being replaced or deleted
+		}
+		filteredRefs = append(filteredRefs, ref)
+	}
+
+	allRefs := append(filteredRefs, newVKRefs...)
+
+	if len(allRefs) == 0 {
+		// All values were deleted; clear the value list.
+		ex.queueNKValueListUpdate(node, format.InvalidOffset, 0)
+		return nil
+	}
 
 	// Allocate and write new value list cell.
 	vlistPayloadSize := ValueListPayloadSize(len(allRefs))
@@ -367,8 +396,47 @@ func (ex *executor) resolveNKName(nkRef uint32) (string, error) {
 		return string(nameBytes), nil
 	}
 
-	// UTF-16LE: for now just return the bytes as-is.
-	return string(nameBytes), nil
+	// UTF-16LE: decode to Go string.
+	if len(nameBytes)%2 != 0 {
+		return "", fmt.Errorf("UTF-16LE name has odd byte count: %d", len(nameBytes))
+	}
+	u16s := make([]uint16, len(nameBytes)/2)
+	for i := range u16s {
+		u16s[i] = binary.LittleEndian.Uint16(nameBytes[i*2 : i*2+2])
+	}
+	return string(utf16.Decode(u16s)), nil
+}
+
+// resolveVKName reads the name from a VK cell at the given offset.
+func (ex *executor) resolveVKName(vkRef uint32) (string, error) {
+	payload, err := ex.h.ResolveCellPayload(vkRef)
+	if err != nil {
+		return "", err
+	}
+
+	vk, err := hive.ParseVK(payload)
+	if err != nil {
+		return "", err
+	}
+
+	nameBytes := vk.Name()
+	if nameBytes == nil {
+		return "", nil // default (unnamed) value
+	}
+
+	if vk.NameCompressed() {
+		return string(nameBytes), nil
+	}
+
+	// UTF-16LE: decode to Go string.
+	if len(nameBytes)%2 != 0 {
+		return "", fmt.Errorf("UTF-16LE VK name has odd byte count: %d", len(nameBytes))
+	}
+	u16s := make([]uint16, len(nameBytes)/2)
+	for i := range u16s {
+		u16s[i] = binary.LittleEndian.Uint16(nameBytes[i*2 : i*2+2])
+	}
+	return string(utf16.Decode(u16s)), nil
 }
 
 // queueNKSubkeyListUpdate queues an in-place update to an existing NK cell's

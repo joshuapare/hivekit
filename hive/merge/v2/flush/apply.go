@@ -1,6 +1,7 @@
 package flush
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -94,9 +95,9 @@ func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator)
 
 	// --- Step 4: Finalize bump mode (writes trailing free cell) ---
 	if err := fa.FinalizeBumpMode(); err != nil {
-		// errBumpNotActive is benign: bump mode was never enabled for this merge.
+		// ErrBumpNotActive is benign: bump mode was never enabled for this merge.
 		// Any other error is unexpected and should propagate.
-		if err.Error() != "alloc: bump mode not active" {
+		if !errors.Is(err, alloc.ErrBumpNotActive) {
 			return fmt.Errorf("flush: finalize bump mode: %w", err)
 		}
 	}

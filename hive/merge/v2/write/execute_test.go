@@ -143,39 +143,40 @@ func TestExecute_CreateKeyWithValues(t *testing.T) {
 	}
 
 	// The VK cell should be readable too.
-	if child.ValueListRef != format.InvalidOffset {
-		vlPayload, vlErr := h.ResolveCellPayload(child.ValueListRef)
-		if vlErr != nil {
-			t.Fatalf("ResolveCellPayload for value list failed: %v", vlErr)
-		}
+	if child.ValueListRef == format.InvalidOffset {
+		t.Fatal("expected ValueListRef to be set after setting a value, got InvalidOffset")
+	}
 
-		vkRef := format.ReadU32(vlPayload, 0)
-		vkPayload, vkErr := h.ResolveCellPayload(vkRef)
-		if vkErr != nil {
-			t.Fatalf("ResolveCellPayload for VK failed: %v", vkErr)
-		}
+	vlPayload, vlErr := h.ResolveCellPayload(child.ValueListRef)
+	if vlErr != nil {
+		t.Fatalf("ResolveCellPayload for value list failed: %v", vlErr)
+	}
 
-		vk, vkParseErr := hive.ParseVK(vkPayload)
-		if vkParseErr != nil {
-			t.Fatalf("ParseVK failed: %v", vkParseErr)
-		}
+	vkRef := format.ReadU32(vlPayload, 0)
+	vkPayload, vkErr := h.ResolveCellPayload(vkRef)
+	if vkErr != nil {
+		t.Fatalf("ResolveCellPayload for VK failed: %v", vkErr)
+	}
 
-		if string(vk.Name()) != "Version" {
-			t.Errorf("VK name: got %q, want %q", string(vk.Name()), "Version")
-		}
+	vk, vkParseErr := hive.ParseVK(vkPayload)
+	if vkParseErr != nil {
+		t.Fatalf("ParseVK failed: %v", vkParseErr)
+	}
 
-		if vk.Type() != format.REGDWORD {
-			t.Errorf("VK type: got %d, want %d", vk.Type(), format.REGDWORD)
-		}
+	if string(vk.Name()) != "Version" {
+		t.Errorf("VK name: got %q, want %q", string(vk.Name()), "Version")
+	}
 
-		// Data should be inline (4 bytes for DWORD).
-		if !vk.IsSmallData() {
-			t.Fatalf("expected inline data for DWORD")
-		}
-		// DataLen returns the actual data length (3 bytes since [0x01, 0x00, 0x00, 0x00] is 4 bytes).
-		if vk.DataLen() != 4 {
-			t.Errorf("VK data len: got %d, want 4", vk.DataLen())
-		}
+	if vk.Type() != format.REGDWORD {
+		t.Errorf("VK type: got %d, want %d", vk.Type(), format.REGDWORD)
+	}
+
+	// Data should be inline (4 bytes for DWORD).
+	if !vk.IsSmallData() {
+		t.Fatalf("expected inline data for DWORD")
+	}
+	if vk.DataLen() != 4 {
+		t.Errorf("VK data len: got %d, want 4", vk.DataLen())
 	}
 }
 

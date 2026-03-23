@@ -49,13 +49,13 @@ func BenchmarkMergeV2E2E(b *testing.B) {
 
 						sizeBefore := HiveSize(iterPath)
 
-						b.StartTimer()
-
-						// Open hive and apply via the v2 pipeline.
+						// Open hive outside the timed section to avoid skewing results.
 						h, err := hive.Open(iterPath)
 						if err != nil {
 							b.Fatalf("open hive: %v", err)
 						}
+
+						b.StartTimer()
 
 						result, err := v2.Merge(ctx, h, ops, v2.Options{})
 						if err != nil {
@@ -63,9 +63,9 @@ func BenchmarkMergeV2E2E(b *testing.B) {
 							b.Fatalf("v2.Merge: %v", err)
 						}
 
-						h.Close()
-
 						b.StopTimer()
+
+						h.Close()
 
 						sizeAfter := HiveSize(iterPath)
 						b.ReportMetric(float64(sizeAfter-sizeBefore), "hive-growth-bytes")
