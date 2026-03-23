@@ -84,8 +84,11 @@ func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator)
 	for _, bucket := range buckets {
 		for _, u := range bucket {
 			off := int(u.Offset)
+			if u.Offset < 0 {
+				return fmt.Errorf("flush: negative offset 0x%X", u.Offset)
+			}
 			end := off + len(u.Data)
-			if end > len(data) {
+			if end > len(data) || end < off { // overflow or bounds check
 				return fmt.Errorf("flush: update at offset 0x%X len %d exceeds hive size %d",
 					u.Offset, len(u.Data), len(data))
 			}

@@ -78,6 +78,10 @@ func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result
 		return Result{}, fmt.Errorf("v2: plan phase: %w", err)
 	}
 
+	// Capture hive size BEFORE EnableBumpMode grows the file,
+	// so HiveGrowth accurately reflects total growth.
+	hiveSizeBefore := h.Size()
+
 	if spacePlan.TotalNewBytes > 0 {
 		if err := fa.EnableBumpMode(spacePlan.TotalNewBytes); err != nil {
 			return Result{}, fmt.Errorf("v2: enable bump mode: %w", err)
@@ -97,8 +101,6 @@ func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result
 		return Result{}, err
 	}
 	phaseStart = time.Now()
-
-	hiveSizeBefore := h.Size()
 
 	updates, stats, err := write.Execute(h, root, spacePlan, fa)
 	if err != nil {
@@ -193,6 +195,12 @@ func stripHiveRootAndSplit(path string) []string {
 	}
 
 	for _, prefix := range prefixes {
+		basePrefix := strings.TrimSuffix(prefix, "\\")
+		if strings.EqualFold(path, basePrefix) {
+			// Exact match (e.g., "HKEY_LOCAL_MACHINE" with no subpath)
+			path = ""
+			break
+		}
 		if len(path) >= len(prefix) && strings.EqualFold(path[:len(prefix)], prefix) {
 			path = path[len(prefix):]
 			break
