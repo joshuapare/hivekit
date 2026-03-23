@@ -32,13 +32,14 @@ const (
 	CategoryCellFree UpdateCategory = 2
 )
 
-// categorize infers the UpdateCategory for an InPlaceUpdate based on its offset.
-// In the current write phase, all queued updates are NK field updates.
-// Future writers may queue SK refcount or cell-free updates; this function
-// can be extended when those are added.
-func categorize(_ *write.InPlaceUpdate) UpdateCategory {
-	// All current updates come from the write phase and target NK fields.
-	return CategoryNKField
+// categorize returns the UpdateCategory for an InPlaceUpdate.
+// The category is set at creation time by the write phase.
+func categorize(u *write.InPlaceUpdate) UpdateCategory {
+	cat := UpdateCategory(u.Category)
+	if cat < CategoryNKField || cat > CategoryCellFree {
+		return CategoryNKField
+	}
+	return cat
 }
 
 // Apply applies in-place updates to the hive and finalizes the base block header.
