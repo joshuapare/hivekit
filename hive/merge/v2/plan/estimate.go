@@ -49,7 +49,7 @@ const valueListEntrySize = format.OffsetFieldSize // 4
 //     - Subkey list rebuild: align8(CellHeaderSize + listHeaderSize + lhEntrySize*(existingCount+newCount))
 //
 //  4. For every existing node that gains at least one new value:
-//     - Value list rebuild: align8(CellHeaderSize + listHeaderSize + valueListEntrySize*(existingValueCount+newValueCount))
+//     - Value list rebuild: align8(CellHeaderSize + valueListEntrySize*(existingValueCount+newValueCount))
 //
 // The accumulated total is validated to fit within int32 before being returned.
 func Estimate(root *trie.Node) (*SpacePlan, error) {
@@ -117,7 +117,7 @@ func Estimate(root *trie.Node) (*SpacePlan, error) {
 			// ── Value list rebuild when an existing node gains new values ────
 			if newValueCount > 0 {
 				totalValues := int(node.ValueCount) + newValueCount
-				vlistSize := format.CellHeaderSize + listHeaderSize + valueListEntrySize*totalValues
+				vlistSize := format.CellHeaderSize + valueListEntrySize*totalValues
 				addCell(node, CellValueList, vlistSize)
 				sp.ListRebuilds++
 			}

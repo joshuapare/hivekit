@@ -20,6 +20,9 @@ type MergeOptions struct {
 	// CreateBackup creates a .bak file before modifying the hive.
 	// The backup is created at <hivePath>.bak.
 	CreateBackup bool
+
+	// UseV2Engine uses the v2 phase-separated merge engine (experimental).
+	UseV2Engine bool
 }
 
 // OperationOptions controls individual high-level operation behavior.

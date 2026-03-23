@@ -272,6 +272,12 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 		}
 	}
 
+	// Build a set of old NKRefs for O(1) lookup.
+	oldNKRefs := make(map[uint32]bool, len(oldEntries))
+	for _, old := range oldEntries {
+		oldNKRefs[old.NKRef] = true
+	}
+
 	// Build new entries from children that are new.
 	var newEntries []subkeys.Entry
 	deletedRefs := make(map[uint32]bool)
@@ -287,26 +293,7 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 		}
 		// Only add children that were newly created in this pass.
 		// Existing children are already in the old list.
-		isNew := false
-		for _, old := range oldEntries {
-			if old.NKRef == child.CellIdx {
-				isNew = false
-				break
-			}
-		}
-		// Check if the child ref is in old entries.
-		found := false
-		for _, old := range oldEntries {
-			if old.NKRef == child.CellIdx {
-				found = true
-				break
-			}
-		}
-		if !found {
-			isNew = true
-		}
-
-		if isNew {
+		if !oldNKRefs[child.CellIdx] {
 			hash := child.Hash
 			if hash == 0 {
 				hash = subkeys.Hash(child.Name)

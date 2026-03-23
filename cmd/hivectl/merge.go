@@ -11,6 +11,7 @@ var (
 	mergeBackup bool
 	mergeDefrag bool
 	mergeLimits string
+	mergeEngine string
 )
 
 func init() {
@@ -18,6 +19,7 @@ func init() {
 	cmd.Flags().BoolVarP(&mergeBackup, "backup", "b", true, "Create backup before merging")
 	cmd.Flags().BoolVar(&mergeDefrag, "defrag", false, "Defragment after merge")
 	cmd.Flags().StringVar(&mergeLimits, "limits", "default", "Limits preset (default, strict, relaxed)")
+	cmd.Flags().StringVar(&mergeEngine, "engine", "v1", "Merge engine version (v1, v2)")
 	rootCmd.AddCommand(cmd)
 }
 
@@ -70,6 +72,7 @@ func runMerge(args []string) error {
 		Limits:       limits,
 		CreateBackup: mergeBackup,
 		Defragment:   mergeDefrag,
+		UseV2Engine:  mergeEngine == "v2",
 	}
 
 	printInfo("\nMerging into %s:\n", hivePath)
