@@ -60,16 +60,14 @@ func (ke *keyEditor) getOrCreateSKCell(secDesc []byte) (uint32, error) {
 
 // createSKCell allocates and writes a new SK cell.
 func (ke *keyEditor) createSKCell(secDesc []byte) (uint32, error) {
-	cellSize := format.SKHeaderSize + len(secDesc)
+	payloadSize := format.SKHeaderSize + len(secDesc)
+	cellSize := payloadSize + format.CellHeaderSize
 
 	// Allocate cell
 	ref, data, err := ke.alloc.Alloc(int32(cellSize), alloc.ClassSK)
 	if err != nil {
 		return format.InvalidOffset, fmt.Errorf("alloc failed: %w", err)
 	}
-
-	// Convert ref (CellRef/uint32, no header offset) to absolute offset (uint32, with header offset)
-	offset := ref + format.HeaderSize
 
 	// Write SK header
 	copy(data[format.SKSignatureOffset:format.SKSignatureOffset+2], format.SKSignature)
@@ -91,17 +89,20 @@ func (ke *keyEditor) createSKCell(secDesc []byte) (uint32, error) {
 	// Mark dirty
 	ke.markCellDirty(ref)
 
-	return offset, nil
+	// Return the relative HCELL_INDEX (same as the allocator's CellRef).
+	return ref, nil
 }
 
 // incrementSKRefCount increments the reference count of an SK cell.
+// offset is a relative HCELL_INDEX (CellRef from the allocator).
 func (ke *keyEditor) incrementSKRefCount(offset uint32) error {
-	// Get hive data
 	hiveData := ke.h.Bytes()
 
-	// Calculate absolute offset of ref_count field
-	// offset is already absolute (includes 0x1000), points to cell data (after cell_size)
-	refCountOffset := int(offset) + format.SKReferenceCountOffset
+	// Convert relative HCELL_INDEX to absolute file position of the cell payload.
+	// Cell layout: [4-byte size header | payload...]
+	absPayload := int(format.HeaderSize) + int(offset) + format.CellHeaderSize
+
+	refCountOffset := absPayload + format.SKReferenceCountOffset
 
 	// Bounds check
 	if refCountOffset+4 > len(hiveData) {
@@ -126,18 +127,23 @@ func (ke *keyEditor) incrementSKRefCount(offset uint32) error {
 }
 
 // linkSKCells creates doubly-linked list between two SK cells.
+// prevOffset and nextOffset are relative HCELL_INDEXes.
 func (ke *keyEditor) linkSKCells(prevOffset, nextOffset uint32) error {
 	hiveData := ke.h.Bytes()
 
+	// Convert relative HCELL_INDEX to absolute payload position.
+	prevPayload := int(format.HeaderSize) + int(prevOffset) + format.CellHeaderSize
+	nextPayload := int(format.HeaderSize) + int(nextOffset) + format.CellHeaderSize
+
 	// Update prev cell's flink
-	flinkOffset := int(prevOffset) + format.SKFlinkOffset
+	flinkOffset := prevPayload + format.SKFlinkOffset
 	if flinkOffset+4 > len(hiveData) {
 		return fmt.Errorf("SK flink offset out of bounds: %d", flinkOffset)
 	}
 	binary.LittleEndian.PutUint32(hiveData[flinkOffset:flinkOffset+4], nextOffset)
 
 	// Update next cell's blink
-	blinkOffset := int(nextOffset) + format.SKBlinkOffset
+	blinkOffset := nextPayload + format.SKBlinkOffset
 	if blinkOffset+4 > len(hiveData) {
 		return fmt.Errorf("SK blink offset out of bounds: %d", blinkOffset)
 	}
