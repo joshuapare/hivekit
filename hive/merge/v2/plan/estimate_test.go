@@ -200,6 +200,76 @@ func TestEstimate_SubkeyListRebuild(t *testing.T) {
 	}
 }
 
+// TestEstimate_NewKeyWithValues verifies that a new key (!Exists) with non-delete
+// value operations includes a CellValueList entry in the manifest and accounts
+// for the value list size in TotalNewBytes.
+func TestEstimate_NewKeyWithValues(t *testing.T) {
+	child := newNode("AppKey")
+	child.EnsureKey = true
+	child.Values = []trie.ValueOp{
+		{Name: "Val1", Type: format.RegSz, Data: []byte("hello world"), Delete: false},
+		{Name: "Val2", Type: format.RegSz, Data: []byte("second value"), Delete: false},
+		{Name: "Val3", Type: format.RegDword, Data: []byte{0x01, 0x00, 0x00, 0x00}, Delete: false},
+	}
+
+	root := buildRoot(child)
+	sp, err := plan.Estimate(root)
+	if err != nil {
+		t.Fatalf("Estimate failed: %v", err)
+	}
+
+	// Should have 3 VK cells.
+	if sp.NewVKCount != 3 {
+		t.Errorf("expected NewVKCount=3, got %d", sp.NewVKCount)
+	}
+
+	// Manifest must contain a CellValueList entry for the new key's value list.
+	vlistEntries := 0
+	for _, e := range sp.Manifest {
+		if e.Kind == plan.CellValueList {
+			vlistEntries++
+		}
+	}
+	if vlistEntries != 1 {
+		t.Errorf("expected 1 CellValueList entry in Manifest for new key with values, got %d", vlistEntries)
+	}
+
+	// ListRebuilds should be >= 1 (the value list rebuild).
+	if sp.ListRebuilds < 1 {
+		t.Errorf("expected ListRebuilds >= 1, got %d", sp.ListRebuilds)
+	}
+
+	// TotalNewBytes must include the value list cell. Compute the expected
+	// value list size: align8(CellHeaderSize + valueListEntrySize * 3).
+	expectedVListSize := format.Align8(format.CellHeaderSize + format.OffsetFieldSize*3)
+	if int(sp.TotalNewBytes) < expectedVListSize {
+		t.Errorf("TotalNewBytes %d is less than the expected value list size alone (%d)",
+			sp.TotalNewBytes, expectedVListSize)
+	}
+}
+
+// TestEstimate_NewKeyDeleteOnlyValues verifies that a new key with only delete
+// value operations does NOT produce a CellValueList entry.
+func TestEstimate_NewKeyDeleteOnlyValues(t *testing.T) {
+	child := newNode("AppKey")
+	child.EnsureKey = true
+	child.Values = []trie.ValueOp{
+		{Name: "OldVal", Delete: true},
+	}
+
+	root := buildRoot(child)
+	sp, err := plan.Estimate(root)
+	if err != nil {
+		t.Fatalf("Estimate failed: %v", err)
+	}
+
+	for _, e := range sp.Manifest {
+		if e.Kind == plan.CellValueList {
+			t.Error("delete-only value ops on new key should not produce CellValueList entry")
+		}
+	}
+}
+
 // TestEstimate_DeleteValueNoAlloc verifies that delete ValueOps do not produce
 // VK or data cell allocations.
 func TestEstimate_DeleteValueNoAlloc(t *testing.T) {
