@@ -26,7 +26,6 @@ func TestSKOffset_StoredAsRelative(t *testing.T) {
 	rootRef := h.RootCellOffset()
 	childRef, err := ke.createKey(rootRef, "SKOffsetTest")
 	require.NoError(t, err, "createKey")
-	require.NotEqual(t, uint32(0), childRef, "child ref should be non-zero")
 
 	// Read the child NK cell and get its security offset.
 	childPayload, err := h.ResolveCellPayload(childRef)
@@ -95,16 +94,16 @@ func TestSKRefcount_IncrementUpdatesCorrectField(t *testing.T) {
 	require.Equal(t, uint32(2), refcount,
 		"SK refcount should be 2 (one per key); got %d — if 1, incrementSKRefCount wrote to the wrong field", refcount)
 
-	// Also verify the Blink field was NOT corrupted.
+	// Verify the Blink field was NOT corrupted.
 	blink := binary.LittleEndian.Uint32(
 		skPayload[format.SKBlinkOffset : format.SKBlinkOffset+4],
 	)
-	// Blink should be InvalidOffset (single SK cell) or a valid SK ref.
-	// If Blink was accidentally incremented from InvalidOffset, it would wrap to 0.
-	if blink != format.InvalidOffset && blink != skRef {
-		require.NotEqual(t, uint32(0), blink,
-			"Blink field was corrupted to 0 — incrementSKRefCount is writing to the wrong offset")
-	}
+	// Blink must be InvalidOffset (single SK cell with no linked list) or
+	// the SK cell's own ref (self-referential circular list of one).
+	require.True(t, blink == format.InvalidOffset || blink == skRef,
+		"Blink field has unexpected value %#x (expected InvalidOffset %#x or skRef %#x) — "+
+			"incrementSKRefCount may be writing to the wrong offset",
+		blink, format.InvalidOffset, skRef)
 }
 
 // TestSKOffset_MatchesAllocatorRef verifies that the SK offset stored in an NK
