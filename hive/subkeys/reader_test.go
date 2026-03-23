@@ -244,8 +244,8 @@ func Test_readDirectList_MockData(t *testing.T) {
 	t.Skip("Requires hive instance - will be tested in integration")
 }
 
-// Test_compressedNameEqualsLower tests targeted name matching for ASCII/Win1252 names.
-func Test_compressedNameEqualsLower(t *testing.T) {
+// Test_CompressedNameEqualsLower tests targeted name matching for ASCII/Win1252 names.
+func Test_CompressedNameEqualsLower(t *testing.T) {
 	tests := []struct {
 		name        string
 		nameBytes   []byte
@@ -272,9 +272,9 @@ func Test_compressedNameEqualsLower(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := compressedNameEqualsLower(tt.nameBytes, tt.targetLower)
+			got := CompressedNameEqualsLower(tt.nameBytes, tt.targetLower)
 			if got != tt.want {
-				t.Errorf("compressedNameEqualsLower(%q, %q) = %v, want %v",
+				t.Errorf("CompressedNameEqualsLower(%q, %q) = %v, want %v",
 					tt.nameBytes, tt.targetLower, got, tt.want)
 			}
 		})

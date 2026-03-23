@@ -178,39 +178,39 @@ func Benchmark_decodeCompressedNameLowerWithHashes(b *testing.B) {
 	}
 }
 
-// Benchmark_compressedNameEqualsLower_Match benchmarks targeted name matching (hit).
-func Benchmark_compressedNameEqualsLower_Match(b *testing.B) {
+// Benchmark_CompressedNameEqualsLower_Match benchmarks targeted name matching (hit).
+func Benchmark_CompressedNameEqualsLower_Match(b *testing.B) {
 	nameBytes := []byte("CurrentVersion")
 	target := "currentversion"
 
 	b.ReportAllocs()
 
 	for range b.N {
-		_ = compressedNameEqualsLower(nameBytes, target)
+		_ = CompressedNameEqualsLower(nameBytes, target)
 	}
 }
 
-// Benchmark_compressedNameEqualsLower_Mismatch benchmarks targeted name matching (miss).
-func Benchmark_compressedNameEqualsLower_Mismatch(b *testing.B) {
+// Benchmark_CompressedNameEqualsLower_Mismatch benchmarks targeted name matching (miss).
+func Benchmark_CompressedNameEqualsLower_Mismatch(b *testing.B) {
 	nameBytes := []byte("CurrentVersion")
 	target := "othervalue"
 
 	b.ReportAllocs()
 
 	for range b.N {
-		_ = compressedNameEqualsLower(nameBytes, target)
+		_ = CompressedNameEqualsLower(nameBytes, target)
 	}
 }
 
-// Benchmark_compressedNameEqualsLower_LengthMismatch benchmarks early length rejection.
-func Benchmark_compressedNameEqualsLower_LengthMismatch(b *testing.B) {
+// Benchmark_CompressedNameEqualsLower_LengthMismatch benchmarks early length rejection.
+func Benchmark_CompressedNameEqualsLower_LengthMismatch(b *testing.B) {
 	nameBytes := []byte("CurrentVersion")
 	target := "cv"
 
 	b.ReportAllocs()
 
 	for range b.N {
-		_ = compressedNameEqualsLower(nameBytes, target)
+		_ = CompressedNameEqualsLower(nameBytes, target)
 	}
 }
 

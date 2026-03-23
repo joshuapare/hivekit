@@ -655,12 +655,12 @@ func readNKEntry(h *hive.Hive, nkRef uint32) (Entry, error) {
 	}, nil
 }
 
-// compressedNameEqualsLower checks if an ASCII/Windows-1252 encoded NK name
+// CompressedNameEqualsLower checks if an ASCII/Windows-1252 encoded NK name
 // equals the given lowercase target string, without allocating or fully decoding.
 //
 // Fast path: pure ASCII byte-by-byte case-insensitive comparison (zero allocation).
 // Falls back to full decode only for rare non-ASCII bytes (Windows-1252 range 0x80-0xFF).
-func compressedNameEqualsLower(nameBytes []byte, targetLower string) bool {
+func CompressedNameEqualsLower(nameBytes []byte, targetLower string) bool {
 	// Fast path: same byte length means we can try direct ASCII comparison.
 	// For pure ASCII names, byte length == rune length.
 	if len(nameBytes) == len(targetLower) {
@@ -780,7 +780,7 @@ func MatchNKsFromOffsets(h *hive.Hive, offsets []uint32, targetNames map[string]
 		matched := false
 		if nk.IsCompressedName() {
 			for target := range targetNames {
-				if compressedNameEqualsLower(nameBytes, target) {
+				if CompressedNameEqualsLower(nameBytes, target) {
 					matched = true
 					break
 				}
