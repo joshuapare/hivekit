@@ -29,12 +29,17 @@ func Execute(
 	fa alloc.Allocator,
 ) ([]InPlaceUpdate, WriteStats, error) {
 	ex := &executor{
-		h:       h,
-		fa:      fa,
-		updates: make([]InPlaceUpdate, 0, 64),
+		h:               h,
+		fa:              fa,
+		updates:         make([]InPlaceUpdate, 0, 64),
+		skRefIncrements: make(map[uint32]uint32),
 	}
 
 	if err := ex.processNode(root); err != nil {
+		return nil, WriteStats{}, err
+	}
+
+	if err := ex.flushSKRefcounts(); err != nil {
 		return nil, WriteStats{}, err
 	}
 
@@ -43,10 +48,11 @@ func Execute(
 
 // executor holds mutable state during the write-phase walk.
 type executor struct {
-	h       *hive.Hive
-	fa      alloc.Allocator
-	updates []InPlaceUpdate
-	stats   WriteStats
+	h               *hive.Hive
+	fa              alloc.Allocator
+	updates         []InPlaceUpdate
+	stats           WriteStats
+	skRefIncrements map[uint32]uint32 // SK cell ref → number of new NKs inheriting it
 }
 
 // processNode recursively processes a trie node and its children.
@@ -144,6 +150,11 @@ func (ex *executor) createNewKey(parent, node *trie.Node) error {
 	node.ValueCount = 0
 
 	ex.stats.KeysCreated++
+
+	// Track that this new NK inherits the parent's SK cell.
+	if skRef != format.InvalidOffset {
+		ex.skRefIncrements[skRef]++
+	}
 
 	// Note: values for this newly created key are handled by processNode
 	// after processChild returns, since Exists is now true.
@@ -334,6 +345,40 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 	// Queue in-place update to the parent NK.
 	ex.queueNKSubkeyListUpdate(parent, listRef, uint32(len(merged)))
 
+	return nil
+}
+
+// categorySKRefcount matches flush.CategorySKRefcount. Defined here to avoid
+// a circular import (write cannot import flush).
+const categorySKRefcount = 1
+
+// flushSKRefcounts reads the current refcount for each SK cell that gained
+// references and queues an InPlaceUpdate to write the incremented value.
+func (ex *executor) flushSKRefcounts() error {
+	for skRef, increment := range ex.skRefIncrements {
+		payload, err := ex.h.ResolveCellPayload(skRef)
+		if err != nil {
+			return fmt.Errorf("read SK cell at 0x%X: %w", skRef, err)
+		}
+		if len(payload) < format.SKReferenceCountOffset+4 {
+			return fmt.Errorf("SK cell at 0x%X too small (%d bytes)", skRef, len(payload))
+		}
+
+		currentRefcount := binary.LittleEndian.Uint32(
+			payload[format.SKReferenceCountOffset : format.SKReferenceCountOffset+4],
+		)
+		newRefcount := currentRefcount + increment
+
+		absOffset := int32(format.HeaderSize) + int32(skRef) + int32(format.CellHeaderSize)
+
+		var buf [4]byte
+		binary.LittleEndian.PutUint32(buf[:], newRefcount)
+		ex.updates = append(ex.updates, InPlaceUpdate{
+			Offset:   absOffset + int32(format.SKReferenceCountOffset),
+			Data:     buf[:],
+			Category: categorySKRefcount,
+		})
+	}
 	return nil
 }
 
