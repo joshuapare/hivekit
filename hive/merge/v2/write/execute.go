@@ -170,6 +170,7 @@ func (ex *executor) createNewKey(parent, node *trie.Node) error {
 // replaced by the new one.
 // For nodes with any value changes, it rebuilds the value list.
 func (ex *executor) processValues(node *trie.Node) error {
+	oldValueListRef := node.ValueListRef
 	var newVKRefs []uint32
 	for _, vop := range node.Values {
 		if vop.Delete {
@@ -205,7 +206,7 @@ func (ex *executor) processValues(node *trie.Node) error {
 
 	// Fast path: no existing values
 	if node.ValueCount == 0 || node.ValueListRef == format.InvalidOffset {
-		return ex.writeValueList(node, nil, newVKRefs)
+		return ex.writeValueList(node, nil, newVKRefs, oldValueListRef)
 	}
 
 	// Slow path: filter existing values by byte-level name comparison.
@@ -251,19 +252,27 @@ func (ex *executor) processValues(node *trie.Node) error {
 		}
 
 		if isModified {
+			// Free the old VK cell.
+			ex.queueCellFree(ref)
+			// Free the old external data cell if present.
+			rawDataSize := vk.RawDataLen()
+			if rawDataSize&format.VKSmallDataMask == 0 && rawDataSize > 0 {
+				ex.queueCellFree(vk.DataOffsetRel())
+			}
 			continue
 		}
 		filteredRefs = append(filteredRefs, ref)
 	}
 
-	return ex.writeValueList(node, filteredRefs, newVKRefs)
+	return ex.writeValueList(node, filteredRefs, newVKRefs, oldValueListRef)
 }
 
 // writeValueList allocates and writes a value list cell from filtered + new refs.
-func (ex *executor) writeValueList(node *trie.Node, filteredRefs, newVKRefs []uint32) error {
+func (ex *executor) writeValueList(node *trie.Node, filteredRefs, newVKRefs []uint32, oldValueListRef uint32) error {
 	allRefs := append(filteredRefs, newVKRefs...)
 	if len(allRefs) == 0 {
 		ex.queueNKValueListUpdate(node, format.InvalidOffset, 0)
+		ex.queueCellFree(oldValueListRef)
 		return nil
 	}
 	vlistPayloadSize := ValueListPayloadSize(len(allRefs))
@@ -274,6 +283,7 @@ func (ex *executor) writeValueList(node *trie.Node, filteredRefs, newVKRefs []ui
 	}
 	WriteValueList(vlistBuf, allRefs)
 	ex.queueNKValueListUpdate(node, vlistRef, uint32(len(allRefs)))
+	ex.queueCellFree(oldValueListRef)
 	return nil
 }
 
@@ -317,6 +327,7 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 
 	if len(merged) == 0 {
 		ex.queueNKSubkeyListUpdate(parent, format.InvalidOffset, 0)
+		ex.queueCellFree(oldListRef)
 		return nil
 	}
 
@@ -326,12 +337,45 @@ func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
 	}
 
 	ex.queueNKSubkeyListUpdate(parent, listRef, uint32(len(merged)))
+	ex.queueCellFree(oldListRef)
 	return nil
 }
 
 // categorySKRefcount matches flush.CategorySKRefcount. Defined here to avoid
 // a circular import (write cannot import flush).
 const categorySKRefcount = 1
+
+// categoryCellFree matches flush.CategoryCellFree.
+const categoryCellFree = 2
+
+// queueCellFree queues an InPlaceUpdate that writes a positive (freed) size
+// marker at the cell's absolute file offset, marking it as free.
+//
+// NOTE: For RI subkey lists, this only frees the RI header cell, not the
+// LH leaf cells it references. RI lists are rare (>1012 subkeys per parent).
+// Full RI leaf freeing is deferred as a follow-up.
+func (ex *executor) queueCellFree(cellRef uint32) {
+	if cellRef == format.InvalidOffset {
+		return
+	}
+	absOff := int(format.HeaderSize) + int(cellRef)
+	data := ex.h.Bytes()
+	if absOff+4 > len(data) {
+		return
+	}
+	rawSize := int32(binary.LittleEndian.Uint32(data[absOff : absOff+4]))
+	if rawSize >= 0 {
+		return // already free
+	}
+	freedSize := -rawSize
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], uint32(freedSize))
+	ex.updates = append(ex.updates, InPlaceUpdate{
+		Offset:   int32(absOff),
+		Data:     buf[:],
+		Category: categoryCellFree,
+	})
+}
 
 // flushSKRefcounts reads the current refcount for each SK cell that gained
 // references and queues an InPlaceUpdate to write the incremented value.
