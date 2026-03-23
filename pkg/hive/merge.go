@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/merge"
+	v2 "github.com/joshuapare/hivekit/hive/merge/v2"
 )
 
 // MergeRegFile merges a .reg file into a registry
@@ -113,6 +115,29 @@ func mergeRegBytes(hivePath string, regData []byte, opts *MergeOptions) error {
 		if err := copyFile(hivePath, backupPath); err != nil {
 			return fmt.Errorf("failed to create backup at %s: %w", backupPath, err)
 		}
+	}
+
+	// v2 engine path
+	if opts.UseV2Engine {
+		h, err := hive.Open(hivePath)
+		if err != nil {
+			return fmt.Errorf("v2: open hive: %w", err)
+		}
+		defer h.Close()
+
+		_, err = v2.MergeRegText(context.Background(), h, string(regData), v2.Options{})
+		if err != nil {
+			return fmt.Errorf("v2: merge: %w", err)
+		}
+
+		if opts.Defragment {
+			h.Close()
+			if err := Defragment(hivePath); err != nil {
+				return fmt.Errorf("v2: defragment: %w", err)
+			}
+		}
+
+		return nil
 	}
 
 	// Use optimized path (PlanFromRegTexts applies query optimization even for single files)

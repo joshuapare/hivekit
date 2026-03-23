@@ -17,4 +17,7 @@ var (
 
 	// ErrNeedSmall indicates the requested size is too small (must include 4-byte header).
 	ErrNeedSmall = errors.New("alloc: need must include header and be >= 4 bytes")
+
+	// ErrBumpNotActive indicates FinalizeBumpMode was called without an active bump session.
+	ErrBumpNotActive = errors.New("alloc: bump mode not active")
 )
