@@ -8,6 +8,7 @@ import (
 
 	"github.com/joshuapare/hivekit/hive"
 	"github.com/joshuapare/hivekit/hive/alloc"
+	"github.com/joshuapare/hivekit/hive/dirty"
 	"github.com/joshuapare/hivekit/hive/merge/v2/write"
 	"github.com/joshuapare/hivekit/internal/format"
 )
@@ -57,7 +58,7 @@ func categorize(_ *write.InPlaceUpdate) UpdateCategory {
 //   - TimeStamp is set to now
 //   - Sequence2 is set to match Sequence1 (write-complete marker)
 //   - CheckSum is updated via delta XOR (O(1): XOR out old values, XOR in new)
-func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator) error {
+func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator, dt dirty.DirtyTracker) error {
 	data := h.Bytes()
 	if len(data) < format.HeaderSize {
 		return fmt.Errorf("flush: hive data too small (%d bytes)", len(data))
@@ -93,6 +94,9 @@ func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator)
 					u.Offset, len(u.Data), len(data))
 			}
 			copy(data[off:end], u.Data)
+			if dt != nil {
+				dt.Add(off, len(u.Data))
+			}
 		}
 	}
 
@@ -106,7 +110,7 @@ func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator)
 	}
 
 	// --- Step 5: Update base block header with delta checksum ---
-	if err := finalizeHeader(h, data); err != nil {
+	if err := finalizeHeader(h, data, dt); err != nil {
 		return fmt.Errorf("flush: finalize header: %w", err)
 	}
 
@@ -115,7 +119,7 @@ func Apply(h *hive.Hive, updates []write.InPlaceUpdate, fa *alloc.FastAllocator)
 
 // finalizeHeader updates the base block header fields and recomputes the
 // checksum using the delta XOR method (O(1) instead of O(127)).
-func finalizeHeader(h *hive.Hive, data []byte) error {
+func finalizeHeader(h *hive.Hive, data []byte, dt dirty.DirtyTracker) error {
 	// Snapshot old values for delta checksum computation.
 	oldSeq1 := format.ReadU32(data, format.REGFPrimarySeqOffset)
 	oldSeq2 := format.ReadU32(data, format.REGFSecondarySeqOffset)
@@ -161,8 +165,10 @@ func finalizeHeader(h *hive.Hive, data []byte) error {
 
 	format.PutU32(data, format.REGFCheckSumOffset, cs)
 
-	// Mark the header page as dirty so it is flushed to disk.
-	_ = h // dirty tracking is handled by the caller via fa.dt; header is in h.Bytes()
+	// Mark the entire header page as dirty so it is flushed to disk.
+	if dt != nil {
+		dt.Add(0, format.HeaderSize)
+	}
 
 	return nil
 }

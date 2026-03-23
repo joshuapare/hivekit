@@ -119,7 +119,7 @@ func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result
 	}
 	phaseStart = time.Now()
 
-	if err := flush.Apply(h, updates, fa); err != nil {
+	if err := flush.Apply(h, updates, fa, dt); err != nil {
 		return Result{}, fmt.Errorf("v2: flush phase: %w", err)
 	}
 
@@ -135,17 +135,25 @@ func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result
 // This is a convenience wrapper that parses the regtext into merge operations
 // and then calls Merge.
 func MergeRegText(ctx context.Context, h *hive.Hive, regText string, opts Options) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+
 	editOps, err := regtext.ParseReg([]byte(regText), types.RegParseOptions{})
 	if err != nil {
 		return Result{}, fmt.Errorf("v2: parse regtext: %w", err)
 	}
 
-	ops := convertEditOps(editOps)
+	ops, err := convertEditOps(editOps)
+	if err != nil {
+		return Result{}, fmt.Errorf("v2: convert ops: %w", err)
+	}
 	return Merge(ctx, h, ops, opts)
 }
 
 // convertEditOps converts types.EditOp values to merge.Op values.
-func convertEditOps(editOps []types.EditOp) []merge.Op {
+// Returns an error if an unsupported EditOp type is encountered.
+func convertEditOps(editOps []types.EditOp) ([]merge.Op, error) {
 	ops := make([]merge.Op, 0, len(editOps))
 	for _, editOp := range editOps {
 		switch op := editOp.(type) {
@@ -173,9 +181,11 @@ func convertEditOps(editOps []types.EditOp) []merge.Op {
 				Type:    merge.OpDeleteKey,
 				KeyPath: stripHiveRootAndSplit(op.Path),
 			})
+		default:
+			return nil, fmt.Errorf("unsupported EditOp type: %T", editOp)
 		}
 	}
-	return ops
+	return ops, nil
 }
 
 // stripHiveRootAndSplit removes common hive root prefixes and splits the path

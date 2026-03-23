@@ -89,7 +89,7 @@ func TestApply_WritesUpdates(t *testing.T) {
 		{Offset: targetOff, Data: payload},
 	}
 
-	err := Apply(h, updates, fa)
+	err := Apply(h, updates, fa, nil) // nil dirty tracker in tests
 	require.NoError(t, err, "Apply should not return an error")
 
 	// Verify the bytes were written.
@@ -110,7 +110,7 @@ func TestApply_EmptyUpdates(t *testing.T) {
 
 	data := h.Bytes()
 
-	err := Apply(h, nil, fa)
+	err := Apply(h, nil, fa, nil) // nil dirty tracker in tests
 	require.NoError(t, err, "Apply with no updates should not error")
 
 	// Checksum must remain valid.
