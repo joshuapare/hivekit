@@ -123,6 +123,13 @@ func Estimate(root *trie.Node) (*SpacePlan, error) {
 			}
 		}
 
+		// ── Value list for new keys with values ─────────────────────────────
+		if !node.Exists && newValueCount > 0 {
+			vlistSize := format.CellHeaderSize + valueListEntrySize*newValueCount
+			addCell(node, CellValueList, vlistSize)
+			sp.ListRebuilds++
+		}
+
 		return nil
 	})
 	if err != nil {
