@@ -200,7 +200,7 @@ func matchLFLIFallback(h *hive.Hive, payload []byte, count uint16, entrySize int
 			for _, targetName := range targetNames {
 				var nameMatches bool
 				if nk.IsCompressedName() {
-					nameMatches = compressedNameEqualsLower(nameBytes, targetName)
+					nameMatches = CompressedNameEqualsLower(nameBytes, targetName)
 				} else {
 					nameMatches = utf16NameEqualsLower(nameBytes, targetName)
 				}
@@ -294,7 +294,7 @@ func verifyNKName(h *hive.Hive, nkRef uint32, expectedLower string) (string, boo
 	}
 
 	if nk.IsCompressedName() {
-		if compressedNameEqualsLower(nameBytes, expectedLower) {
+		if CompressedNameEqualsLower(nameBytes, expectedLower) {
 			return expectedLower, true
 		}
 	} else {

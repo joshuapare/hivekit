@@ -244,8 +244,8 @@ func Test_readDirectList_MockData(t *testing.T) {
 	t.Skip("Requires hive instance - will be tested in integration")
 }
 
-// Test_compressedNameEqualsLower tests targeted name matching for ASCII/Win1252 names.
-func Test_compressedNameEqualsLower(t *testing.T) {
+// Test_CompressedNameEqualsLower tests targeted name matching for ASCII/Win1252 names.
+func Test_CompressedNameEqualsLower(t *testing.T) {
 	tests := []struct {
 		name        string
 		nameBytes   []byte
@@ -272,12 +272,27 @@ func Test_compressedNameEqualsLower(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := compressedNameEqualsLower(tt.nameBytes, tt.targetLower)
+			got := CompressedNameEqualsLower(tt.nameBytes, tt.targetLower)
 			if got != tt.want {
-				t.Errorf("compressedNameEqualsLower(%q, %q) = %v, want %v",
+				t.Errorf("CompressedNameEqualsLower(%q, %q) = %v, want %v",
 					tt.nameBytes, tt.targetLower, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCompressedNameEqualsLower_Win1252 tests the Win-1252 slow path for
+// non-ASCII bytes (0x80-0x9F range) that must be lowercased before comparison.
+func TestCompressedNameEqualsLower_Win1252(t *testing.T) {
+	// 0x8A = Š (Latin capital S with caron) in Windows-1252
+	// Should match "š" (lowercase) via CompressedNameEqualsLower
+	nameBytes := []byte{0x8A}
+	if !CompressedNameEqualsLower(nameBytes, "š") {
+		t.Error("CompressedNameEqualsLower(0x8A, \"š\") = false, want true")
+	}
+	// Should NOT match uppercase
+	if CompressedNameEqualsLower(nameBytes, "Š") {
+		t.Error("CompressedNameEqualsLower(0x8A, \"Š\") = true, want false (target should be lowercase)")
 	}
 }
 

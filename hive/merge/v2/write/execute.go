@@ -170,16 +170,8 @@ func (ex *executor) createNewKey(parent, node *trie.Node) error {
 // replaced by the new one.
 // For nodes with any value changes, it rebuilds the value list.
 func (ex *executor) processValues(node *trie.Node) error {
-	// Build a set of value names being modified (set or deleted).
-	// These names will be removed from the existing value list to avoid
-	// duplicates (for replacements) or stale entries (for deletes).
-	modifiedNames := make(map[string]bool, len(node.Values))
-	for _, vop := range node.Values {
-		modifiedNames[strings.ToLower(vop.Name)] = true
-	}
-
+	oldValueListRef := node.ValueListRef
 	var newVKRefs []uint32
-
 	for _, vop := range node.Values {
 		if vop.Delete {
 			ex.stats.ValuesDeleted++
@@ -198,7 +190,6 @@ func (ex *executor) processValues(node *trie.Node) error {
 			dataRef = dRef
 		}
 
-		// Allocate VK cell.
 		payloadSize := VKPayloadSize(vop.Name)
 		totalSize := int32(payloadSize + format.CellHeaderSize)
 
@@ -213,145 +204,299 @@ func (ex *executor) processValues(node *trie.Node) error {
 		ex.stats.ValuesSet++
 	}
 
-	// Read existing value list.
+	// Fast path: no existing values
+	if node.ValueCount == 0 || node.ValueListRef == format.InvalidOffset {
+		return ex.writeValueList(node, nil, newVKRefs, oldValueListRef)
+	}
+
+	// Slow path: filter existing values by byte-level name comparison.
+	modifiedNamesLower := make([]string, 0, len(node.Values))
+	for _, vop := range node.Values {
+		modifiedNamesLower = append(modifiedNamesLower, strings.ToLower(vop.Name))
+	}
+
 	existingRefs, err := ex.readExistingValueList(node)
 	if err != nil {
 		return fmt.Errorf("read value list: %w", err)
 	}
 
-	// Filter existing refs: remove any whose name matches a deleted or
-	// replaced value so we don't produce duplicates or keep stale entries.
 	var filteredRefs []uint32
 	for _, ref := range existingRefs {
-		name, resolveErr := ex.resolveVKName(ref)
+		payload, resolveErr := ex.h.ResolveCellPayload(ref)
 		if resolveErr != nil {
-			return fmt.Errorf("resolve VK name for ref 0x%X: %w", ref, resolveErr)
+			return fmt.Errorf("resolve VK at 0x%X: %w", ref, resolveErr)
 		}
-		if modifiedNames[strings.ToLower(name)] {
-			continue // skip: this value is being replaced or deleted
+		vk, parseErr := hive.ParseVK(payload)
+		if parseErr != nil {
+			return fmt.Errorf("parse VK at 0x%X: %w", ref, parseErr)
+		}
+
+		nameBytes := vk.Name()
+		isModified := false
+		if vk.NameCompressed() && nameBytes != nil {
+			for _, target := range modifiedNamesLower {
+				if subkeys.CompressedNameEqualsLower(nameBytes, target) {
+					isModified = true
+					break
+				}
+			}
+		} else {
+			name := ex.decodeVKName(vk)
+			nameLower := strings.ToLower(name)
+			for _, target := range modifiedNamesLower {
+				if nameLower == target {
+					isModified = true
+					break
+				}
+			}
+		}
+
+		if isModified {
+			// Free the old VK cell.
+			ex.queueCellFree(ref)
+			// Free the old external data cell if present.
+			rawDataSize := vk.RawDataLen()
+			if rawDataSize&format.VKSmallDataMask == 0 && rawDataSize > 0 {
+				ex.queueCellFree(vk.DataOffsetRel())
+			}
+			continue
 		}
 		filteredRefs = append(filteredRefs, ref)
 	}
 
-	allRefs := append(filteredRefs, newVKRefs...)
+	return ex.writeValueList(node, filteredRefs, newVKRefs, oldValueListRef)
+}
 
+// writeValueList allocates and writes a value list cell from filtered + new refs.
+func (ex *executor) writeValueList(node *trie.Node, filteredRefs, newVKRefs []uint32, oldValueListRef uint32) error {
+	allRefs := append(filteredRefs, newVKRefs...)
 	if len(allRefs) == 0 {
-		// All values were deleted; clear the value list.
 		ex.queueNKValueListUpdate(node, format.InvalidOffset, 0)
+		ex.queueCellFree(oldValueListRef)
 		return nil
 	}
-
-	// Allocate and write new value list cell.
 	vlistPayloadSize := ValueListPayloadSize(len(allRefs))
 	vlistTotalSize := int32(vlistPayloadSize + format.CellHeaderSize)
-
-	vlistRef, vlistBuf, err := ex.fa.Alloc(vlistTotalSize, alloc.ClassLH) // value list reuses LH class
+	vlistRef, vlistBuf, err := ex.fa.Alloc(vlistTotalSize, alloc.ClassLH)
 	if err != nil {
 		return fmt.Errorf("alloc value list: %w", err)
 	}
-
 	WriteValueList(vlistBuf, allRefs)
-
-	// Queue in-place update to the parent NK to point to the new value list.
 	ex.queueNKValueListUpdate(node, vlistRef, uint32(len(allRefs)))
-
+	ex.queueCellFree(oldValueListRef)
 	return nil
+}
+
+// decodeVKName decodes a VK name from its raw bytes (UTF-16LE for non-compressed names).
+func (ex *executor) decodeVKName(vk hive.VK) string {
+	nameBytes := vk.Name()
+	if nameBytes == nil {
+		return ""
+	}
+	if len(nameBytes)%2 != 0 {
+		return ""
+	}
+	u16s := make([]uint16, len(nameBytes)/2)
+	for i := range u16s {
+		u16s[i] = binary.LittleEndian.Uint16(nameBytes[i*2 : i*2+2])
+	}
+	return string(utf16.Decode(u16s))
 }
 
 // rebuildSubkeyList reads the existing subkey list, merges in new children,
 // and allocates a new LH list cell. Queues an in-place update to the parent NK.
 func (ex *executor) rebuildSubkeyList(parent *trie.Node) error {
-	// Read existing entries.
-	var oldEntries []subkeys.Entry
-	if parent.SubKeyListRef != format.InvalidOffset && parent.SubKeyCount > 0 {
-		raw, err := subkeys.ReadRaw(ex.h, parent.SubKeyListRef)
+	oldListRef := parent.SubKeyListRef
+	var oldRaw []subkeys.RawEntry
+	if oldListRef != format.InvalidOffset && parent.SubKeyCount > 0 {
+		raw, err := subkeys.ReadRaw(ex.h, oldListRef)
 		if err != nil {
 			return fmt.Errorf("read existing subkey list: %w", err)
 		}
-		// Convert RawEntry to Entry for merge (we need NameLower for sorting).
-		// For existing entries, resolve each NK to get the name.
-		oldEntries = make([]subkeys.Entry, 0, len(raw))
-		for _, r := range raw {
-			name, nameErr := ex.resolveNKName(r.NKRef)
-			if nameErr != nil {
-				return fmt.Errorf("resolve NK name for ref 0x%X: %w", r.NKRef, nameErr)
-			}
-			oldEntries = append(oldEntries, subkeys.Entry{
-				NameLower: strings.ToLower(name),
-				NKRef:     r.NKRef,
-				Hash:      r.Hash,
-			})
-		}
+		oldRaw = raw
 	}
 
-	// Build a set of old NKRefs for O(1) lookup.
-	oldNKRefs := make(map[uint32]bool, len(oldEntries))
-	for _, old := range oldEntries {
-		oldNKRefs[old.NKRef] = true
-	}
-
-	// Build new entries from children that are new.
-	var newEntries []subkeys.Entry
 	deletedRefs := make(map[uint32]bool)
 	for _, child := range parent.Children {
-		if child.DeleteKey {
-			if child.CellIdx != format.InvalidOffset {
-				deletedRefs[child.CellIdx] = true
-			}
-			continue
-		}
-		if child.CellIdx == format.InvalidOffset {
-			continue
-		}
-		// Only add children that were newly created in this pass.
-		// Existing children are already in the old list.
-		if !oldNKRefs[child.CellIdx] {
-			hash := child.Hash
-			if hash == 0 {
-				hash = subkeys.Hash(child.Name)
-			}
-			newEntries = append(newEntries, subkeys.Entry{
-				NameLower: child.NameLower,
-				NKRef:     child.CellIdx,
-				Hash:      hash,
-			})
+		if child.DeleteKey && child.CellIdx != format.InvalidOffset {
+			deletedRefs[child.CellIdx] = true
 		}
 	}
 
-	// Merge.
-	merged := MergeSortedEntries(oldEntries, newEntries, deletedRefs)
+	var merged []subkeys.RawEntry
+	if CanPositionalMerge(oldRaw, parent.Children) {
+		merged = MergeRawWithInserts(oldRaw, parent.Children, deletedRefs)
+	} else {
+		var mergeErr error
+		merged, mergeErr = ex.mergeWithNameResolution(oldRaw, parent.Children, deletedRefs)
+		if mergeErr != nil {
+			return fmt.Errorf("name-resolving merge: %w", mergeErr)
+		}
+	}
 
 	if len(merged) == 0 {
-		// All children were deleted; set subkey list to InvalidOffset.
 		ex.queueNKSubkeyListUpdate(parent, format.InvalidOffset, 0)
+		ex.queueCellFree(oldListRef)
 		return nil
 	}
 
-	// Convert to RawEntry for writing.
-	rawMerged := make([]subkeys.RawEntry, len(merged))
-	for i, e := range merged {
-		hash := e.Hash
-		if hash == 0 {
-			hash = subkeys.Hash(e.NameLower)
-		}
-		rawMerged[i] = subkeys.RawEntry{NKRef: e.NKRef, Hash: hash}
-	}
-
-	// Allocate and write the new LH list using the subkeys package writer.
-	listRef, err := subkeys.WriteRaw(ex.h, ex.fa, rawMerged)
+	listRef, err := subkeys.WriteRaw(ex.h, ex.fa, merged)
 	if err != nil {
 		return fmt.Errorf("write merged subkey list: %w", err)
 	}
 
-	// Queue in-place update to the parent NK.
 	ex.queueNKSubkeyListUpdate(parent, listRef, uint32(len(merged)))
-
+	ex.queueCellFree(oldListRef)
 	return nil
+}
+
+// mergeWithNameResolution falls back to name-based merge when positional
+// merge has no anchors. Resolves NK cell names for old entries.
+func (ex *executor) mergeWithNameResolution(
+	oldRaw []subkeys.RawEntry,
+	trieChildren []*trie.Node,
+	deletedRefs map[uint32]bool,
+) ([]subkeys.RawEntry, error) {
+	oldEntries := make([]subkeys.Entry, 0, len(oldRaw))
+	for _, r := range oldRaw {
+		if deletedRefs != nil && deletedRefs[r.NKRef] {
+			continue
+		}
+		nameLower, err := ex.resolveNKNameLower(r.NKRef)
+		if err != nil {
+			return nil, fmt.Errorf("resolve NK name for ref 0x%X: %w", r.NKRef, err)
+		}
+		oldEntries = append(oldEntries, subkeys.Entry{
+			NameLower: nameLower,
+			NKRef:     r.NKRef,
+			Hash:      r.Hash,
+		})
+	}
+
+	var newEntries []subkeys.Entry
+	oldRefSet := make(map[uint32]bool, len(oldRaw))
+	for _, r := range oldRaw {
+		oldRefSet[r.NKRef] = true
+	}
+	for _, child := range trieChildren {
+		if child.DeleteKey || child.CellIdx == format.InvalidOffset {
+			continue
+		}
+		if oldRefSet[child.CellIdx] {
+			continue // already in old list
+		}
+		hash := child.Hash
+		if hash == 0 {
+			hash = subkeys.Hash(child.Name)
+		}
+		newEntries = append(newEntries, subkeys.Entry{
+			NameLower: child.NameLower,
+			NKRef:     child.CellIdx,
+			Hash:      hash,
+		})
+	}
+
+	merged := MergeSortedEntries(oldEntries, newEntries, nil)
+
+	result := make([]subkeys.RawEntry, len(merged))
+	for i, e := range merged {
+		result[i] = subkeys.RawEntry{NKRef: e.NKRef, Hash: e.Hash}
+	}
+	return result, nil
+}
+
+// resolveNKNameLower reads the name from an NK cell and returns it lowercased.
+// For compressed (ASCII/Win-1252) names, uses subkeys.DecodeCompressedNameLower
+// which correctly handles Win-1252 bytes 0x80-0x9F via the win1252Table.
+// For UTF-16LE names, decodes and lowercases via strings.ToLower.
+func (ex *executor) resolveNKNameLower(nkRef uint32) (string, error) {
+	payload, err := ex.h.ResolveCellPayload(nkRef)
+	if err != nil {
+		return "", err
+	}
+	nk, err := hive.ParseNK(payload)
+	if err != nil {
+		return "", err
+	}
+	nameBytes := nk.Name()
+	if nameBytes == nil {
+		return "", nil
+	}
+	if nk.IsCompressedName() {
+		decoded, err := subkeys.DecodeCompressedNameLower(nameBytes)
+		if err != nil {
+			// Fallback for any decode error: raw string (best effort)
+			return strings.ToLower(string(nameBytes)), nil
+		}
+		return decoded, nil
+	}
+	// UTF-16LE name
+	if len(nameBytes)%2 != 0 {
+		return "", fmt.Errorf("UTF-16LE name has odd byte count: %d", len(nameBytes))
+	}
+	u16s := make([]uint16, len(nameBytes)/2)
+	for i := range u16s {
+		u16s[i] = binary.LittleEndian.Uint16(nameBytes[i*2 : i*2+2])
+	}
+	return strings.ToLower(string(utf16.Decode(u16s))), nil
 }
 
 // categorySKRefcount matches flush.CategorySKRefcount. Defined here to avoid
 // a circular import (write cannot import flush).
 const categorySKRefcount = 1
+
+// categoryCellFree matches flush.CategoryCellFree.
+const categoryCellFree = 2
+
+// queueCellFree queues InPlaceUpdates to free a cell. For RI subkey list
+// cells, it also frees all referenced LH/LI leaf cells before freeing the
+// RI header itself. RI lists are at most one level deep (RI -> LH leaves).
+func (ex *executor) queueCellFree(cellRef uint32) {
+	if cellRef == format.InvalidOffset {
+		return
+	}
+
+	// Check if this is an RI cell — if so, free leaf cells first.
+	payload, err := ex.h.ResolveCellPayload(cellRef)
+	if err == nil && len(payload) >= 4 && payload[0] == 'r' && payload[1] == 'i' {
+		count := int(binary.LittleEndian.Uint16(payload[2:4]))
+		for i := 0; i < count; i++ {
+			off := 4 + i*4
+			if off+4 > len(payload) {
+				break
+			}
+			leafRef := binary.LittleEndian.Uint32(payload[off : off+4])
+			ex.freeSingleCell(leafRef)
+		}
+	}
+
+	ex.freeSingleCell(cellRef)
+}
+
+// freeSingleCell queues an InPlaceUpdate that writes a positive (freed) size
+// marker at the cell's absolute file offset, marking it as free.
+func (ex *executor) freeSingleCell(cellRef uint32) {
+	if cellRef == format.InvalidOffset {
+		return
+	}
+	absOff := int(format.HeaderSize) + int(cellRef)
+	data := ex.h.Bytes()
+	if absOff+4 > len(data) {
+		return
+	}
+	rawSize := int32(binary.LittleEndian.Uint32(data[absOff : absOff+4]))
+	if rawSize >= 0 {
+		return // already free
+	}
+	freedSize := -rawSize
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], uint32(freedSize))
+	ex.updates = append(ex.updates, InPlaceUpdate{
+		Offset:   int32(absOff),
+		Data:     buf[:],
+		Category: categoryCellFree,
+	})
+}
 
 // flushSKRefcounts reads the current refcount for each SK cell that gained
 // references and queues an InPlaceUpdate to write the incremented value.
@@ -408,71 +553,6 @@ func (ex *executor) readExistingValueList(node *trie.Node) ([]uint32, error) {
 	}
 
 	return refs, nil
-}
-
-// resolveNKName reads the name from an NK cell at the given offset.
-func (ex *executor) resolveNKName(nkRef uint32) (string, error) {
-	payload, err := ex.h.ResolveCellPayload(nkRef)
-	if err != nil {
-		return "", err
-	}
-
-	nk, err := hive.ParseNK(payload)
-	if err != nil {
-		return "", err
-	}
-
-	nameBytes := nk.Name()
-	if nameBytes == nil {
-		return "", nil
-	}
-
-	// Compressed (ASCII) names are the common case.
-	if nk.IsCompressedName() {
-		return string(nameBytes), nil
-	}
-
-	// UTF-16LE: decode to Go string.
-	if len(nameBytes)%2 != 0 {
-		return "", fmt.Errorf("UTF-16LE name has odd byte count: %d", len(nameBytes))
-	}
-	u16s := make([]uint16, len(nameBytes)/2)
-	for i := range u16s {
-		u16s[i] = binary.LittleEndian.Uint16(nameBytes[i*2 : i*2+2])
-	}
-	return string(utf16.Decode(u16s)), nil
-}
-
-// resolveVKName reads the name from a VK cell at the given offset.
-func (ex *executor) resolveVKName(vkRef uint32) (string, error) {
-	payload, err := ex.h.ResolveCellPayload(vkRef)
-	if err != nil {
-		return "", err
-	}
-
-	vk, err := hive.ParseVK(payload)
-	if err != nil {
-		return "", err
-	}
-
-	nameBytes := vk.Name()
-	if nameBytes == nil {
-		return "", nil // default (unnamed) value
-	}
-
-	if vk.NameCompressed() {
-		return string(nameBytes), nil
-	}
-
-	// UTF-16LE: decode to Go string.
-	if len(nameBytes)%2 != 0 {
-		return "", fmt.Errorf("UTF-16LE VK name has odd byte count: %d", len(nameBytes))
-	}
-	u16s := make([]uint16, len(nameBytes)/2)
-	for i := range u16s {
-		u16s[i] = binary.LittleEndian.Uint16(nameBytes[i*2 : i*2+2])
-	}
-	return string(utf16.Decode(u16s)), nil
 }
 
 // queueNKSubkeyListUpdate queues an in-place update to an existing NK cell's
