@@ -129,6 +129,19 @@ func Merge(ctx context.Context, h *hive.Hive, ops []merge.Op, _ Options) (Result
 		return Result{}, fmt.Errorf("v2: flush phase: %w", err)
 	}
 
+	// Sync dirty pages to disk. Without this, modified pages sit in the OS
+	// page cache and may be lost on crash or written lazily during munmap.
+	// Use context.Background() — not the request ctx — because mutation is
+	// already committed to the mmap and the durability flush must complete
+	// regardless of cancellation (same principle as Phase 4/5 above).
+	flushCtx := context.Background()
+	if err := dt.FlushDataOnly(flushCtx); err != nil {
+		return Result{}, fmt.Errorf("v2: msync data pages: %w", err)
+	}
+	if err := dt.FlushHeaderAndMeta(flushCtx, dirty.FlushAuto); err != nil {
+		return Result{}, fmt.Errorf("v2: msync header: %w", err)
+	}
+
 	result.HiveGrowth = h.Size() - hiveSizeBefore
 	result.PhaseTiming.Flush = time.Since(phaseStart)
 
